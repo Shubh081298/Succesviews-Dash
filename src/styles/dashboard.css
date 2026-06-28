@@ -1,0 +1,947 @@
+/* ============================================================
+   SuccessViews Employee Dashboard — Design System CSS
+   Generated from SuccessViewsDashboard design
+   Font: DM Sans (load via Google Fonts)
+   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
+============================================================ */
+
+/* ── ROOT TOKENS ─────────────────────────────────────────── */
+:root {
+  --font:         'DM Sans', Inter, system-ui, sans-serif;
+
+  /* Brand colours */
+  --navy:         #162B55;
+  --teal:         #2DC4C4;
+  --green:        #5F9E30;
+  --orange:       #F97316;
+  --purple:       #A855F7;
+  --amber:        #D97706;
+  --red:          #DC2626;
+
+  /* Backgrounds */
+  --bg-page:      #F2F5FF;
+  --bg-login:     linear-gradient(150deg, #9FE3EF 0%, #F5F9FF 55%, #E6F6F6 100%);
+  --bg-card:      #ffffff;
+  --bg-input:     #F8FAFC;
+  --bg-muted:     #F1F5F9;
+  --bg-sidebar-light: #F2F5FF;
+  --bg-sidebar-dark:  #0B1628;
+
+  /* Text */
+  --text-primary:   #0F172A;
+  --text-secondary: #475569;
+  --text-muted:     #94A3B8;
+  --text-navy:      #162B55;
+  --text-white:     #ffffff;
+
+  /* Borders */
+  --border-light:   #E8ECF0;
+  --border-input:   #E2E8F0;
+  --border-sidebar: #DDE4F5;
+  --border-dark:    #1E2D3E;
+
+  /* Shadows */
+  --shadow-card:    0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-modal:   0 20px 60px rgba(0, 0, 0, 0.25);
+  --shadow-login:   0 8px 40px rgba(22, 43, 85, 0.10);
+
+  /* Radii */
+  --radius-sm:  5px;
+  --radius-md:  8px;
+  --radius-lg:  12px;
+  --radius-xl:  18px;
+  --radius-full: 999px;
+
+  /* Spacing scale */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+}
+
+/* ── RESET ───────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font);
+  background: var(--bg-page);
+  color: var(--text-primary);
+  min-height: 100vh;
+}
+
+/* ── LAYOUT ──────────────────────────────────────────────── */
+.sv-app-wrap {
+  font-family: var(--font);
+  min-height: 100vh;
+  background: var(--bg-page);
+  color: var(--text-primary);
+}
+
+.sv-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sv-content-area {
+  flex: 1;
+  min-width: 0;
+  padding: 20px 24px;
+}
+
+/* ── LOGIN PAGE ──────────────────────────────────────────── */
+.sv-login-wrap {
+  min-height: 100vh;
+  background: linear-gradient(150deg, #9FE3EF 0%, #F5F9FF 55%, #E6F6F6 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  position: relative;
+}
+
+.sv-login-card {
+  background: #ffffff;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-xl);
+  padding: 40px 36px 36px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: var(--shadow-login);
+}
+
+.sv-login-logo {
+  text-align: center;
+  margin-bottom: 36px;
+}
+
+.sv-login-logo img {
+  height: 130px;
+  object-fit: contain;
+}
+
+.sv-login-subtitle {
+  color: #9CA3AF;
+  font-size: 11px;
+  margin-top: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.sv-admin-gate-link {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  background: none;
+  border: none;
+  color: var(--navy, #162B55);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: var(--radius-md, 8px);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sv-admin-gate-link:hover {
+  background: #F1F5F9;
+  color: var(--teal, #2DC4C4);
+}
+
+/* ── TOAST NOTIFICATION ──────────────────────────────────────
+   Same bug pattern as .sv-app-shell: referenced in App.jsx
+   (`<div className="sv-toast sv-toast--{kind}">`) but never
+   defined in CSS, so it rendered as unstyled, unpositioned plain
+   text wherever it fell in normal document flow — overlapping
+   other content with no background, padding, or animation. */
+.sv-toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 400;
+  max-width: 320px;
+  padding: 12px 18px;
+  border-radius: var(--radius-md, 8px);
+  background: var(--navy, #162B55);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: var(--shadow-modal, 0 20px 60px rgba(0, 0, 0, 0.25));
+  animation: sv-toast-in 0.2s ease-out;
+}
+
+.sv-toast--success { background: var(--green, #5F9E30); }
+.sv-toast--error    { background: var(--red, #DC2626); }
+.sv-toast--info     { background: var(--navy, #162B55); }
+
+@keyframes sv-toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── APP SHELL (sidebar + main, side by side) ───────────────
+   Root cause of the "blank page" bug: this class was referenced
+   in App.jsx (wrapping <Sidebar/> + <main>) but never defined in
+   CSS. Without `display:flex` here, .sv-sidebar's `position:sticky`
+   and `align-self:flex-start` had no effect, and the sidebar (a
+   flex column with a tall content list) simply stacked above
+   <main> in normal block flow — pushing all real page content
+   hundreds of pixels below the fold on every single admin/employee
+   page. */
+.sv-app-shell {
+  display: flex;
+  align-items: flex-start;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.sv-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 28px 32px;
+}
+
+/* ── SIDEBAR ─────────────────────────────────────────────── */
+.sv-sidebar {
+  width: 232px;
+  min-width: 232px;
+  min-height: 100vh;
+  background: var(--bg-sidebar-light);
+  border-right: 1px solid var(--border-sidebar);
+  display: flex;
+  flex-direction: column;
+  padding: 20px 14px;
+  box-sizing: border-box;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  overflow-y: auto;
+}
+
+.sv-sidebar--dark {
+  background: var(--bg-sidebar-dark);
+  border-right-color: var(--border-dark);
+}
+
+.sv-sidebar-logo {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    height: 110px;
+
+    padding: 16px;
+
+    overflow: hidden;
+}
+
+.sv-sidebar-logo img{
+
+    max-width:150px;
+
+    max-height:70px;
+
+    width:auto;
+
+    height:auto;
+
+    object-fit:contain;
+
+    display:block;
+
+}
+
+.sv-sidebar-user-card {
+  margin: 0 -2px 14px;
+  padding: 12px;
+  background: #ffffff;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-sidebar);
+}
+
+.sv-sidebar--dark .sv-sidebar-user-card {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.sv-admin-badge {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--navy);
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  font-family: var(--font);
+}
+
+/* ── NAV BUTTONS ─────────────────────────────────────────── */
+.sv-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  border: none;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 600;
+  font-family: var(--font);
+  margin-bottom: 2px;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: background 0.15s, color 0.15s;
+}
+
+.sv-nav-btn--active {
+  background: var(--navy);
+  color: #ffffff;
+}
+
+.sv-sidebar--dark .sv-nav-btn {
+  color: #CBD5E1;
+}
+
+.sv-nav-btn:hover:not(.sv-nav-btn--active) {
+  background: rgba(22, 43, 85, 0.06);
+}
+
+.sv-sidebar--dark .sv-nav-btn:hover:not(.sv-nav-btn--active) {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ── HEADER ──────────────────────────────────────────────── */
+.sv-header {
+  background: var(--navy);
+  color: #ffffff;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sv-header-nav-btn {
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font);
+  transition: background 0.15s;
+}
+
+.sv-header-nav-btn--active {
+  background: var(--teal);
+}
+
+.sv-header-nav-btn:hover:not(.sv-header-nav-btn--active) {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* ── CARDS ───────────────────────────────────────────────── */
+.sv-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-light);
+  padding: 20px;
+}
+
+/* KPI Card */
+.sv-kpi-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 16px 20px;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-light);
+  /* border-left colour set via inline --kpi-color or utility class */
+  border-left-width: 4px;
+  border-left-style: solid;
+}
+
+.sv-kpi-card--teal    { border-left-color: var(--teal); }
+.sv-kpi-card--navy    { border-left-color: var(--navy); }
+.sv-kpi-card--green   { border-left-color: var(--green); }
+.sv-kpi-card--orange  { border-left-color: var(--orange); }
+.sv-kpi-card--purple  { border-left-color: var(--purple); }
+.sv-kpi-card--amber   { border-left-color: var(--amber); }
+.sv-kpi-card--red     { border-left-color: var(--red); }
+
+.sv-kpi-label {
+  margin: 0;
+  font-size: 11px;
+  color: #94A3B8;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.sv-kpi-value {
+  margin: 5px 0 2px;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--navy);
+  line-height: 1;
+}
+
+.sv-kpi-target {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sv-kpi-target--good    { color: #16A34A; }
+.sv-kpi-target--warning { color: #D97706; }
+.sv-kpi-target--bad     { color: #DC2626; }
+
+.sv-kpi-bar-track {
+  margin-top: 10px;
+  height: 5px;
+  background: #F1F5F9;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sv-kpi-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s ease;
+}
+
+/* ── INPUTS ──────────────────────────────────────────────── */
+.sv-input,
+.sv-select,
+.sv-textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-input);
+  font-size: 14px;
+  font-family: var(--font);
+  outline: none;
+  color: #1E293B;
+  background: var(--bg-input);
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+
+.sv-input:focus,
+.sv-select:focus,
+.sv-textarea:focus {
+  border-color: var(--teal);
+}
+
+.sv-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.sv-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #374151;
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+/* ── BUTTONS ─────────────────────────────────────────────── */
+.sv-btn {
+  padding: 9px 20px;
+  border-radius: var(--radius-md);
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: opacity 0.15s, box-shadow 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sv-btn:hover { opacity: 0.88; }
+
+.sv-btn--primary {
+  background: var(--navy);
+  color: #ffffff;
+}
+
+.sv-btn--teal {
+  background: var(--teal);
+  color: #ffffff;
+}
+
+.sv-btn--ghost {
+  background: transparent;
+  border: 1.5px solid var(--border-input);
+  color: var(--text-secondary);
+}
+
+.sv-btn--danger-ghost {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: rgba(239, 68, 68, 0.9);
+}
+
+.sv-btn--full { width: 100%; justify-content: center; }
+
+.sv-btn--sign-in {
+  width: 100%;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: var(--navy);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+/* Tab buttons */
+.sv-tab-btn {
+  padding: 8px 16px;
+  border-radius: 7px;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-family: var(--font);
+  background: transparent;
+  color: #64748B;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sv-tab-btn--active {
+  background: var(--navy);
+  color: #ffffff;
+}
+
+/* Period toggle */
+.sv-period-btn {
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-input);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font);
+  background: #ffffff;
+  color: #475569;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.sv-period-btn--active {
+  border-color: var(--teal);
+  background: #E6F6F6;
+  color: var(--teal);
+}
+
+/* ── BADGES / STATUS ─────────────────────────────────────── */
+.sv-badge {
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font);
+  white-space: nowrap;
+  display: inline-block;
+}
+
+.sv-badge--completed   { background: #DCFCE7; color: #16A34A; }
+.sv-badge--in-progress { background: #DBEAFE; color: #2563EB; }
+.sv-badge--pending     { background: #FEF3C7; color: #D97706; }
+.sv-badge--approved    { background: #DCFCE7; color: #16A34A; }
+.sv-badge--rejected    { background: #FEE2E2; color: #DC2626; }
+.sv-badge--draft       { background: #F1F5F9; color: #64748B; }
+.sv-badge--submitted   { background: #DBEAFE; color: #2563EB; }
+.sv-badge--locked      { background: #EDE9FE; color: #7C3AED; }
+
+/* ── AVATAR ──────────────────────────────────────────────── */
+.sv-avatar {
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  font-weight: 700;
+  font-family: var(--font);
+  flex-shrink: 0;
+  overflow: hidden;
+  object-fit: cover;
+}
+
+/* ── MODAL ───────────────────────────────────────────────── */
+.sv-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.55);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.sv-modal {
+  background: #ffffff;
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 620px;
+  max-height: 88vh;
+  overflow-y: auto;
+  font-family: var(--font);
+  box-shadow: var(--shadow-modal);
+}
+
+.sv-modal-header {
+  padding: 18px 22px;
+  border-bottom: 1px solid var(--border-input);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+  z-index: 1;
+}
+
+.sv-modal-close {
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  cursor: pointer;
+  color: #94A3B8;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.sv-modal-body { padding: 22px; }
+
+/* ── META / INFO CELLS ───────────────────────────────────── */
+.sv-meta-cell {
+  background: var(--bg-input);
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+}
+
+.sv-meta-label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #94A3B8;
+  margin-bottom: 4px;
+}
+
+.sv-meta-value {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+/* ── SECTION HEADING ─────────────────────────────────────── */
+.sv-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #94A3B8;
+  font-weight: 700;
+  margin-bottom: 5px;
+}
+
+/* ── CHART WRAPPERS ──────────────────────────────────────── */
+.sv-chart-wrap {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-card);
+  padding: 20px;
+}
+
+/* ── TOGGLE (dark mode switch) ───────────────────────────── */
+.sv-toggle {
+  width: 34px;
+  height: 18px;
+  border-radius: 9px;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.25s;
+  flex-shrink: 0;
+}
+
+.sv-toggle-knob {
+  position: absolute;
+  top: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  transition: left 0.25s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* ── DARK MODE OVERRIDES ─────────────────────────────────── */
+/* NOTE: these selectors previously targeted .sv-content-area / .sv-app-wrap,
+   neither of which exists in the JSX (the actual wrapper/main classes are
+   .sv-app-shell / .sv-main) — so the Dark Mode toggle persisted state and
+   flipped the sidebar button label but never changed anything on screen. */
+.sv-dark.sv-app-shell,
+.sv-dark .sv-main { background: #0F172A; color: #E2E8F0; }
+
+.sv-dark .sv-card,
+.sv-dark .sv-kpi-card,
+.sv-dark .sv-chart-wrap { background: #1E293B; border-color: #334155; }
+
+/* .sv-text-navy / .sv-tab-title / .sv-kpi-value all hardcode color: var(--navy),
+   which is unreadable against the dark backgrounds above — override to a
+   light color so headings and KPI numbers stay legible in Dark Mode. */
+.sv-dark .sv-text-navy,
+.sv-dark .sv-tab-title,
+.sv-dark .sv-kpi-value { color: #E2E8F0; }
+
+.sv-dark .sv-input,
+.sv-dark .sv-select,
+.sv-dark .sv-textarea { background: #0F172A; border-color: #334155; color: #E2E8F0; }
+
+.sv-dark .sv-modal { background: #1E293B; }
+.sv-dark .sv-modal-header { background: #1E293B; border-bottom-color: #334155; }
+
+/* Reports table: header row and body rows kept their light backgrounds in
+   dark mode (only .sv-card/.sv-kpi-card/.sv-chart-wrap were covered above),
+   leaving a bright white bar across an otherwise dark page. */
+.sv-dark .sv-table { background: #1E293B; border-color: #334155; }
+.sv-dark .sv-table thead { background: #0F172A; }
+.sv-dark .sv-table th { color: #94A3B8; }
+.sv-dark .sv-table td { color: #E2E8F0; border-bottom-color: #334155; }
+.sv-dark .sv-table tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
+
+/* ── CHART COLOUR PALETTE ────────────────────────────────── */
+/*
+  CHART_COLORS = [
+    #2DC4C4  #162B55  #5F9E30  #D97706  #DC2626
+    #F97316  #A855F7  #06B6D4  #EC4899  #8B5CF6
+  ]
+  Use these in fill / stroke / background when building charts.
+*/
+
+/* ── UTILITY ─────────────────────────────────────────────── */
+.sv-flex        { display: flex; }
+.sv-flex-col    { display: flex; flex-direction: column; }
+.sv-items-center { align-items: center; }
+.sv-justify-between { justify-content: space-between; }
+.sv-gap-2 { gap: 8px; }
+.sv-gap-3 { gap: 12px; }
+.sv-gap-4 { gap: 16px; }
+.sv-gap-6 { gap: 24px; }
+.sv-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.sv-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.sv-grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.sv-w-full { width: 100%; }
+.sv-text-xs   { font-size: 11px; }
+.sv-text-sm   { font-size: 13px; }
+.sv-text-base { font-size: 14px; }
+.sv-text-lg   { font-size: 17px; }
+.sv-font-600  { font-weight: 600; }
+.sv-font-700  { font-weight: 700; }
+.sv-font-800  { font-weight: 800; }
+.sv-text-navy   { color: var(--navy); }
+.sv-text-muted  { color: var(--text-muted); }
+.sv-text-white  { color: #ffffff; }
+.sv-mt-1 { margin-top: 4px; }
+.sv-mt-2 { margin-top: 8px; }
+.sv-mt-4 { margin-top: 16px; }
+.sv-mb-2 { margin-bottom: 8px; }
+.sv-mb-4 { margin-bottom: 16px; }
+.sv-p-4 { padding: 16px; }
+.sv-p-5 { padding: 20px; }
+.sv-rounded    { border-radius: var(--radius-md); }
+.sv-rounded-lg { border-radius: var(--radius-lg); }
+.sv-border     { border: 1px solid var(--border-light); }
+.sv-shadow     { box-shadow: var(--shadow-card); }
+.sv-sticky-top { position: sticky; top: 0; z-index: 10; }
+.sv-truncate   { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sv-uppercase  { text-transform: uppercase; letter-spacing: 0.6px; }
+
+/* ── UTILITY ADDENDUM ───────────────────────────────────────
+   A full sweep of every className used across App.jsx and the
+   extracted components turned up 30+ classes referenced in JSX
+   that were never defined anywhere in this file. Most are either
+   BEM-style variants of an existing base utility (e.g. .sv-flex--
+   between vs. plain .sv-flex) or new structural/typography helpers
+   introduced by the component-extraction refactor that never got
+   a matching CSS pass. This explains spacing/alignment glitches
+   across virtually every admin tab (Reports, Leaderboard, Analytics,
+   Departments, Leave Board, Settings) rather than being isolated,
+   page-specific bugs. */
+
+.sv-flex--between { display: flex; justify-content: space-between; align-items: center; }
+.sv-flex--center  { display: flex; justify-content: center; align-items: center; }
+.sv-gap-xs { gap: 6px; }
+.sv-gap-sm { gap: 10px; }
+.sv-gap-md { gap: 16px; }
+.sv-grid-7 { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
+
+/* Tab container + heading, used by every admin tab function */
+.sv-tab       { display: flex; flex-direction: column; gap: 18px; }
+.sv-tab-title { font-size: 19px; font-weight: 800; color: var(--navy); margin: 0; }
+
+/* Data table — used by Reports, Analytics, Departments tabs */
+.sv-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  font-size: 13px;
+}
+.sv-table thead { background: var(--bg-muted); }
+.sv-table th {
+  text-align: left;
+  padding: 11px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-light);
+  white-space: nowrap;
+}
+.sv-table td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border-light);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+.sv-table tbody tr:last-child td { border-bottom: none; }
+.sv-table tbody tr:hover { background: var(--bg-muted); }
+
+/* Simple stacked list — used by Overview/Leaderboard/Settings tabs */
+.sv-list { display: flex; flex-direction: column; gap: 10px; }
+.sv-muted { color: var(--text-muted); font-size: 13px; }
+
+/* Leave Board rows: the bare .sv-list/li combo has no background, border,
+   or padding, so leave requests rendered as plain unstyled text — give
+   each row card-like weight to match the rest of the dashboard. */
+.sv-leave-item {
+  background: #fff;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+}
+.sv-dark .sv-leave-item { background: #1E293B; border-color: #334155; color: #E2E8F0; }
+
+/* Status dot indicator */
+.sv-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.sv-dot--green { background: var(--green); }
+.sv-dot--red   { background: var(--red); }
+
+/* Chip (small rounded label, e.g. department tags) */
+.sv-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  background: var(--bg-muted);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/* Row helpers — Settings employee list, Leaderboard ranking rows */
+.sv-emp-row,
+.sv-leaderboard-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+}
+.sv-leaderboard-row:hover,
+.sv-emp-row:hover { background: var(--bg-muted); }
+
+/* Logo preview thumbnail in Settings.
+   NOTE: max-width/max-height on the wrapping div do NOT constrain an
+   unsized <img> child — the div clips to a fixed box (overflow:hidden)
+   and the img itself is constrained so it scales down instead of
+   overflowing the card (was causing the full-size logo to spill out
+   past the Company Branding card). */
+.sv-logo-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 140px;
+  height: 60px;
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 6px;
+  background: #fff;
+  margin-bottom: 10px;
+}
+.sv-logo-preview img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* Extra button variants referenced in JSX but never defined */
+.sv-btn--outline {
+  background: transparent;
+  border: 1.5px solid var(--navy);
+  color: var(--navy);
+}
+.sv-btn--sm { padding: 6px 12px; font-size: 12px; }
+.sv-btn--success {
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: #16A34A;
+}
+.sv-btn--danger {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #DC2626;
+}
+
+/* Sidebar sub-structure — brand block, identity card, nav list, footer */
+.sv-sidebar-brand { display: flex; flex-direction: column; gap: 2px; }
+.sv-sidebar-identity { display: flex; flex-direction: column; gap: 2px; }
+.sv-sidebar-name { font-size: 13.5px; font-weight: 700; color: var(--navy); }
+.sv-sidebar-sub  { font-size: 11px; color: var(--text-muted); }
+.sv-sidebar-nav  { display: flex; flex-direction: column; gap: 2px; flex: 1; margin-top: 10px; overflow-y: auto; }
+.sv-sidebar-footer {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-sidebar);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sv-sidebar--dark .sv-sidebar-sub { color: #94A3B8; }
+.sv-sidebar--dark .sv-sidebar-footer { border-top-color: var(--border-dark); }
+
+/* Ghost-style nav button variant (sidebar footer actions like logout) */
+.sv-nav-btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-input);
+}
+.sv-nav-btn--ghost:hover { background: var(--bg-muted); }
+.sv-sidebar--dark .sv-nav-btn--ghost { border-color: rgba(255, 255, 255, 0.12); color: #CBD5E1; }

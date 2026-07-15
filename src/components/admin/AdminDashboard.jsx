@@ -5,23 +5,21 @@
  */
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, FileText, Trophy, BarChart3, Building2, ScrollText, CreditCard, Palmtree, Wallet, Users, Settings, Search, Bell, ChevronDown } from "lucide-react";
 import { useAppData } from "../../data/AppDataContext";
 import { useAdminAuth } from "./AdminAuthContext";
-import Sidebar from "../../components/layout/Sidebar";
-import { ViewModal, DetailModal } from "../../components/ui";
-import { SalaryModule, ManagerAssignModule, AssignIdsModule } from "../../components/admin";
-import InsertionOrderForm from "../../components/admin/InsertionOrderFormDynamic";
+import Sidebar from "../layout/Sidebar";
+import { ViewModal, DetailModal } from "../ui";
+import { SalaryModule, ManagerAssignModule } from ".";
 import {
   OverviewTab, ReportsTab, LeaderboardTab, AnalyticsTab,
-  DepartmentsTab, LeaveBoardTab, SettingsTab, ExpenseTab,
+  DepartmentsTab, LeaveBoardTab, SettingsTab,
 } from "./AdminTabs";
 import { DSR_STATUSES, CHART_COLORS } from "../../utils/constants";
 import { genCode, getTodayStr, fmtCurr, fmtDate, sum, downloadCSV } from "../../utils/helpers";
 
 export default function AdminDashboard() {
   const {
-    employees, saveEmployees, addEmployee, deleteEmployee, updateEmployee, resetEmployeePassword, assignEmployeeIds,
+    employees, saveEmployees, addEmployee, deleteEmployee, updateEmployee, resetEmployeePassword,
     submissions, saveSubs,
     departments, saveDepartments,
     websites, saveWebsites,
@@ -31,10 +29,8 @@ export default function AdminDashboard() {
     messages, saveMessages, addMessage, deleteMessage,
     leaves, saveLeaves, updateLeaveStatus,
     salaries, saveSalaries,
-    expenses, addExpense, updateExpense, deleteExpense, captureExpense,
     logo, onLogoChange, onLogoRemove,
     adminPwd, setAdminPwd,
-    settingsPwd, setSettingsPwd,
     theme, toggleTheme,
     showToast, pushNotification,
   } = useAppData();
@@ -46,9 +42,8 @@ export default function AdminDashboard() {
   const [editMode, setEditMode] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [detailModal, setDetailModal] = useState(null);
-  const [profileOpen, setProfileOpen] = useState(false);
 
-  const [ovPeriod, setOvPeriod] = useState("week");
+  const [ovPeriod, setOvPeriod] = useState("today");
   const [ovDateFrom, setOvDateFrom] = useState("");
   const [ovDateTo, setOvDateTo] = useState("");
 
@@ -145,11 +140,6 @@ export default function AdminDashboard() {
       totalPayments: sum(mine, "paymentReceived"),
       totalFollowUps: sum(mine, "newFollowUps"),
       submittedToday: mine.some((s) => s.date === todayStr && s.status === "Submitted"),
-      todayStatus: mine.some((s) => s.date === todayStr && s.status === "Submitted")
-        ? "submitted"
-        : mine.some((s) => s.date === todayStr)
-        ? "draft"
-        : "none",
       pendingTasks: mine.filter((s) => s.status !== "Submitted").length,
     };
   }), [employees, submissions, todayStr]);
@@ -173,30 +163,6 @@ export default function AdminDashboard() {
     ]));
     downloadCSV(`successviews-report-${todayStr}.csv`, rows);
   };
-
-  const monthlySalary = useMemo(() => {
-    const byMonth = {};
-    Object.entries(salaries || {}).forEach(([empId, sal]) => {
-      (sal.payments || []).forEach((p) => {
-        const key = (p.date || "").slice(0, 7);
-        if (!key) return;
-        if (!byMonth[key]) byMonth[key] = { monthKey: key, total: 0, byEmp: {} };
-        byMonth[key].total += Number(p.amount) || 0;
-        byMonth[key].byEmp[empId] = (byMonth[key].byEmp[empId] || 0) + (Number(p.amount) || 0);
-      });
-    });
-    const nameOf = (id) => (employees.find((e) => e.id === id)?.name) || id;
-    return Object.values(byMonth)
-      .sort((a, b) => a.monthKey.localeCompare(b.monthKey))
-      .map((m) => ({
-        monthKey: m.monthKey,
-        label: new Date(m.monthKey + "-01T00:00:00").toLocaleDateString("en-IN", { month: "short", year: "numeric" }),
-        total: m.total,
-        breakdown: Object.entries(m.byEmp)
-          .map(([id, amt]) => ({ name: nameOf(id), amount: amt }))
-          .sort((a, b) => b.amount - a.amount),
-      }));
-  }, [salaries, employees]);
 
   const statusPie = useMemo(() => DSR_STATUSES.map((s, i) => ({
     name: s, value: submissions.filter((x) => x.status === s).length, color: CHART_COLORS[i],
@@ -225,12 +191,8 @@ export default function AdminDashboard() {
     let from = ovDateFrom, to = ovDateTo || todayStr;
     if (ovPeriod !== "custom") {
       const days = { today: 0, week: 6, month: 29 }[ovPeriod] ?? 0;
-      // Compute the window in the SAME (UTC) frame as todayStr. Parsing
-      // todayStr as local midnight and re-serializing with toISOString()
-      // shifted `from` back a day for timezones ahead of UTC (e.g. IST),
-      // so "Today" leaked in yesterday's rows.
-      const fromDate = new Date(todayStr + "T00:00:00Z");
-      fromDate.setUTCDate(fromDate.getUTCDate() - days);
+      const fromDate = new Date(todayStr + "T00:00:00");
+      fromDate.setDate(fromDate.getDate() - days);
       from = fromDate.toISOString().split("T")[0];
       to = todayStr;
     }
@@ -273,12 +235,9 @@ export default function AdminDashboard() {
     } else if (type === "calls") {
       title = "Scheduled Calls"; columns = ["Employee", "Client", "ID Name", "Domain", "Time"];
       each((s) => (s.calls || []).forEach((c) => rows.push([s.empName, c.clientName, c.idName, c.domain, `${c.time || ""}${c.tz ? " " + c.tz : ""}`])));
-    } else if (type === "sales") {
-      title = "Sales Generated"; columns = ["Employee", "Amount", "Currency", "ID Name"];
+    } else if (type === "sales" || type === "orders") {
+      title = type === "orders" ? "Contract Orders" : "Sales Generated"; columns = ["Employee", "Amount", "Currency", "ID Name"];
       each((s) => (s.sales || []).forEach((x) => rows.push([s.empName, x.amount, x.currency, x.idName])));
-    } else if (type === "orders") {
-      title = "Contract Order Sent"; columns = ["Date", "Client Name", "Price", "Employee", "Domain"];
-      each((s) => (s.contractOrders || []).forEach((c) => rows.push([fmtDate(s.date), c.clientName, c.price, `${s.empName} (${s.empId})`, c.domain_custom || c.domain])));
     } else if (type === "payments") {
       title = "Payments Received"; columns = ["Employee", "Amount", "Currency", "ID Name"];
       each((s) => (s.payments || []).forEach((x) => rows.push([s.empName, x.amount, x.currency, x.idName])));
@@ -295,48 +254,55 @@ export default function AdminDashboard() {
   return (
     <div className={`sv-app-shell${theme === "dark" ? " sv-dark" : ""}`}>
       <Sidebar
-        logo={logo} brandTitle="ADMIN" brandSubtitle="" hideAvatar profileVariant="admin"
+        logo={logo} brandTitle="SuccessViews" brandSubtitle="Admin Console"
         theme={theme} onToggleTheme={toggleTheme}
         nav={[
-          { key: "overview", label: "Overview", icon: <LayoutDashboard size={18} /> },
-          { key: "reports", label: "Reports", icon: <FileText size={18} /> },
-          { key: "leaderboard", label: "Leaderboard", icon: <Trophy size={18} /> },
-          { key: "analytics", label: "Analytics", icon: <BarChart3 size={18} /> },
-          { key: "departments", label: "Departments", icon: <Building2 size={18} /> },
-          { key: "insertionorder", label: "Insertion Order", icon: <ScrollText size={18} /> },
-          { key: "leaveboard", label: "Leave Board", icon: <Palmtree size={18} />, badge: pendingLeaveCount || null },
-          { key: "salary", label: "Salary", icon: <Wallet size={18} /> },
-          { key: "expense", label: "Expense", icon: <CreditCard size={18} /> },
-          { key: "managerassign", label: "Manager/IDs Assign", icon: <Users size={18} /> },
-          { key: "settings", label: "Settings", icon: <Settings size={18} /> },
+          { key: "overview", label: "📊 Overview" },
+          { key: "reports", label: "📋 Reports" },
+          { key: "leaderboard", label: "🏆 Leaderboard" },
+          { key: "analytics", label: "📈 Analytics" },
+          { key: "departments", label: "🏢 Departments" },
+          { key: "leaveboard", label: "🌴 Leave Board", badge: pendingLeaveCount || null },
+          { key: "salary", label: "💰 Salary" },
+          { key: "managerassign", label: "🧑‍💼 Manager Assign" },
+          { key: "settings", label: "⚙️ Settings" },
         ]}
         active={tab} onSelect={setTab}
         onSignOut={handleAdminLogout}
       />
       <main className="sv-main">
-        <header className="sv-topbar">
-          <div className="sv-topbar-search">
-            <Search size={16} />
-            <input type="text" placeholder="Search employees, reports, orders…" aria-label="Search" />
-          </div>
-          <div className="sv-topbar-actions">
-            <button className="sv-topbar-iconbtn" title="Pending leave requests" onClick={() => setTab("leaveboard")}>
-              <Bell size={18} />
-              {pendingLeaveCount ? <span className="sv-topbar-badge">{pendingLeaveCount}</span> : null}
-            </button>
-            <div className="sv-topbar-profile" onClick={() => setProfileOpen((v) => !v)}>
-              <span className="sv-topbar-avatar">A</span>
-              <span className="sv-topbar-name">Admin</span>
-              <ChevronDown size={15} />
-              {profileOpen && (
-                <div className="sv-topbar-menu" onClick={(e) => e.stopPropagation()}>
-                  <button onClick={() => { setProfileOpen(false); setTab("settings"); }}>Settings</button>
-                  <button onClick={() => { setProfileOpen(false); handleAdminLogout(); }}>Sign Out</button>
-                </div>
-              )}
+
+        {/* ── Edit Mode Toggle Bar ── */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "10px 20px", marginBottom: 16,
+          background: editMode ? "#FEF3C7" : "#F1F5F9",
+          border: `1.5px solid ${editMode ? "#FDE68A" : "#E2E8F0"}`,
+          borderRadius: 10, gap: 12,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 18 }}>{editMode ? "✏️" : "👁️"}</span>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: editMode ? "#92400E" : "#475569" }}>
+                {editMode ? "Edit Mode — ON" : "View Mode — Read Only"}
+              </div>
+              <div style={{ fontSize: 11, color: editMode ? "#B45309" : "#94A3B8" }}>
+                {editMode ? "You can now make changes. Click Lock to go back to view mode." : "Click Edit to make changes."}
+              </div>
             </div>
           </div>
-        </header>
+          <button
+            onClick={() => setEditMode((e) => !e)}
+            style={{
+              padding: "8px 20px", borderRadius: 8, border: "none", cursor: "pointer",
+              fontWeight: 700, fontSize: 13,
+              background: editMode ? "#DC2626" : "#1D4ED8",
+              color: "#fff", whiteSpace: "nowrap",
+            }}
+          >
+            {editMode ? "🔒 Lock" : "✏️ Edit"}
+          </button>
+        </div>
 
         {tab === "overview" && (
           <OverviewTab
@@ -357,7 +323,7 @@ export default function AdminDashboard() {
           />
         )}
         {tab === "leaderboard" && <LeaderboardTab empStats={empStats} submissions={submissions} lbPeriod={lbPeriod} setLbPeriod={setLbPeriod} />}
-        {tab === "analytics" && <AnalyticsTab empStats={empStats} statusPie={statusPie} chartData={chartData} monthlySalary={monthlySalary} />}
+        {tab === "analytics" && <AnalyticsTab empStats={empStats} pieData={pieData} statusPie={statusPie} chartData={chartData} />}
         {tab === "departments" && (
           <DepartmentsTab
             departments={departments} employees={employees} submissions={submissions}
@@ -370,22 +336,15 @@ export default function AdminDashboard() {
             todayStr={todayStr} editMode={editMode}
           />
         )}
-        {tab === "insertionorder" && <InsertionOrderForm onCapture={captureExpense} />}
         {tab === "leaveboard" && <LeaveBoardTab leaves={leaves} setLeaveStatus={setLeaveStatus} editMode={editMode} />}
         {tab === "salary" && (
-          <SalaryModule employees={employees} salaries={salaries} setSalaries={saveSalaries} captureExpense={captureExpense}
+          <SalaryModule employees={employees} salaries={salaries} setSalaries={saveSalaries}
             showToast={showToast} pushNotification={pushNotification}
-            addMessage={addMessage} editMode={editMode} logo={logo} />
-        )}
-        {tab === "expense" && (
-          <ExpenseTab expenses={expenses} addExpense={addExpense} updateExpense={updateExpense} deleteExpense={deleteExpense} logo={logo} />
+            addMessage={addMessage} editMode={editMode} />
         )}
         {tab === "managerassign" && (
-          <div className="sv-flex-col sv-gap-4">
-            <ManagerAssignModule employees={employees} setEmployees={saveEmployees}
-              showToast={showToast} editMode={editMode} />
-            <AssignIdsModule employees={employees} assignEmployeeIds={assignEmployeeIds} />
-          </div>
+          <ManagerAssignModule employees={employees} setEmployees={saveEmployees}
+            showToast={showToast} editMode={editMode} />
         )}
         {tab === "settings" && (
           <SettingsTab
@@ -393,7 +352,6 @@ export default function AdminDashboard() {
             onUpdateEmp={updateEmployee} onDeleteEmp={deleteEmployee} onResetPwd={resetEmployeePassword}
             newEmp={newEmp} setNewEmp={setNewEmp} addEmployeeQuick={addEmployeeQuick}
             adminPwd={adminPwd} setAdminPwd={setAdminPwd}
-            editMode={editMode} setEditMode={setEditMode} settingsPwd={settingsPwd} setSettingsPwd={setSettingsPwd}
             msgEmpId={msgEmpId} setMsgEmpId={setMsgEmpId} msgText={msgText} setMsgText={setMsgText}
             sendMessage={sendMessage} messages={messages} deleteMessage={deleteMessage}
             targets={targets} setTargets={saveTargets}
@@ -401,7 +359,7 @@ export default function AdminDashboard() {
             websites={websites} newWebsite={newWebsite} setNewWebsite={setNewWebsite}
             addWebsite={() => { if (newWebsite.trim()) { saveWebsites([...websites, newWebsite.trim()]); setNewWebsite(""); } }}
             removeWebsite={(w) => saveWebsites(websites.filter((x) => x !== w))}
-            pushNotification={pushNotification} showToast={showToast}
+            pushNotification={pushNotification} showToast={showToast} editMode={editMode}
           />
         )}
       </main>

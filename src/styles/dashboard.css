@@ -1,7 +1,6 @@
 /* ============================================================
-   SuccessViews Employee Dashboard — Design System CSS
-   Generated from SuccessViewsDashboard design
-   Font: DM Sans (load via Google Fonts)
+   SuccessViews Dashboard — Design System CSS
+   Font: DM Sans
    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap');
 ============================================================ */
 
@@ -9,8 +8,7 @@
 :root {
   --font:         'DM Sans', Inter, system-ui, sans-serif;
 
-  /* Brand colours */
-  --navy:         #162B55;
+  --navy:         #162b55;
   --teal:         #2DC4C4;
   --green:        #5F9E30;
   --orange:       #F97316;
@@ -18,7 +16,6 @@
   --amber:        #D97706;
   --red:          #DC2626;
 
-  /* Backgrounds */
   --bg-page:      #F2F5FF;
   --bg-login:     linear-gradient(150deg, #9FE3EF 0%, #F5F9FF 55%, #E6F6F6 100%);
   --bg-card:      #ffffff;
@@ -27,32 +24,27 @@
   --bg-sidebar-light: #F2F5FF;
   --bg-sidebar-dark:  #0B1628;
 
-  /* Text */
   --text-primary:   #0F172A;
   --text-secondary: #475569;
   --text-muted:     #94A3B8;
   --text-navy:      #162B55;
   --text-white:     #ffffff;
 
-  /* Borders */
   --border-light:   #E8ECF0;
   --border-input:   #E2E8F0;
   --border-sidebar: #DDE4F5;
   --border-dark:    #1E2D3E;
 
-  /* Shadows */
   --shadow-card:    0 1px 3px rgba(0, 0, 0, 0.06);
   --shadow-modal:   0 20px 60px rgba(0, 0, 0, 0.25);
   --shadow-login:   0 8px 40px rgba(22, 43, 85, 0.10);
 
-  /* Radii */
   --radius-sm:  5px;
   --radius-md:  8px;
   --radius-lg:  12px;
   --radius-xl:  18px;
   --radius-full: 999px;
 
-  /* Spacing scale */
   --space-1:  4px;
   --space-2:  8px;
   --space-3:  12px;
@@ -78,16 +70,8 @@ body {
   color: var(--text-primary);
 }
 
-.sv-layout {
-  display: flex;
-  min-height: 100vh;
-}
-
-.sv-content-area {
-  flex: 1;
-  min-width: 0;
-  padding: 20px 24px;
-}
+.sv-layout { display: flex; min-height: 100vh; }
+.sv-content-area { flex: 1; min-width: 0; padding: 20px 24px; }
 
 /* ── LOGIN PAGE ──────────────────────────────────────────── */
 .sv-login-wrap {
@@ -111,14 +95,14 @@ body {
   box-shadow: var(--shadow-login);
 }
 
-.sv-login-logo {
-  text-align: center;
-  margin-bottom: 36px;
-}
+.sv-login-logo { text-align: center; margin-bottom: 28px; }
 
 .sv-login-logo img {
-  height: 130px;
+  height: 116px;
+  width: auto;
+  max-width: 100%;
   object-fit: contain;
+  background: transparent;
 }
 
 .sv-login-subtitle {
@@ -129,33 +113,7 @@ body {
   text-transform: uppercase;
 }
 
-.sv-admin-gate-link {
-  display: block;
-  width: 100%;
-  margin-top: 16px;
-  background: none;
-  border: none;
-  color: var(--navy, #162B55);
-  font-size: 13px;
-  font-weight: 600;
-  text-align: center;
-  cursor: pointer;
-  padding: 8px;
-  border-radius: var(--radius-md, 8px);
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.sv-admin-gate-link:hover {
-  background: #F1F5F9;
-  color: var(--teal, #2DC4C4);
-}
-
-/* ── TOAST NOTIFICATION ──────────────────────────────────────
-   Same bug pattern as .sv-app-shell: referenced in App.jsx
-   (`<div className="sv-toast sv-toast--{kind}">`) but never
-   defined in CSS, so it rendered as unstyled, unpositioned plain
-   text wherever it fell in normal document flow — overlapping
-   other content with no background, padding, or animation. */
+/* ── TOAST NOTIFICATION ──────────────────────────────────── */
 .sv-toast {
   position: fixed;
   top: 20px;
@@ -181,15 +139,7 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── APP SHELL (sidebar + main, side by side) ───────────────
-   Root cause of the "blank page" bug: this class was referenced
-   in App.jsx (wrapping <Sidebar/> + <main>) but never defined in
-   CSS. Without `display:flex` here, .sv-sidebar's `position:sticky`
-   and `align-self:flex-start` had no effect, and the sidebar (a
-   flex column with a tall content list) simply stacked above
-   <main> in normal block flow — pushing all real page content
-   hundreds of pixels below the fold on every single admin/employee
-   page. */
+/* ── APP SHELL (sidebar + main, side by side) ────────────── */
 .sv-app-shell {
   display: flex;
   align-items: flex-start;
@@ -209,7 +159,7 @@ body {
   width: 232px;
   min-width: 232px;
   min-height: 100vh;
-  background: var(--bg-sidebar-light);
+  background: linear-gradient(180deg, #F4F7FF 0%, #EEF2FB 100%);
   border-right: 1px solid var(--border-sidebar);
   display: flex;
   flex-direction: column;
@@ -222,36 +172,34 @@ body {
 }
 
 .sv-sidebar--dark {
-  background: var(--bg-sidebar-dark);
+  background: linear-gradient(180deg, #0C1830 0%, #0A1424 100%);
   border-right-color: var(--border-dark);
 }
 
 .sv-sidebar-logo {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-
-    height: 110px;
-
-    padding: 16px;
-
-    overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 84px;
+  padding: 10px 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+  background: transparent;
 }
 
-.sv-sidebar-logo img{
+.sv-sidebar-logo img {
+  max-width: 180px;
+  max-height: 60px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  display: block;
+}
 
-    max-width:150px;
-
-    max-height:70px;
-
-    width:auto;
-
-    height:auto;
-
-    object-fit:contain;
-
-    display:block;
-
+.sv-sidebar--dark .sv-sidebar-logo {
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
 }
 
 .sv-sidebar-user-card {
@@ -281,6 +229,7 @@ body {
 
 /* ── NAV BUTTONS ─────────────────────────────────────────── */
 .sv-nav-btn {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -302,18 +251,33 @@ body {
 .sv-nav-btn--active {
   background: var(--navy);
   color: #ffffff;
+  box-shadow: 0 4px 14px rgba(22, 43, 85, 0.22);
 }
 
-.sv-sidebar--dark .sv-nav-btn {
-  color: #CBD5E1;
+.sv-nav-btn--active::before {
+  content: "";
+  position: absolute;
+  left: -14px; top: 8px; bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--teal);
 }
 
-.sv-nav-btn:hover:not(.sv-nav-btn--active) {
-  background: rgba(22, 43, 85, 0.06);
-}
+.sv-sidebar--dark .sv-nav-btn { color: #CBD5E1; }
+.sv-nav-btn:hover:not(.sv-nav-btn--active) { background: rgba(22, 43, 85, 0.06); }
+.sv-sidebar--dark .sv-nav-btn:hover:not(.sv-nav-btn--active) { background: rgba(255, 255, 255, 0.05); }
 
-.sv-sidebar--dark .sv-nav-btn:hover:not(.sv-nav-btn--active) {
-  background: rgba(255, 255, 255, 0.05);
+/* Sidebar nav notification badge */
+.sv-nav-badge {
+  margin-left: auto;
+  background: var(--red);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 800;
+  border-radius: var(--radius-full);
+  padding: 1px 7px;
+  min-width: 18px;
+  text-align: center;
 }
 
 /* ── HEADER ──────────────────────────────────────────────── */
@@ -344,13 +308,8 @@ body {
   transition: background 0.15s;
 }
 
-.sv-header-nav-btn--active {
-  background: var(--teal);
-}
-
-.sv-header-nav-btn:hover:not(.sv-header-nav-btn--active) {
-  background: rgba(255, 255, 255, 0.18);
-}
+.sv-header-nav-btn--active { background: var(--teal); }
+.sv-header-nav-btn:hover:not(.sv-header-nav-btn--active) { background: rgba(255, 255, 255, 0.18); }
 
 /* ── CARDS ───────────────────────────────────────────────── */
 .sv-card {
@@ -361,14 +320,12 @@ body {
   padding: 20px;
 }
 
-/* KPI Card */
 .sv-kpi-card {
   background: var(--bg-card);
   border-radius: var(--radius-lg);
   padding: 16px 20px;
   box-shadow: var(--shadow-card);
   border: 1px solid var(--border-light);
-  /* border-left colour set via inline --kpi-color or utility class */
   border-left-width: 4px;
   border-left-style: solid;
 }
@@ -398,12 +355,7 @@ body {
   line-height: 1;
 }
 
-.sv-kpi-target {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 600;
-}
-
+.sv-kpi-target { margin: 0; font-size: 11px; font-weight: 600; }
 .sv-kpi-target--good    { color: #16A34A; }
 .sv-kpi-target--warning { color: #D97706; }
 .sv-kpi-target--bad     { color: #DC2626; }
@@ -416,11 +368,7 @@ body {
   overflow: hidden;
 }
 
-.sv-kpi-bar-fill {
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.6s ease;
-}
+.sv-kpi-bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; }
 
 /* ── INPUTS ──────────────────────────────────────────────── */
 .sv-input,
@@ -441,14 +389,9 @@ body {
 
 .sv-input:focus,
 .sv-select:focus,
-.sv-textarea:focus {
-  border-color: var(--teal);
-}
+.sv-textarea:focus { border-color: var(--teal); }
 
-.sv-textarea {
-  resize: vertical;
-  min-height: 80px;
-}
+.sv-textarea { resize: vertical; min-height: 80px; }
 
 .sv-label {
   display: block;
@@ -475,29 +418,10 @@ body {
 }
 
 .sv-btn:hover { opacity: 0.88; }
-
-.sv-btn--primary {
-  background: var(--navy);
-  color: #ffffff;
-}
-
-.sv-btn--teal {
-  background: var(--teal);
-  color: #ffffff;
-}
-
-.sv-btn--ghost {
-  background: transparent;
-  border: 1.5px solid var(--border-input);
-  color: var(--text-secondary);
-}
-
-.sv-btn--danger-ghost {
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  color: rgba(239, 68, 68, 0.9);
-}
-
+.sv-btn--primary { background: var(--navy); color: #ffffff; }
+.sv-btn--teal { background: var(--teal); color: #ffffff; }
+.sv-btn--ghost { background: transparent; border: 1.5px solid var(--border-input); color: var(--text-secondary); }
+.sv-btn--danger-ghost { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: rgba(239, 68, 68, 0.9); }
 .sv-btn--full { width: 100%; justify-content: center; }
 
 .sv-btn--sign-in {
@@ -511,7 +435,6 @@ body {
   letter-spacing: 0.2px;
 }
 
-/* Tab buttons */
 .sv-tab-btn {
   padding: 8px 16px;
   border-radius: 7px;
@@ -526,12 +449,8 @@ body {
   transition: background 0.15s, color 0.15s;
 }
 
-.sv-tab-btn--active {
-  background: var(--navy);
-  color: #ffffff;
-}
+.sv-tab-btn--active { background: var(--navy); color: #ffffff; }
 
-/* Period toggle */
 .sv-period-btn {
   padding: 7px 14px;
   border-radius: var(--radius-md);
@@ -545,11 +464,7 @@ body {
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 
-.sv-period-btn--active {
-  border-color: var(--teal);
-  background: #E6F6F6;
-  color: var(--teal);
-}
+.sv-period-btn--active { border-color: var(--teal); background: #E6F6F6; color: var(--teal); }
 
 /* ── BADGES / STATUS ─────────────────────────────────────── */
 .sv-badge {
@@ -648,11 +563,7 @@ body {
   margin-bottom: 4px;
 }
 
-.sv-meta-value {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--navy);
-}
+.sv-meta-value { font-size: 13.5px; font-weight: 700; color: var(--navy); }
 
 /* ── SECTION HEADING ─────────────────────────────────────── */
 .sv-section-label {
@@ -673,7 +584,7 @@ body {
   padding: 20px;
 }
 
-/* ── TOGGLE (dark mode switch) ───────────────────────────── */
+/* ── TOGGLE ──────────────────────────────────────────────── */
 .sv-toggle {
   width: 34px;
   height: 18px;
@@ -696,10 +607,6 @@ body {
 }
 
 /* ── DARK MODE OVERRIDES ─────────────────────────────────── */
-/* NOTE: these selectors previously targeted .sv-content-area / .sv-app-wrap,
-   neither of which exists in the JSX (the actual wrapper/main classes are
-   .sv-app-shell / .sv-main) — so the Dark Mode toggle persisted state and
-   flipped the sidebar button label but never changed anything on screen. */
 .sv-dark.sv-app-shell,
 .sv-dark .sv-main { background: #0F172A; color: #E2E8F0; }
 
@@ -707,9 +614,6 @@ body {
 .sv-dark .sv-kpi-card,
 .sv-dark .sv-chart-wrap { background: #1E293B; border-color: #334155; }
 
-/* .sv-text-navy / .sv-tab-title / .sv-kpi-value all hardcode color: var(--navy),
-   which is unreadable against the dark backgrounds above — override to a
-   light color so headings and KPI numbers stay legible in Dark Mode. */
 .sv-dark .sv-text-navy,
 .sv-dark .sv-tab-title,
 .sv-dark .sv-kpi-value { color: #E2E8F0; }
@@ -721,23 +625,11 @@ body {
 .sv-dark .sv-modal { background: #1E293B; }
 .sv-dark .sv-modal-header { background: #1E293B; border-bottom-color: #334155; }
 
-/* Reports table: header row and body rows kept their light backgrounds in
-   dark mode (only .sv-card/.sv-kpi-card/.sv-chart-wrap were covered above),
-   leaving a bright white bar across an otherwise dark page. */
 .sv-dark .sv-table { background: #1E293B; border-color: #334155; }
 .sv-dark .sv-table thead { background: #0F172A; }
 .sv-dark .sv-table th { color: #94A3B8; }
 .sv-dark .sv-table td { color: #E2E8F0; border-bottom-color: #334155; }
 .sv-dark .sv-table tbody tr:hover { background: rgba(255, 255, 255, 0.04); }
-
-/* ── CHART COLOUR PALETTE ────────────────────────────────── */
-/*
-  CHART_COLORS = [
-    #2DC4C4  #162B55  #5F9E30  #D97706  #DC2626
-    #F97316  #A855F7  #06B6D4  #EC4899  #8B5CF6
-  ]
-  Use these in fill / stroke / background when building charts.
-*/
 
 /* ── UTILITY ─────────────────────────────────────────────── */
 .sv-flex        { display: flex; }
@@ -777,18 +669,6 @@ body {
 .sv-truncate   { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sv-uppercase  { text-transform: uppercase; letter-spacing: 0.6px; }
 
-/* ── UTILITY ADDENDUM ───────────────────────────────────────
-   A full sweep of every className used across App.jsx and the
-   extracted components turned up 30+ classes referenced in JSX
-   that were never defined anywhere in this file. Most are either
-   BEM-style variants of an existing base utility (e.g. .sv-flex--
-   between vs. plain .sv-flex) or new structural/typography helpers
-   introduced by the component-extraction refactor that never got
-   a matching CSS pass. This explains spacing/alignment glitches
-   across virtually every admin tab (Reports, Leaderboard, Analytics,
-   Departments, Leave Board, Settings) rather than being isolated,
-   page-specific bugs. */
-
 .sv-flex--between { display: flex; justify-content: space-between; align-items: center; }
 .sv-flex--center  { display: flex; justify-content: center; align-items: center; }
 .sv-gap-xs { gap: 6px; }
@@ -796,11 +676,9 @@ body {
 .sv-gap-md { gap: 16px; }
 .sv-grid-7 { display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; }
 
-/* Tab container + heading, used by every admin tab function */
 .sv-tab       { display: flex; flex-direction: column; gap: 18px; }
 .sv-tab-title { font-size: 19px; font-weight: 800; color: var(--navy); margin: 0; }
 
-/* Data table — used by Reports, Analytics, Departments tabs */
 .sv-table {
   width: 100%;
   border-collapse: collapse;
@@ -831,13 +709,9 @@ body {
 .sv-table tbody tr:last-child td { border-bottom: none; }
 .sv-table tbody tr:hover { background: var(--bg-muted); }
 
-/* Simple stacked list — used by Overview/Leaderboard/Settings tabs */
 .sv-list { display: flex; flex-direction: column; gap: 10px; }
 .sv-muted { color: var(--text-muted); font-size: 13px; }
 
-/* Leave Board rows: the bare .sv-list/li combo has no background, border,
-   or padding, so leave requests rendered as plain unstyled text — give
-   each row card-like weight to match the rest of the dashboard. */
 .sv-leave-item {
   background: #fff;
   border: 1px solid var(--border-light);
@@ -846,12 +720,10 @@ body {
 }
 .sv-dark .sv-leave-item { background: #1E293B; border-color: #334155; color: #E2E8F0; }
 
-/* Status dot indicator */
 .sv-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
 .sv-dot--green { background: var(--green); }
 .sv-dot--red   { background: var(--red); }
 
-/* Chip (small rounded label, e.g. department tags) */
 .sv-chip {
   display: inline-flex;
   align-items: center;
@@ -863,7 +735,6 @@ body {
   font-weight: 600;
 }
 
-/* Row helpers — Settings employee list, Leaderboard ranking rows */
 .sv-emp-row,
 .sv-leaderboard-row {
   display: flex;
@@ -877,12 +748,6 @@ body {
 .sv-leaderboard-row:hover,
 .sv-emp-row:hover { background: var(--bg-muted); }
 
-/* Logo preview thumbnail in Settings.
-   NOTE: max-width/max-height on the wrapping div do NOT constrain an
-   unsized <img> child — the div clips to a fixed box (overflow:hidden)
-   and the img itself is constrained so it scales down instead of
-   overflowing the card (was causing the full-size logo to spill out
-   past the Company Branding card). */
 .sv-logo-preview {
   display: flex;
   align-items: center;
@@ -896,33 +761,15 @@ body {
   background: #fff;
   margin-bottom: 10px;
 }
-.sv-logo-preview img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-}
+.sv-logo-preview img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
-/* Extra button variants referenced in JSX but never defined */
-.sv-btn--outline {
-  background: transparent;
-  border: 1.5px solid var(--navy);
-  color: var(--navy);
-}
+.sv-btn--outline { background: transparent; border: 1.5px solid var(--navy); color: var(--navy); }
 .sv-btn--sm { padding: 6px 12px; font-size: 12px; }
-.sv-btn--success {
-  background: rgba(34, 197, 94, 0.12);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  color: #16A34A;
-}
-.sv-btn--danger {
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #DC2626;
-}
+.sv-btn--success { background: rgba(34, 197, 94, 0.12); border: 1px solid rgba(34, 197, 94, 0.3); color: #16A34A; }
+.sv-btn--danger { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3); color: #DC2626; }
 
-/* Sidebar sub-structure — brand block, identity card, nav list, footer */
 .sv-sidebar-brand { display: flex; flex-direction: column; gap: 2px; }
-.sv-sidebar-identity { display: flex; flex-direction: column; gap: 2px; }
+.sv-sidebar-identity { display: flex; flex-direction: row; align-items: center; gap: 10px; }
 .sv-sidebar-name { font-size: 13.5px; font-weight: 700; color: var(--navy); }
 .sv-sidebar-sub  { font-size: 11px; color: var(--text-muted); }
 .sv-sidebar-nav  { display: flex; flex-direction: column; gap: 2px; flex: 1; margin-top: 10px; overflow-y: auto; }
@@ -934,14 +781,1961 @@ body {
   flex-direction: column;
   gap: 2px;
 }
+.sv-sidebar--dark .sv-sidebar-name { color: #E2E8F0; }
 .sv-sidebar--dark .sv-sidebar-sub { color: #94A3B8; }
 .sv-sidebar--dark .sv-sidebar-footer { border-top-color: var(--border-dark); }
 
-/* Ghost-style nav button variant (sidebar footer actions like logout) */
-.sv-nav-btn--ghost {
-  background: transparent;
-  color: var(--text-secondary);
-  border: 1px solid var(--border-input);
-}
+.sv-nav-btn--ghost { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-input); }
 .sv-nav-btn--ghost:hover { background: var(--bg-muted); }
 .sv-sidebar--dark .sv-nav-btn--ghost { border-color: rgba(255, 255, 255, 0.12); color: #CBD5E1; }
+
+/* ── EMPLOYEE WELCOME / INFO CARD ───────────────────────────── */
+.sv-welcome-card {
+  background: linear-gradient(120deg, #162B55 0%, #1E3A6E 55%, #2DC4C4 160%);
+  color: #fff;
+  border-radius: var(--radius-xl);
+  padding: 20px 24px;
+  box-shadow: 0 12px 30px rgba(22, 43, 85, 0.22);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sv-welcome-main { display: flex; align-items: center; gap: 16px; }
+.sv-welcome-main .sv-avatar { border: 2px solid rgba(255,255,255,0.55); }
+.sv-welcome-title { margin: 0; font-size: 21px; font-weight: 800; letter-spacing: 0.2px; }
+.sv-welcome-msg { margin: 3px 0 0; font-size: 13.5px; color: rgba(255,255,255,0.82); font-weight: 500; }
+.sv-welcome-meta {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  border-top: 1px solid rgba(255,255,255,0.18);
+  padding-top: 14px;
+}
+.sv-welcome-meta > div { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.sv-welcome-meta-k {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.7px;
+  color: rgba(255,255,255,0.62); font-weight: 700;
+}
+.sv-welcome-meta-v {
+  font-size: 13.5px; font-weight: 700; color: #fff;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+@media (max-width: 720px) {
+  .sv-welcome-meta { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ── REPEATABLE DSR SECTIONS ─────────────────────────────── */
+.sv-repeat { margin-bottom: 6px; }
+.sv-repeat-row { display: grid; gap: 8px; align-items: center; margin-bottom: 8px; }
+.sv-repeat-empty {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  background: var(--bg-muted);
+  border: 1px dashed var(--border-input);
+  border-radius: var(--radius-md);
+  padding: 9px 12px;
+  margin-bottom: 4px;
+}
+.sv-dark .sv-repeat-empty { background: #0F172A; border-color: #334155; }
+
+.sv-pill {
+  padding: 5px 13px;
+  border-radius: var(--radius-full);
+  border: 1.5px solid var(--border-input);
+  background: #fff;
+  color: #64748B;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.sv-pill:hover { border-color: var(--teal); color: var(--teal); }
+.sv-pill--active { background: var(--bg-muted); border-color: var(--border-input); color: #475569; }
+.sv-pill--add { border-color: #BFDBFE; background: #EFF6FF; color: #2563EB; }
+.sv-pill--add:hover { background: #DBEAFE; color: #1D4ED8; border-color: #93C5FD; }
+.sv-pill:disabled { opacity: 0.5; cursor: default; }
+.sv-dark .sv-pill { background: #0F172A; border-color: #334155; color: #CBD5E1; }
+
+.sv-row-remove {
+  padding: 8px 10px;
+  background: #FEE2E2;
+  color: #DC2626;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 12px;
+  line-height: 1;
+  height: fit-content;
+}
+.sv-row-remove:hover { background: #FECACA; }
+.sv-row-remove:disabled { opacity: 0.5; cursor: default; }
+
+.sv-leave-remark { margin-top: 8px; width: 100%; }
+.sv-form-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  letter-spacing: 0.3px;
+}
+.sv-btn-primary {
+  padding: 10px 18px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--navy);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font);
+  cursor: pointer;
+}
+.sv-btn-outline {
+  padding: 8px 14px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-input);
+  background: #fff;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: var(--font);
+  cursor: pointer;
+}
+.sv-btn-outline:hover { border-color: var(--teal); color: var(--teal); }
+/* ============================================================
+   INSERTION ORDER SECTION — append to SuccessViews_Dashboard.css
+   ============================================================ */
+
+.sv-io-wrap {
+  font-family: var(--font);
+}
+
+.sv-io-brand-row {
+  margin-bottom: 18px;
+  max-width: 260px;
+}
+
+.sv-io-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .sv-io-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Form side ── */
+.sv-io-form-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sv-io-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 4px;
+}
+
+.sv-io-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sv-io-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.sv-io-perk-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 7px;
+}
+
+.sv-io-perk-remove {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-input);
+  background: #fff;
+  color: var(--red);
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sv-io-perk-remove:hover {
+  background: rgba(220, 38, 38, 0.08);
+}
+
+.sv-io-add-perk {
+  margin-top: 4px;
+  align-self: flex-start;
+}
+
+/* ── Preview side ── */
+.sv-io-preview-wrap {
+  position: sticky;
+  top: 12px;
+}
+
+.sv-io-preview {
+  background: #ffffff;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 32px 28px;
+  font-family: 'Times New Roman', Georgia, serif;
+  color: #1a1a1a;
+}
+
+.sv-io-preview-header {
+  text-align: center;
+}
+
+.sv-io-logo-main {
+  font-size: 34px;
+  font-weight: 800;
+  font-family: Georgia, serif;
+}
+
+.sv-io-logo-sub {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: #1a1a1a;
+  margin-left: 4px;
+}
+
+.sv-io-preview-divider {
+  height: 3px;
+  width: 60px;
+  margin: 6px 0 14px;
+}
+
+.sv-io-preview-title {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.sv-io-preview-date {
+  text-align: right;
+  font-size: 12.5px;
+  font-weight: 700;
+  margin-bottom: 14px;
+}
+
+.sv-io-preview-parties {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.sv-io-party-box {
+  border: 1px solid #333;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.sv-io-party-name {
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.sv-io-party-email {
+  text-decoration: underline;
+  color: #1a4fba;
+}
+
+.sv-io-preview-h4 {
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: underline;
+  margin: 16px 0 8px;
+}
+
+.sv-io-preview-body {
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.sv-io-preview-list {
+  font-size: 12.5px;
+  line-height: 1.8;
+  padding-left: 20px;
+}
+
+.sv-io-preview-signoff {
+  margin-top: 18px;
+  font-size: 12.5px;
+}
+
+.sv-io-signoff-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.sv-io-preview-terms {
+  font-size: 11px;
+  line-height: 1.6;
+  padding-left: 18px;
+  color: #333;
+}
+
+.sv-io-download-btn {
+  width: 100%;
+  margin-top: 14px;
+}
+/* ── Dynamic magazine additions ── */
+.sv-io-brand-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.sv-io-brand-controls .sv-input {
+  max-width: 260px;
+}
+
+.sv-io-left-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sv-io-upload-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sv-io-upload-btn {
+  cursor: pointer;
+  margin: 0;
+}
+
+.sv-io-thumb {
+  height: 40px;
+  max-width: 120px;
+  object-fit: contain;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 3px;
+  background: #fff;
+}
+
+.sv-io-color-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.sv-io-color {
+  width: 42px;
+  height: 38px;
+  padding: 2px;
+  border: 1.5px solid var(--border-input);
+  border-radius: var(--radius-md);
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* ── Rich-text editor ── */
+.sv-io-rte {
+  border: 1.5px solid var(--border-input);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #fff;
+}
+
+.sv-io-rte-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 6px;
+  border-bottom: 1px solid var(--border-light);
+  background: var(--bg-subtle, #f7f8fa);
+}
+
+.sv-io-rte-toolbar button {
+  min-width: 34px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius-sm, 6px);
+  background: #fff;
+  color: var(--navy, #1a1a2e);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sv-io-rte-toolbar button:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.sv-io-rte-area {
+  min-height: 120px;
+  padding: 10px 12px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  outline: none;
+  color: #1a1a1a;
+}
+
+.sv-io-rte-area:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted, #9aa3af);
+}
+
+.sv-io-rte-area ul,
+.sv-io-rte-area ol {
+  padding-left: 22px;
+  margin: 6px 0;
+}
+
+/* ── Preview: logo image, watermark, rich content ── */
+.sv-io-preview {
+  position: relative;
+  overflow: hidden;
+}
+
+.sv-io-preview-content {
+  position: relative;
+  z-index: 1;
+}
+
+.sv-io-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 60%;
+  max-height: 60%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.sv-io-logo-img {
+  max-height: 64px;
+  max-width: 240px;
+  object-fit: contain;
+}
+
+.sv-io-preview-rich {
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.sv-io-preview-rich ul,
+.sv-io-preview-rich ol {
+  padding-left: 20px;
+  margin: 6px 0;
+}
+
+.sv-io-preview-rich.sv-io-preview-terms {
+  font-size: 11px;
+  color: #333;
+}
+
+/* ── Auth login extras (remember me / forgot link) ── */
+.sv-login-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.sv-remember {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #475569;
+  cursor: pointer;
+  user-select: none;
+}
+
+.sv-remember input {
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
+}
+
+.sv-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #2DC4C4;
+  cursor: pointer;
+}
+
+.sv-link-btn:hover {
+  text-decoration: underline;
+}
+
+/* ── Shared payslip view (admin preview + employee view) ── */
+.sv-payslip {
+  background: #fff;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  padding: 22px 24px;
+  font-family: var(--font);
+  color: #0F172A;
+  max-width: 520px;
+  margin: 0 auto;
+}
+.sv-payslip-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 2px solid #0D9488;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+}
+.sv-payslip-logo { max-height: 44px; max-width: 160px; object-fit: contain; }
+.sv-payslip-brand-name { font-size: 20px; font-weight: 800; color: #0F172A; }
+.sv-payslip-sub { font-size: 12px; color: #64748B; margin-top: 4px; letter-spacing: .5px; text-transform: uppercase; }
+.sv-payslip-period { text-align: right; }
+.sv-payslip-period-label { font-size: 10.5px; color: #94A3B8; text-transform: uppercase; letter-spacing: .5px; }
+.sv-payslip-period-val { font-size: 15px; font-weight: 800; color: #0D9488; }
+.sv-payslip-emp {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+}
+.sv-payslip-emp > div { display: flex; flex-direction: column; }
+.sv-payslip-emp span { font-size: 10.5px; color: #94A3B8; text-transform: uppercase; letter-spacing: .4px; }
+.sv-payslip-emp strong { font-size: 13px; color: #0F172A; }
+.sv-payslip-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sv-payslip-table th {
+  text-align: left; background: #F8FAFC; color: #475569; font-size: 11.5px;
+  text-transform: uppercase; letter-spacing: .4px; padding: 8px 12px; border-bottom: 1px solid #E2E8F0;
+}
+.sv-payslip-table td { padding: 8px 12px; border-bottom: 1px solid #F1F5F9; }
+.sv-payslip-subtotal td { font-weight: 700; color: #0D9488; }
+.sv-payslip-total td { font-weight: 800; font-size: 15px; color: #0F172A; border-top: 2px solid #0D9488; }
+.sv-payslip-foot { margin-top: 14px; font-size: 11px; color: #94A3B8; text-align: right; }
+
+.sv-payslip-deduct td { color: #DC2626; }
+.sv-payslip-deduct-subtotal td { font-weight: 700; color: #DC2626; }
+
+/* ── Assign IDs tags ── */
+.sv-id-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #EFF6FF;
+  color: #2563EB;
+  border: 1px solid #BFDBFE;
+  border-radius: 6px;
+  padding: 3px 6px 3px 9px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.sv-id-tag-x {
+  border: none;
+  background: transparent;
+  color: #2563EB;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.sv-id-tag-x:hover { color: #DC2626; }
+.sv-id-input {
+  width: 110px;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.sv-id-add {
+  padding: 5px 10px;
+  background: #DCFCE7;
+  color: #16A34A;
+  border: 1px solid #BBF7D0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+.sv-id-add:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.sv-io-del-mag {
+  color: #DC2626;
+  border-color: #FECACA;
+}
+.sv-io-del-mag:hover:not(:disabled) { background: rgba(220, 38, 38, 0.08); }
+.sv-io-del-mag:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Loading spinner (route/code-split fallback) ── */
+.sv-spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid #DDE4F5;
+  border-top-color: #2DC4C4;
+  border-radius: 50%;
+  animation: sv-spin 0.8s linear infinite;
+}
+@keyframes sv-spin { to { transform: rotate(360deg); } }
+
+/* ════════════════════════════════════════════════════════════
+   PREMIUM THEME 2.0 — visual redesign layer (appended so it
+   overrides the base styles). CSS-only: no markup/logic changes.
+   ════════════════════════════════════════════════════════════ */
+
+/* ── Refreshed design tokens (rounder + softer + premium palette) ── */
+:root {
+  --teal:        #06B6D4;
+  --bg-page:     #F8FAFC;
+  --border-input:#E2E8F0;
+  --border-light:#EEF2F7;
+
+  --radius-sm:   8px;
+  --radius-md:   12px;
+  --radius-lg:   16px;
+  --radius-xl:   20px;
+
+  --shadow-card:  0 1px 2px rgba(16,24,40,.04), 0 6px 20px rgba(16,24,40,.06);
+  --shadow-hover: 0 2px 4px rgba(16,24,40,.05), 0 14px 34px rgba(16,24,40,.12);
+  --shadow-modal: 0 24px 64px rgba(15,23,42,.28);
+
+  --grad-primary: linear-gradient(135deg, #2563EB 0%, #4F46E5 100%);
+  --grad-banner:  linear-gradient(120deg, #2563EB 0%, #4F46E5 55%, #7C3AED 100%);
+}
+
+body { background: var(--bg-page); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+
+/* ── Cards ── */
+.sv-card {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+}
+.sv-card:hover { box-shadow: var(--shadow-hover); }
+
+/* ── KPI cards: premium tile with hover lift ── */
+.sv-kpi-card {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-card);
+  padding: 18px 20px;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.sv-kpi-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+.sv-kpi-value { font-weight: 800; letter-spacing: -0.02em; }
+.sv-kpi-bar-track { border-radius: 999px; overflow: hidden; }
+.sv-kpi-bar-fill { border-radius: 999px; transition: width .4s ease; }
+
+/* ── Gradient welcome banner (employee) ── */
+.sv-welcome-card {
+  background: var(--grad-banner);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-xl);
+  box-shadow: 0 16px 40px rgba(79,70,229,.28);
+  padding: 26px 28px;
+  position: relative;
+  overflow: hidden;
+}
+.sv-welcome-card::after {
+  content: "";
+  position: absolute;
+  right: -60px; top: -60px;
+  width: 220px; height: 220px;
+  background: radial-gradient(circle, rgba(255,255,255,.18), transparent 70%);
+  pointer-events: none;
+}
+.sv-welcome-title { color: #fff; letter-spacing: -0.01em; }
+.sv-welcome-msg { color: rgba(255,255,255,.85); }
+.sv-welcome-meta-k { color: rgba(255,255,255,.7); }
+.sv-welcome-meta-v { color: #fff; }
+
+/* ── Buttons: gradient primary + refined variants ── */
+.sv-btn, .sv-btn-primary, .sv-btn-outline {
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  transition: transform .12s ease, box-shadow .18s ease, background .18s ease, filter .18s ease;
+}
+.sv-btn:active { transform: translateY(1px); }
+.sv-btn--primary, .sv-btn-primary, .sv-btn--sign-in {
+  background: var(--grad-primary);
+  border: none;
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(37,99,235,.28);
+}
+.sv-btn--primary:hover, .sv-btn-primary:hover, .sv-btn--sign-in:hover { filter: brightness(1.06); box-shadow: 0 10px 26px rgba(37,99,235,.36); }
+.sv-btn--outline, .sv-btn-outline {
+  background: #fff;
+  border: 1.5px solid var(--border-input);
+  color: var(--text-secondary);
+}
+.sv-btn--outline:hover, .sv-btn-outline:hover { border-color: #C7D2FE; background: #F5F7FF; color: #4F46E5; }
+.sv-btn--ghost { border-radius: var(--radius-md); }
+.sv-btn--success { background: linear-gradient(135deg,#22C55E,#16A34A); border: none; color: #fff; box-shadow: 0 8px 18px rgba(34,197,94,.25); }
+.sv-btn--danger  { background: linear-gradient(135deg,#EF4444,#DC2626); border: none; color: #fff; box-shadow: 0 8px 18px rgba(239,68,68,.22); }
+
+/* ── Inputs / selects: rounded + focus ring ── */
+.sv-input, .sv-select, .sv-id-input {
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-input);
+  background: #fff;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.sv-input:focus, .sv-select:focus, .sv-id-input:focus,
+.sv-input:focus-visible, .sv-select:focus-visible {
+  outline: none;
+  border-color: #4F46E5;
+  box-shadow: 0 0 0 3px rgba(79,70,229,.15);
+}
+.sv-form-label, .sv-label, .sv-section-label { letter-spacing: .01em; }
+
+/* ── Sidebar: cleaner premium look + rounded active pill ── */
+.sv-sidebar {
+  border-right: 1px solid var(--border-sidebar);
+  box-shadow: 1px 0 0 rgba(15,23,42,.02);
+}
+.sv-nav-btn {
+  border-radius: 12px;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease, transform .1s ease;
+}
+.sv-nav-btn:hover:not(.sv-nav-btn--active) { transform: translateX(2px); }
+.sv-nav-btn--active {
+  background: var(--grad-primary);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(37,99,235,.30);
+}
+.sv-nav-btn--active::before { display: none; }
+.sv-sidebar--dark .sv-nav-btn--active { background: var(--grad-primary); }
+.sv-nav-badge { box-shadow: 0 2px 6px rgba(220,38,38,.35); }
+.sv-sidebar-user-card { border-radius: var(--radius-lg); box-shadow: var(--shadow-card); }
+.sv-sidebar-logo img { max-height: 64px; }
+
+/* ── Section titles ── */
+.sv-tab-title { font-weight: 800; letter-spacing: -0.02em; color: var(--text-primary); }
+
+/* ── Tables: rounded container, sticky header, hover rows ── */
+.sv-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.sv-table thead th {
+  position: sticky;
+  top: 0;
+  background: #F8FAFC;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-input);
+}
+.sv-table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--border-light); font-size: 13.5px; }
+.sv-table tbody tr { transition: background .12s ease; }
+.sv-table tbody tr:hover { background: #F8FAFF; }
+.sv-table tbody tr:last-child td { border-bottom: none; }
+
+/* ── Badges → pills ── */
+.sv-badge {
+  border-radius: 999px;
+  padding: 3px 11px;
+  font-size: 11.5px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.sv-badge--completed, .sv-badge--approved, .sv-badge--submitted { background: #DCFCE7; color: #15803D; }
+.sv-badge--pending, .sv-badge--draft { background: #FEF3C7; color: #B45309; }
+.sv-badge--in-progress { background: #DBEAFE; color: #1D4ED8; }
+.sv-badge--rejected, .sv-badge--locked { background: #FEE2E2; color: #B91C1C; }
+.sv-chip { border-radius: 999px; }
+
+/* ── Modals: rounded + soft backdrop blur ── */
+.sv-modal-overlay { background: rgba(15,23,42,.45); backdrop-filter: blur(3px); }
+.sv-modal { border-radius: var(--radius-xl); box-shadow: var(--shadow-modal); border: 1px solid var(--border-light); }
+
+/* ── Login card ── */
+.sv-login-card { border-radius: 22px; box-shadow: 0 24px 60px rgba(15,23,42,.14); }
+
+/* ── Period / tab pills ── */
+.sv-period-btn, .sv-tab-btn, .sv-header-nav-btn { border-radius: 999px; transition: all .15s ease; }
+.sv-period-btn--active, .sv-tab-btn--active, .sv-header-nav-btn--active { background: var(--grad-primary); color: #fff; border-color: transparent; }
+
+/* ── Responsive polish ── */
+@media (max-width: 640px) {
+  .sv-main { padding: 18px 16px; }
+  .sv-welcome-card { padding: 20px 18px; }
+  .sv-grid-2, .sv-grid-3, .sv-grid-4 { grid-template-columns: 1fr !important; }
+}
+
+/* =====================================================================
+   REDESIGN 2.1 — Premium SaaS pass (visual only; no logic change)
+   Dark-navy sidebar · icon-chip KPI tiles · welcome banner · donut cards
+   ===================================================================== */
+
+/* ── Sidebar: premium dark navy (#0F172A) always ── */
+.sv-sidebar {
+  background: linear-gradient(180deg, #0F172A 0%, #0B1220 100%);
+  border-right: 1px solid rgba(255,255,255,.06);
+  padding: 22px 14px;
+  box-shadow: 1px 0 0 rgba(0,0,0,.15);
+}
+.sv-sidebar-logo {
+  background: rgba(255,255,255,.96);
+  border-radius: 14px;
+  height: 92px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  box-shadow: 0 6px 16px rgba(0,0,0,.20);
+}
+.sv-sidebar-logo img { max-height: 70px; max-width: 176px; }
+.sv-sidebar-user-card {
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.09);
+  padding: 14px;
+  box-shadow: none;
+}
+.sv-sidebar-name { color: #F1F5F9; font-size: 14px; }
+.sv-sidebar-sub  { color: #94A3B8; }
+.sv-sidebar-footer { border-top: 1px solid rgba(255,255,255,.08); }
+.sv-sidebar .sv-nav-btn {
+  color: #94A3B8;
+  margin-bottom: 5px;
+  padding: 11px 13px;
+  font-size: 13.5px;
+}
+.sv-sidebar .sv-nav-btn:hover:not(.sv-nav-btn--active) {
+  background: rgba(255,255,255,.06);
+  color: #F1F5F9;
+  transform: translateX(2px);
+}
+.sv-sidebar .sv-nav-btn--active {
+  background: var(--grad-primary);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(37,99,235,.35);
+}
+.sv-sidebar .sv-nav-btn--active::before { display: none; }
+.sv-admin-badge { background: var(--grad-primary); }
+
+/* ── Overview welcome banner ── */
+.sv-ov-banner {
+  background: var(--grad-banner, linear-gradient(120deg,#1E3A8A 0%,#2563EB 52%,#4F46E5 100%));
+  border-radius: 18px;
+  padding: 22px 26px;
+  margin-bottom: 20px;
+  color: #fff;
+  box-shadow: 0 14px 32px rgba(37,99,235,.26);
+  position: relative;
+  overflow: hidden;
+}
+.sv-ov-banner::after {
+  content: "";
+  position: absolute;
+  right: -46px; top: -46px;
+  width: 190px; height: 190px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.10);
+}
+.sv-ov-banner-title { margin: 0; font-size: 25px; font-weight: 800; letter-spacing: -0.02em; color: #fff; }
+.sv-ov-banner-sub   { margin: 6px 0 0; font-size: 14px; color: rgba(255,255,255,.86); }
+
+/* ── KPI tiles (ClickCard): icon chip + accent + hover lift ── */
+.sv-kpi-tile {
+  border-radius: 16px;
+  padding: 18px 18px 16px;
+  border: 1px solid var(--border-light, #EAEEF6);
+  box-shadow: var(--shadow-card, 0 4px 14px rgba(15,23,42,.05));
+  background: #fff;
+  position: relative;
+  overflow: hidden;
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.sv-kpi-tile::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  background: var(--accent, #2563EB);
+  opacity: .92;
+}
+.sv-kpi-tile:hover { box-shadow: 0 16px 34px rgba(15,23,42,.12); }
+.sv-kpi-tile-value { font-size: 30px; font-weight: 800; line-height: 1.05; color: var(--text-primary, #0F172A); letter-spacing: -0.02em; }
+.sv-kpi-tile-label { font-size: 12.5px; font-weight: 600; color: var(--text-muted, #64748B); margin-top: 6px; }
+.sv-kpi-tile-icon {
+  width: 46px; height: 46px; min-width: 46px;
+  border-radius: 13px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+}
+
+/* ── KPI card icon chip ── */
+.sv-kpi-chip {
+  width: 44px; height: 44px; min-width: 44px;
+  border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 21px;
+}
+
+/* ── Chart cards: legend + sub-heading typography ── */
+.sv-card > h3 { font-size: 15px; font-weight: 800; letter-spacing: -0.01em; }
+.sv-card h4 { font-size: 13px; font-weight: 700; color: var(--text-secondary, #475569); margin: 0 0 6px; }
+.recharts-legend-item-text { font-size: 12.5px !important; color: #475569 !important; }
+
+/* ── Bottom sections: roomier status rows ── */
+.sv-dot { box-shadow: 0 0 0 3px rgba(2,6,23,.04); }
+.sv-dot--green { background: #22C55E; }
+.sv-dot--red   { background: #EF4444; }
+
+/* =====================================================================
+   REDESIGN 2.2 — Admin Dashboard UI request (visual only; no logic change)
+   Status badges · Team Messages · transparent logo · ADMIN card ·
+   grouped sales bars context · analytics polish · hover-flicker fix
+   ===================================================================== */
+
+/* 3 — Sidebar logo: transparent, centered, larger (no white plate) */
+.sv-sidebar-logo {
+  background: transparent !important;
+  box-shadow: none !important;
+  height: 104px;
+  padding: 6px 8px;
+  margin-bottom: 14px;
+}
+.sv-sidebar-logo img { max-height: 86px; max-width: 200px; }
+
+/* 4 — Admin profile card: bold ADMIN, premium bg, no avatar */
+.sv-sidebar-user-card--admin {
+  justify-content: center;
+  text-align: center;
+  padding: 16px 14px;
+  background: linear-gradient(135deg, rgba(37,99,235,.24), rgba(79,70,229,.20));
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+}
+.sv-sidebar-user-card--admin .sv-sidebar-name {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  color: #fff;
+  width: 100%;
+  text-align: center;
+}
+
+/* 7 — Sidebar hover bug: kill horizontal shift/flicker + stray line */
+.sv-sidebar { overflow-x: hidden; }
+.sv-sidebar-nav { border: none; }
+.sv-nav-btn:hover:not(.sv-nav-btn--active),
+.sv-sidebar .sv-nav-btn:hover:not(.sv-nav-btn--active) { transform: none; }
+.sv-sidebar-footer { border-top: none; margin-top: 4px; padding-top: 4px; }
+
+/* 1 — Today's Submission Status: modern status pills */
+.sv-status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+.sv-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--border-light, #EAEEF6);
+  box-shadow: 0 1px 3px rgba(15,23,42,.05);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.sv-status-pill:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(15,23,42,.10); }
+.sv-status-pill-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.sv-status-pill-name {
+  font-size: 13px; font-weight: 600; color: var(--text-primary, #0F172A);
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sv-status-pill-tag { font-size: 10.5px; font-weight: 700; padding: 3px 9px; border-radius: 999px; flex: none; }
+.sv-status-pill--submitted { border-left: 3px solid #22C55E; }
+.sv-status-pill--submitted .sv-status-pill-dot { background: #22C55E; }
+.sv-status-pill--submitted .sv-status-pill-tag { background: #DCFCE7; color: #15803D; }
+.sv-status-pill--draft { border-left: 3px solid #F59E0B; }
+.sv-status-pill--draft .sv-status-pill-dot { background: #F59E0B; }
+.sv-status-pill--draft .sv-status-pill-tag { background: #FEF3C7; color: #B45309; }
+.sv-status-pill--none { border-left: 3px solid #EF4444; }
+.sv-status-pill--none .sv-status-pill-dot { background: #EF4444; }
+.sv-status-pill--none .sv-status-pill-tag { background: #FEE2E2; color: #B91C1C; }
+
+/* 2 — Team Messages: modern message cards */
+.sv-msg-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.sv-msg-empty { font-size: 13px; color: #64748B; padding: 26px 0; text-align: center; }
+.sv-msg-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid var(--border-light, #EAEEF6);
+  box-shadow: 0 1px 3px rgba(15,23,42,.05);
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.sv-msg-card:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(15,23,42,.10); }
+.sv-msg-card--unread { background: #EFF6FF; border-color: #BFDBFE; }
+.sv-msg-avatar {
+  width: 40px; height: 40px; min-width: 40px;
+  border-radius: 50%;
+  background: var(--grad-primary, linear-gradient(135deg,#2563EB,#4F46E5));
+  color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; overflow: hidden;
+}
+.sv-msg-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.sv-msg-body { flex: 1; min-width: 0; }
+.sv-msg-head { display: flex; align-items: center; gap: 8px; }
+.sv-msg-name { font-size: 13.5px; font-weight: 700; color: var(--text-primary, #0F172A); }
+.sv-msg-lead { font-size: 11.5px; font-weight: 600; color: #64748B; }
+.sv-msg-unread-dot { width: 8px; height: 8px; border-radius: 50%; background: #3B82F6; flex: none; }
+.sv-msg-time { margin-left: auto; font-size: 11px; color: #94A3B8; font-weight: 600; white-space: nowrap; }
+.sv-msg-preview {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: #475569;
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+/* 6 — Analytics cards: equal heights, roomier padding, softer shadow */
+.sv-tab .sv-grid-2 > .sv-card {
+  padding: 20px;
+  border-radius: 16px;
+  box-shadow: var(--shadow-card, 0 4px 14px rgba(15,23,42,.05));
+  display: flex;
+  flex-direction: column;
+}
+.sv-tab .sv-grid-2 > .sv-card > h4 { margin: 0 0 12px; }
+.sv-tab .sv-grid-2 > .sv-card .recharts-responsive-container { flex: 1; }
+
+/* 8 — Typography hierarchy */
+.sv-card > h3 { font-size: 15.5px; font-weight: 800; letter-spacing: -.01em; color: var(--text-primary, #0F172A); margin-bottom: 2px; }
+
+@media (max-width: 640px) {
+  .sv-status-grid { grid-template-columns: 1fr; }
+}
+
+/* =====================================================================
+   REDESIGN 2.3 — Premium sidebar built around the transparent logo
+   (visual only). Gradient bg · glass · cyan logo glow · gradient active.
+   ===================================================================== */
+
+/* Premium blue/purple gradient background (no pure black) */
+.sv-sidebar {
+  background: linear-gradient(180deg, #1B2240 0%, #252D56 48%, #101728 100%) !important;
+  border-right: 1px solid rgba(255,255,255,.06);
+  position: relative;
+  overflow-x: hidden;
+}
+/* Ambient glassmorphism glow overlay */
+.sv-sidebar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 30% at 50% 0%, rgba(45,212,191,.10) 0%, transparent 60%),
+    radial-gradient(90% 40% at 30% 100%, rgba(124,58,237,.16) 0%, transparent 65%);
+}
+/* Keep all sidebar content above the overlay */
+.sv-sidebar-brand,
+.sv-sidebar-identity,
+.sv-sidebar-nav,
+.sv-sidebar-footer { position: relative; z-index: 1; }
+
+/* Dedicated logo area — centered, larger, soft cyan glow, no box */
+.sv-sidebar-logo {
+  position: relative;
+  background: transparent !important;
+  box-shadow: none !important;
+  height: 124px;
+  padding: 16px 10px;
+  margin: 10px 0 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.sv-sidebar-logo::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 188px; height: 124px;
+  background: radial-gradient(ellipse at center, rgba(45,212,191,.30) 0%, rgba(45,212,191,.12) 42%, transparent 72%);
+  filter: blur(16px);
+  z-index: 0;
+  pointer-events: none;
+}
+.sv-sidebar-logo img {
+  position: relative;
+  z-index: 1;
+  max-height: 104px;
+  max-width: 212px;
+}
+
+/* Menu — spacing, larger icons, rounded, gradient active, soft hover */
+.sv-sidebar-nav { margin-top: 2px; }
+.sv-sidebar .sv-nav-btn {
+  color: #AEB6C9;
+  font-size: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  margin-bottom: 7px;
+  transition: background .2s ease, color .2s ease, box-shadow .2s ease;
+}
+.sv-sidebar .sv-nav-btn:hover:not(.sv-nav-btn--active) {
+  background: rgba(255,255,255,.07);
+  color: #F1F5F9;
+  transform: none;
+}
+.sv-sidebar .sv-nav-btn--active {
+  background: linear-gradient(135deg, #2563EB 0%, #6D28D9 100%);
+  color: #fff;
+  box-shadow: 0 12px 26px rgba(79,70,229,.42);
+}
+.sv-sidebar .sv-nav-btn--active::before { display: none; }
+
+/* Admin card — glass panel, rounded, subtle border, soft shadow */
+.sv-sidebar-user-card--admin {
+  justify-content: center;
+  text-align: center;
+  padding: 16px 14px;
+  background: rgba(255,255,255,.06);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,.13);
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(8,12,28,.35);
+}
+.sv-sidebar-user-card--admin .sv-sidebar-name {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: .18em;
+  color: #fff;
+  width: 100%;
+  text-align: center;
+}
+
+/* =====================================================================
+   REDESIGN 2.3.1 — Make the transparent logo POP on the dark sidebar
+   (no color change, no white box, stays transparent). Light halo behind
+   + thin white outline glow + subtle tonal lift so the navy reads clearly.
+   ===================================================================== */
+.sv-sidebar-logo { height: 132px; margin: 12px 0 24px; }
+.sv-sidebar-logo::before {
+  width: 224px;
+  height: 152px;
+  background: radial-gradient(ellipse at center,
+    rgba(255,255,255,.24) 0%,
+    rgba(45,212,191,.30) 34%,
+    rgba(45,212,191,.11) 56%,
+    transparent 74%);
+  filter: blur(18px);
+}
+.sv-sidebar-logo img {
+  max-height: 112px;
+  max-width: 220px;
+  filter:
+    drop-shadow(0 0 0.6px rgba(255,255,255,.95))
+    drop-shadow(0 0 3px rgba(255,255,255,.55))
+    drop-shadow(0 3px 6px rgba(0,0,0,.30))
+    brightness(1.07) contrast(1.05) saturate(1.06);
+}
+
+/* =====================================================================
+   REDESIGN 2.3.2 — Premium frosted plate behind the logo
+   User asked for a subtle white shade so the logo is fully legible while
+   still looking premium. Rounded frosted panel + soft cyan halo (no flat box).
+   ===================================================================== */
+.sv-sidebar-logo {
+  background: linear-gradient(145deg, rgba(255,255,255,.98) 0%, rgba(233,239,248,.94) 100%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.75);
+  border-radius: 18px;
+  box-shadow:
+    0 12px 28px rgba(8,12,28,.38),
+    0 0 34px rgba(45,212,191,.22),
+    inset 0 1px 0 rgba(255,255,255,.95);
+  height: 104px;
+  padding: 14px 18px;
+  margin: 10px 6px 22px;
+}
+/* halo now comes from the plate's box-shadow — disable the inner glow */
+.sv-sidebar-logo::before { display: none; }
+/* clean logo on the light plate — original colors, no outline needed */
+.sv-sidebar-logo img {
+  filter: none;
+  max-height: 76px;
+  max-width: 188px;
+}
+
+/* =====================================================================
+   REDESIGN 2.3.3 — Solid white plate behind logo + soft black shadow
+   (per request: plain white background for max clarity, same rounded
+   frame but shadow is black instead of the cyan halo.)
+   ===================================================================== */
+.sv-sidebar-logo {
+  background: #ffffff;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 1px solid rgba(0,0,0,.12);
+  border-radius: 18px;
+  box-shadow: 0 10px 26px rgba(0,0,0,.45);
+}
+
+/* 2.3.4 — override the earlier `transparent !important` on the logo plate */
+.sv-sidebar-logo {
+  background: #ffffff !important;
+  box-shadow: 0 10px 26px rgba(0,0,0,.45) !important;
+  border: 1px solid rgba(0,0,0,.12) !important;
+  border-radius: 18px !important;
+}
+
+/* 2.3.5 — larger logo on the white plate */
+.sv-sidebar-logo { height: 122px !important; padding: 14px 14px !important; }
+.sv-sidebar-logo img { max-height: 100px !important; max-width: 210px !important; }
+
+/* =====================================================================
+   2.4 — Fixed (static) sidebar, scrollable dashboard
+   Sidebar is pinned full-height with its own internal scroll; only the
+   main content area scrolls with the page. Desktop only (>=768px).
+   ===================================================================== */
+@media (min-width: 768px) {
+  .sv-sidebar {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    height: 100vh !important;
+    min-height: 100vh !important;
+    width: 232px !important;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 40;
+  }
+  .sv-main { margin-left: 232px; }
+}
+
+/* =====================================================================
+   2.4.1 — Compact ADMIN card · bigger logo (same plate) · hide scrollbar
+   ===================================================================== */
+/* ADMIN card: small like a normal menu item */
+.sv-sidebar-user-card--admin {
+  padding: 10px 14px !important;
+  border-radius: 14px !important;
+  margin-bottom: 12px;
+}
+.sv-sidebar-user-card--admin .sv-sidebar-name {
+  font-size: 15px !important;
+  letter-spacing: .14em !important;
+}
+
+/* Logo: grow the image inside the SAME plate (reduce padding, keep frame) */
+.sv-sidebar-logo { padding: 8px 12px !important; }
+.sv-sidebar-logo img { max-height: 108px !important; max-width: 216px !important; }
+
+/* Hide the sidebar scrollbar line (still scrollable to reveal more tabs) */
+.sv-sidebar { scrollbar-width: none; -ms-overflow-style: none; }
+.sv-sidebar::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+/* =====================================================================
+   2.4.2 — Fully hide sidebar scrollbar (all modern browsers), keep scroll
+   ===================================================================== */
+.sv-sidebar {
+  scrollbar-width: none !important;      /* Firefox */
+  -ms-overflow-style: none !important;   /* IE/old Edge */
+}
+.sv-sidebar::-webkit-scrollbar {         /* Chrome, Safari, Edge, Opera */
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+}
+.sv-sidebar::-webkit-scrollbar-thumb,
+.sv-sidebar::-webkit-scrollbar-track { background: transparent !important; }
+
+/* =====================================================================
+   2.4.3 — Hide scrollbar on the actual scrolling element (.sv-sidebar-nav)
+   Keeps wheel/touch scrolling; hidden across Chrome/Edge/Firefox/Safari.
+   ===================================================================== */
+.sv-sidebar-nav {
+  scrollbar-width: none !important;      /* Firefox */
+  -ms-overflow-style: none !important;   /* IE/Edge legacy */
+}
+.sv-sidebar-nav::-webkit-scrollbar {     /* Chrome, Safari, Edge, Opera */
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+}
+.sv-sidebar-nav::-webkit-scrollbar-thumb,
+.sv-sidebar-nav::-webkit-scrollbar-track { background: transparent !important; }
+
+/* =====================================================================
+   2.4.4 — Compact logo container (logo now trimmed; fill the plate)
+   ===================================================================== */
+.sv-sidebar-logo {
+  height: auto !important;
+  padding: 12px 14px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.sv-sidebar-logo img {
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  display: block !important;
+}
+
+/* =====================================================================
+   PREMIUM POLISH 3.0 — senior-designer refinement (CSS ONLY)
+   No layout/color/logic changes. Soft layered shadows, refined cards,
+   buttons, inputs, tables, badges, charts, focus states, subtle motion.
+   ===================================================================== */
+:root {
+  --shadow-xs: 0 1px 2px rgba(16,24,40,.05);
+  --shadow-soft-sm: 0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.04);
+  --shadow-soft-md: 0 6px 14px -6px rgba(16,24,40,.12), 0 2px 6px -2px rgba(16,24,40,.06);
+  --shadow-soft-lg: 0 16px 28px -10px rgba(16,24,40,.16), 0 6px 12px -6px rgba(16,24,40,.08);
+  --ring-primary: 0 0 0 3px rgba(37,99,235,.16);
+}
+
+/* ── Motion primitives (subtle, 150–250ms) ── */
+@keyframes svFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes svPop { from { opacity: 0; transform: translateY(8px) scale(.985); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: no-preference) {
+  .sv-tab { animation: svFadeIn .24s ease both; }
+  .sv-modal { animation: svPop .2s cubic-bezier(.2,.7,.3,1) both; }
+}
+
+/* ── Cards: soft border + layered shadow, gentle hover ── */
+.sv-card {
+  border-radius: 16px;
+  border: 1px solid rgba(16,24,40,.07);
+  box-shadow: var(--shadow-soft-sm);
+  transition: box-shadow .2s ease, transform .2s ease, border-color .2s ease;
+}
+.sv-card:hover { box-shadow: var(--shadow-soft-md); border-color: rgba(16,24,40,.10); }
+/* Interactive tiles get the slight lift */
+.sv-kpi-tile, .sv-kpi-card, .sv-status-pill, .sv-msg-card {
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.sv-kpi-tile:hover, .sv-kpi-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-soft-lg); }
+
+/* ── Buttons: premium hover / active scale / focus / disabled ── */
+.sv-btn, .sv-period-btn, .sv-tab-btn, .sv-header-nav-btn {
+  transition: transform .15s ease, box-shadow .18s ease, filter .18s ease, background .18s ease, color .18s ease;
+}
+.sv-btn:not(:disabled):hover { transform: translateY(-1px); filter: brightness(1.03); }
+.sv-btn:not(:disabled):active { transform: translateY(0) scale(.985); }
+.sv-btn:disabled, .sv-btn[disabled] { opacity: .55; cursor: not-allowed; box-shadow: none; filter: none; transform: none; }
+.sv-btn:focus-visible,
+.sv-period-btn:focus-visible,
+.sv-tab-btn:focus-visible { outline: none; box-shadow: var(--ring-primary); }
+
+/* ── Inputs / selects / search: height, placeholder, transition ── */
+.sv-input, .sv-select, .sv-id-input, textarea.sv-input {
+  min-height: 40px;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
+}
+.sv-input::placeholder, textarea.sv-input::placeholder { color: #98A2B3; opacity: 1; }
+.sv-form-label, .sv-label, .sv-section-label { margin-bottom: 6px; display: inline-block; }
+
+/* ── Tables: roomier rows, softer hover, crisp header ── */
+.sv-table thead th { background: #F8FAFC; color: #475569; letter-spacing: .03em; }
+.sv-table tbody td { padding: 13px 16px; }
+.sv-table tbody tr { transition: background .14s ease; }
+.sv-table tbody tr:hover { background: #F6F9FF; }
+
+/* ── Charts: quieter grid, premium tooltip + legend ── */
+.recharts-cartesian-grid line { stroke: rgba(15,23,42,.07); }
+.recharts-cartesian-axis-tick-value { fill: #64748B; font-size: 12px; }
+.recharts-default-tooltip {
+  border-radius: 12px !important;
+  border: 1px solid rgba(16,24,40,.08) !important;
+  box-shadow: var(--shadow-soft-md) !important;
+  padding: 10px 12px !important;
+}
+.recharts-legend-item-text { font-size: 12.5px !important; color: #475569 !important; }
+
+/* ── Status badges / pills: subtle, consistent ── */
+.sv-badge { box-shadow: none; letter-spacing: .01em; }
+.sv-status-pill { box-shadow: var(--shadow-xs); }
+
+/* ── Header / welcome banner: softer float ── */
+.sv-ov-banner { box-shadow: var(--shadow-soft-lg); }
+.sv-welcome-card { box-shadow: var(--shadow-soft-md); }
+
+/* ── Modals: soft layered shadow ── */
+.sv-modal { box-shadow: var(--shadow-soft-lg); }
+
+/* ── Accessibility: visible focus for keyboard users ── */
+.sv-nav-btn:focus-visible,
+a:focus-visible,
+.sv-icon-btn:focus-visible { outline: none; box-shadow: var(--ring-primary); border-radius: 12px; }
+
+/* ── Empty-state text: calmer, centered ── */
+.sv-list .sv-muted, .sv-muted { color: #667085; }
+
+/* =====================================================================
+   MINIMAL 4.0 — calm, unified SaaS restyle (CSS ONLY, overrides above)
+   Single primary #2563EB, white cards, thin borders, subtle shadows,
+   one radius, softer sidebar active, lighter banner. No logic/layout.
+   ===================================================================== */
+:root {
+  --r: 10px;
+  --c-primary: #2563EB;
+  --c-bg: #F8FAFC;
+  --c-surface: #FFFFFF;
+  --c-border: #E5E7EB;
+  --c-text: #0F172A;
+  --c-text-2: #64748B;
+  --shadow-soft-sm: 0 1px 2px rgba(16,24,40,.05);
+  --shadow-soft-md: 0 4px 10px -4px rgba(16,24,40,.10);
+  --shadow-soft-lg: 0 10px 22px -8px rgba(16,24,40,.12);
+  --shadow-card: 0 1px 2px rgba(16,24,40,.05);
+}
+
+/* ── Unify radius + lighter surfaces/shadows ── */
+.sv-card, .sv-modal, .sv-kpi-tile, .sv-kpi-card, .sv-table, .sv-msg-card,
+.sv-status-pill, .sv-input, .sv-select, .sv-id-input, .sv-btn {
+  border-radius: var(--r) !important;
+}
+.sv-card {
+  background: var(--c-surface) !important;
+  border: 1px solid var(--c-border) !important;
+  box-shadow: var(--shadow-soft-sm) !important;
+}
+.sv-card:hover { box-shadow: var(--shadow-soft-md) !important; }
+
+/* ── KPI tiles: white, thin border, no side bar, neutral small icon ── */
+.sv-kpi-tile {
+  background: var(--c-surface) !important;
+  border: 1px solid var(--c-border) !important;
+  box-shadow: var(--shadow-soft-sm) !important;
+  padding: 18px !important;
+}
+.sv-kpi-tile::before { display: block !important; content: "" !important; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--accent, #2563EB) !important; opacity: .9; }
+.sv-kpi-tile:hover { transform: translateY(-2px) !important; box-shadow: var(--shadow-soft-md) !important; }
+.sv-kpi-tile-icon, .sv-kpi-chip {
+  width: 40px !important; height: 40px !important; min-width: 40px !important;
+  border-radius: 10px !important; font-size: 19px !important;
+}
+/* colored chip from the card's accent (falls back to inline color) */
+.sv-kpi-tile-icon { background: color-mix(in srgb, var(--accent, #2563EB) 12%, #fff) !important; color: var(--accent, #2563EB) !important; }
+.sv-kpi-tile-value { font-size: 30px !important; color: var(--c-text) !important; }
+.sv-kpi-tile-label { color: var(--c-text-2) !important; }
+.sv-kpi-card {
+  border: 1px solid var(--c-border) !important;
+  border-left: 1px solid var(--c-border) !important;
+  box-shadow: var(--shadow-soft-sm) !important;
+}
+
+/* ── Sidebar: keep dark, calmer active (no gradient/glow), tighter ── */
+.sv-sidebar .sv-nav-btn { font-size: 13.5px !important; padding: 10px 12px !important; margin-bottom: 4px !important; }
+.sv-sidebar .sv-nav-btn--active {
+  background: rgba(255,255,255,.10) !important;
+  color: #fff !important;
+  box-shadow: none !important;
+  position: relative;
+}
+.sv-sidebar .sv-nav-btn--active::before {
+  display: block !important; content: "" !important;
+  position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px;
+  background: var(--c-primary); border-radius: 0 3px 3px 0;
+}
+.sv-sidebar .sv-nav-btn:hover:not(.sv-nav-btn--active) { background: rgba(255,255,255,.05) !important; }
+/* Dark Mode / Sign Out = secondary */
+.sv-sidebar-footer .sv-nav-btn { color: #94A3B8 !important; font-size: 12.5px !important; }
+/* Logo area: tighter, keep white plate */
+.sv-sidebar-logo { height: 96px !important; padding: 10px 12px !important; margin: 8px 4px 16px !important; }
+
+/* ── Welcome banner: shorter, softer ── */
+.sv-ov-banner {
+  padding: 18px 22px !important;
+  background: linear-gradient(120deg, #2563EB 0%, #3B5BDB 100%) !important;
+  box-shadow: var(--shadow-soft-md) !important;
+}
+.sv-ov-banner::after { display: none !important; }
+.sv-ov-banner-title { font-size: 22px !important; }
+.sv-ov-banner-sub { font-size: 13.5px !important; }
+
+/* ── Buttons: solid primary, no heavy gradient, subtle hover ── */
+.sv-btn--primary { background: var(--c-primary) !important; box-shadow: none !important; }
+.sv-btn--primary:hover:not(:disabled) { background: #1D4ED8 !important; }
+.sv-btn--danger { background: #EF4444 !important; box-shadow: none !important; }
+.sv-btn--danger:hover:not(:disabled) { background: #DC2626 !important; }
+.sv-btn--ghost, .sv-btn--outline {
+  background: #fff !important; color: #334155 !important;
+  border: 1px solid var(--c-border) !important; box-shadow: none !important;
+}
+.sv-btn--ghost:hover:not(:disabled), .sv-btn--outline:hover:not(:disabled) { background: #F8FAFC !important; }
+.sv-nav-btn--active { box-shadow: none; }
+.sv-period-btn--active, .sv-tab-btn--active, .sv-header-nav-btn--active { background: var(--c-primary) !important; }
+
+/* ── Inputs: thin border + primary focus ── */
+.sv-input, .sv-select, .sv-id-input, textarea.sv-input {
+  border: 1px solid var(--c-border) !important;
+  box-shadow: none !important;
+}
+.sv-input:focus, .sv-select:focus, .sv-id-input:focus, textarea.sv-input:focus {
+  border-color: var(--c-primary) !important;
+  box-shadow: 0 0 0 3px rgba(37,99,235,.14) !important;
+}
+
+/* ── Tables: clean header, roomy rows, subtle hover ── */
+.sv-table { border: 1px solid var(--c-border) !important; box-shadow: none !important; }
+.sv-table thead th { background: #F8FAFC !important; color: #64748B !important; }
+.sv-table tbody tr:hover { background: #F8FAFC !important; }
+
+/* ── Typography hierarchy ── */
+.sv-tab-title { font-size: 28px !important; font-weight: 800 !important; color: var(--c-text) !important; }
+.sv-card > h3 { font-size: 17px !important; font-weight: 700 !important; }
+.sv-card h4 { font-size: 14px !important; }
+
+/* ── Badges: reduced palette ── */
+.sv-badge { box-shadow: none !important; font-weight: 600 !important; }
+.sv-badge--completed, .sv-badge--approved, .sv-badge--submitted, .sv-badge--paid { background: #DCFCE7 !important; color: #15803D !important; }
+.sv-badge--pending, .sv-badge--draft, .sv-badge--partial { background: #FEF3C7 !important; color: #B45309 !important; }
+.sv-badge--in-progress { background: #EFF3FE !important; color: #1D4ED8 !important; }
+.sv-badge--rejected, .sv-badge--locked, .sv-badge--overdue { background: #FEE2E2 !important; color: #B91C1C !important; }
+
+/* ── Modals: unified radius, soft shadow ── */
+.sv-modal { box-shadow: var(--shadow-soft-lg) !important; border: 1px solid var(--c-border) !important; }
+
+/* =====================================================================
+   MINIMAL 4.1 — Inter typeface + real type hierarchy (premium feel)
+   ===================================================================== */
+:root { --font: 'Inter', 'DM Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }
+body, .sv-app-shell, .sv-main, .sv-sidebar, .sv-card, .sv-modal, input, select, textarea, button {
+  font-family: 'Inter', 'DM Sans', -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+/* Type scale */
+.sv-tab-title { font-size: 30px !important; font-weight: 800 !important; letter-spacing: -0.025em !important; color: #0F172A !important; }
+.sv-ov-banner-title { font-weight: 800 !important; letter-spacing: -0.02em !important; }
+.sv-card > h3 { font-size: 16px !important; font-weight: 700 !important; letter-spacing: -0.01em !important; color: #0F172A !important; }
+.sv-card h4 { font-size: 13.5px !important; font-weight: 600 !important; color: #475569 !important; letter-spacing: 0 !important; }
+.sv-kpi-tile-value, .sv-kpi-value {
+  font-weight: 800 !important;
+  letter-spacing: -0.03em !important;
+  font-variant-numeric: tabular-nums;
+}
+.sv-kpi-tile-label, .sv-kpi-label {
+  font-size: 13px !important; font-weight: 500 !important;
+  color: #64748B !important; letter-spacing: 0 !important;
+}
+.sv-table thead th { font-weight: 600 !important; letter-spacing: .02em !important; }
+.sv-table tbody td { font-size: 13.5px !important; color: #334155 !important; }
+.sv-nav-btn { letter-spacing: -0.005em !important; }
+.sv-badge { font-weight: 600 !important; letter-spacing: .01em !important; }
+
+/* =====================================================================
+   DARK THEME 4.2 — restore proper dark mode (overrides the white-forcing
+   minimal layer when the shell has .sv-dark). Surfaces, text, inputs,
+   tables, badges. No layout/logic change.
+   ===================================================================== */
+.sv-dark, .sv-dark .sv-main { background: #0B1220 !important; color: #E2E8F0 !important; }
+
+.sv-dark .sv-card,
+.sv-dark .sv-kpi-tile,
+.sv-dark .sv-kpi-card,
+.sv-dark .sv-modal,
+.sv-dark .sv-status-pill,
+.sv-dark .sv-msg-card {
+  background: #131C31 !important;
+  border-color: rgba(255,255,255,.08) !important;
+  color: #E2E8F0 !important;
+  box-shadow: 0 1px 2px rgba(0,0,0,.35) !important;
+}
+.sv-dark .sv-card:hover,
+.sv-dark .sv-kpi-tile:hover { box-shadow: 0 8px 20px -8px rgba(0,0,0,.55) !important; }
+
+/* Text hierarchy */
+.sv-dark .sv-tab-title,
+.sv-dark .sv-card > h3,
+.sv-dark .sv-card h4,
+.sv-dark .sv-kpi-tile-value,
+.sv-dark .sv-kpi-value,
+.sv-dark .sv-status-pill-name,
+.sv-dark .sv-msg-name { color: #F1F5F9 !important; }
+.sv-dark .sv-kpi-tile-label,
+.sv-dark .sv-kpi-label,
+.sv-dark .sv-text-muted,
+.sv-dark .sv-muted,
+.sv-dark .sv-msg-lead,
+.sv-dark .sv-msg-time,
+.sv-dark .sv-msg-preview { color: #94A3B8 !important; }
+
+/* Colored KPI chip on dark */
+.sv-dark .sv-kpi-tile-icon { background: color-mix(in srgb, var(--accent, #2563EB) 24%, #131C31) !important; }
+
+/* Inputs / selects / textareas */
+.sv-dark .sv-input,
+.sv-dark .sv-select,
+.sv-dark .sv-id-input,
+.sv-dark textarea.sv-input {
+  background: #0F172A !important;
+  border-color: rgba(255,255,255,.12) !important;
+  color: #E2E8F0 !important;
+}
+.sv-dark .sv-input::placeholder, .sv-dark textarea.sv-input::placeholder { color: #64748B !important; }
+
+/* Tables */
+.sv-dark .sv-table { border-color: rgba(255,255,255,.08) !important; }
+.sv-dark .sv-table thead th { background: #0F172A !important; color: #94A3B8 !important; border-bottom-color: rgba(255,255,255,.08) !important; }
+.sv-dark .sv-table tbody td { color: #CBD5E1 !important; border-bottom-color: rgba(255,255,255,.06) !important; }
+.sv-dark .sv-table tbody tr:hover { background: rgba(255,255,255,.035) !important; }
+
+/* Secondary buttons / period pills on dark */
+.sv-dark .sv-btn--ghost,
+.sv-dark .sv-btn--outline,
+.sv-dark .sv-period-btn:not(.sv-period-btn--active),
+.sv-dark .sv-tab-btn:not(.sv-tab-btn--active) {
+  background: #131C31 !important;
+  color: #CBD5E1 !important;
+  border-color: rgba(255,255,255,.12) !important;
+}
+.sv-dark .sv-btn--ghost:hover:not(:disabled),
+.sv-dark .sv-btn--outline:hover:not(:disabled) { background: #1B263F !important; }
+
+/* Modal overlay / dividers */
+.sv-dark .sv-modal-header { border-bottom-color: rgba(255,255,255,.08) !important; }
+.sv-dark .sv-meta-value { color: #E2E8F0 !important; }
+.sv-dark .sv-meta-label, .sv-dark .sv-section-label { color: #94A3B8 !important; }
+
+/* =====================================================================
+   SETTINGS 4.3 — elegant employee management: labeled fields, clean
+   row cards, consistent spacing. (CSS only.)
+   ===================================================================== */
+/* Employee row = a self-contained card */
+.sv-emp-row {
+  display: flex;
+  flex-direction: column;
+  gap: 12px !important;
+  padding: 16px !important;
+  border: 1px solid var(--c-border, #E5E7EB) !important;
+  border-radius: 12px !important;
+  background: #fff !important;
+  margin-bottom: 12px !important;
+  list-style: none;
+  box-shadow: 0 1px 2px rgba(16,24,40,.04);
+}
+.sv-emp-row:hover { border-color: #CBD5E1 !important; }
+.sv-emp-row > .sv-flex--between { align-items: center; }
+.sv-emp-row > .sv-flex--between > span { font-weight: 700; font-size: 14.5px; color: #0F172A; }
+
+/* Labeled field grid inside each employee row */
+.sv-emp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.sv-field { display: flex; flex-direction: column; gap: 5px; }
+.sv-field > span {
+  font-size: 11.5px; font-weight: 600; letter-spacing: .02em;
+  color: #64748B; text-transform: uppercase;
+}
+.sv-field .sv-input, .sv-field .sv-select { width: 100%; }
+
+/* Reset-password action row spacing */
+.sv-emp-row .sv-btn--outline { border-color: var(--c-border, #E5E7EB) !important; }
+
+/* Settings grid: don't stretch short cards; align to top */
+.sv-tab .sv-grid-2 { align-items: start; }
+
+/* Settings section card headings */
+.sv-tab .sv-card > h3 { margin-bottom: 12px; }
+
+/* ── Dark mode for the settings employee rows ── */
+.sv-dark .sv-emp-row { background: #131C31 !important; border-color: rgba(255,255,255,.08) !important; box-shadow: none; }
+.sv-dark .sv-emp-row:hover { border-color: rgba(255,255,255,.16) !important; }
+.sv-dark .sv-emp-row > .sv-flex--between > span { color: #F1F5F9; }
+.sv-dark .sv-field > span { color: #94A3B8; }
+
+@media (max-width: 640px) { .sv-emp-grid { grid-template-columns: 1fr; } }
+
+/* =====================================================================
+   SETTINGS 4.4 — collapsible employee rows (name only, expand on click)
+   + section coloring. (CSS only.)
+   ===================================================================== */
+.sv-emp-count { font-size: 12px; color: #64748B; margin-bottom: 10px; font-weight: 500; }
+.sv-emp-list { max-height: 360px; overflow-y: auto; padding-right: 4px; }
+.sv-emp-list::-webkit-scrollbar { width: 8px; }
+.sv-emp-list::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 8px; }
+
+/* Row = compact card */
+.sv-emp-row {
+  display: block !important;
+  padding: 0 !important;
+  border: 1px solid var(--c-border, #E5E7EB) !important;
+  border-radius: 12px !important;
+  background: #fff !important;
+  margin-bottom: 10px !important;
+  overflow: hidden;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.sv-emp-row:hover { border-color: #CBD5E1 !important; }
+.sv-emp-row--open { border-color: #BFDBFE !important; box-shadow: 0 4px 14px rgba(37,99,235,.10) !important; }
+
+.sv-emp-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 12px 14px; cursor: pointer; user-select: none;
+}
+.sv-emp-row--open .sv-emp-head { background: #F8FAFF; border-bottom: 1px solid #EEF2F7; }
+.sv-emp-name { font-weight: 700; font-size: 14px; color: #0F172A; }
+.sv-emp-dept {
+  font-size: 11px; font-weight: 600; color: #1D4ED8;
+  background: #EFF3FE; border: 1px solid #DBE5FF;
+  padding: 2px 8px; border-radius: 999px;
+}
+.sv-emp-chevron { font-size: 10px; color: #94A3B8; }
+.sv-emp-body { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+/* Section coloring: subtle accent before each Settings card title */
+.sv-tab .sv-card > h3 { display: flex; align-items: center; gap: 9px; }
+.sv-tab .sv-card > h3::before {
+  content: ""; width: 4px; height: 16px; border-radius: 3px;
+  background: var(--c-primary, #2563EB); display: inline-block; flex: none;
+}
+
+/* Dark mode */
+.sv-dark .sv-emp-row { background: #131C31 !important; border-color: rgba(255,255,255,.08) !important; }
+.sv-dark .sv-emp-row--open { border-color: rgba(59,130,246,.45) !important; box-shadow: none !important; }
+.sv-dark .sv-emp-row--open .sv-emp-head { background: rgba(255,255,255,.03); border-bottom-color: rgba(255,255,255,.06); }
+.sv-dark .sv-emp-name { color: #F1F5F9; }
+.sv-dark .sv-emp-dept { background: rgba(37,99,235,.18); border-color: rgba(59,130,246,.3); color: #93C5FD; }
+.sv-dark .sv-emp-count { color: #94A3B8; }
+.sv-dark .sv-emp-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,.12); }
+
+/* =====================================================================
+   DARK THEME 4.5 — theme tokens so inline-styled modules (Salary,
+   Manager/IDs Assign) adapt to dark mode. Light defaults + dark overrides.
+   ===================================================================== */
+:root {
+  --sv-surface: #ffffff;
+  --sv-surface-2: #F8FAFC;
+  --sv-surface-3: #F1F5F9;
+  --sv-border: #E2E8F0;
+  --sv-text-1: #0F172A;
+  --sv-text-2: #475569;
+  --sv-text-3: #64748B;
+}
+.sv-dark {
+  --sv-surface: #131C31;
+  --sv-surface-2: #0F172A;
+  --sv-surface-3: #1B263F;
+  --sv-border: rgba(255,255,255,.10);
+  --sv-text-1: #F1F5F9;
+  --sv-text-2: #CBD5E1;
+  --sv-text-3: #94A3B8;
+}
+
+/* =====================================================================
+   PHASE A/B — Lucide nav icons + admin top header bar
+   ===================================================================== */
+.sv-nav-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; flex: none; }
+.sv-nav-icon svg { width: 18px; height: 18px; }
+.sv-nav-label { flex: 1 1 auto; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Top header */
+.sv-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -28px -32px 22px;
+  padding: 12px 32px;
+  background: var(--sv-surface);
+  border-bottom: 1px solid var(--sv-border);
+}
+.sv-topbar-search {
+  display: flex; align-items: center; gap: 8px;
+  flex: 1; max-width: 440px;
+  background: var(--sv-surface-2);
+  border: 1px solid var(--sv-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--sv-text-3);
+}
+.sv-topbar-search input {
+  border: none; background: transparent; outline: none; width: 100%;
+  font-size: 13.5px; color: var(--sv-text-1); font-family: inherit;
+}
+.sv-topbar-actions { display: flex; align-items: center; gap: 10px; }
+.sv-topbar-iconbtn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; border-radius: 10px;
+  border: 1px solid var(--sv-border); background: var(--sv-surface);
+  color: var(--sv-text-2); cursor: pointer; transition: background .15s ease;
+}
+.sv-topbar-iconbtn:hover { background: var(--sv-surface-2); }
+.sv-topbar-badge {
+  position: absolute; top: -5px; right: -5px;
+  background: #EF4444; color: #fff; font-size: 10px; font-weight: 700;
+  min-width: 16px; height: 16px; border-radius: 999px;
+  display: flex; align-items: center; justify-content: center; padding: 0 4px;
+}
+.sv-topbar-profile {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  padding: 5px 10px 5px 6px; border: 1px solid var(--sv-border);
+  border-radius: 999px; cursor: pointer; background: var(--sv-surface);
+  transition: background .15s ease; user-select: none;
+}
+.sv-topbar-profile:hover { background: var(--sv-surface-2); }
+.sv-topbar-avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--grad-primary, #2563EB); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800;
+}
+.sv-topbar-name { font-size: 13.5px; font-weight: 600; color: var(--sv-text-1); }
+.sv-topbar-menu {
+  position: absolute; top: calc(100% + 8px); right: 0; min-width: 156px;
+  background: var(--sv-surface); border: 1px solid var(--sv-border);
+  border-radius: 10px; box-shadow: var(--shadow-soft-lg); padding: 6px; z-index: 40;
+  display: flex; flex-direction: column;
+}
+.sv-topbar-menu button {
+  text-align: left; padding: 8px 10px; border: none; background: transparent;
+  border-radius: 7px; font-size: 13px; color: var(--sv-text-1); cursor: pointer; font-family: inherit;
+}
+.sv-topbar-menu button:hover { background: var(--sv-surface-2); }
+
+@media (max-width: 640px) {
+  .sv-topbar { margin: -18px -16px 16px; padding: 10px 16px; }
+  .sv-topbar-search { display: none; }
+  .sv-topbar-name { display: none; }
+}
+
+/* Phase C — Lucide icons inside KPI chips render at consistent size */
+.sv-kpi-tile-icon svg, .sv-kpi-chip svg { width: 19px; height: 19px; }
+
+/* Phase C — align Lucide icon + text inside buttons */
+.sv-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.sv-btn svg { flex: none; }
+
+/* =====================================================================
+   PHASE D — Login page polish (docs phase 13): clean card, soft shadow,
+   consistent radius, tighter logo, reduced glow. Shared by both logins.
+   ===================================================================== */
+.sv-login-wrap {
+  background: #F8FAFC;
+  background-image: radial-gradient(60% 50% at 50% 0%, rgba(37,99,235,.06) 0%, transparent 70%);
+}
+.sv-login-card {
+  border-radius: 16px !important;
+  box-shadow: 0 10px 30px -12px rgba(16,24,40,.18) !important;
+  border: 1px solid var(--sv-border, #E5E7EB);
+  background: #fff;
+  padding: 34px 30px;
+  max-width: 400px;
+}
+.sv-login-logo { margin-bottom: 22px; }
+.sv-login-logo img { max-height: 52px; width: auto; object-fit: contain; }
+.sv-login-subtitle { color: #64748B; font-size: 13.5px; font-weight: 500; margin-top: 4px; }
+.sv-login-card .sv-input { margin-bottom: 4px; }
+.sv-login-card .sv-btn--primary { width: 100%; }
+
+/* =====================================================================
+   TYPOGRAPHY 5.0 — Inter everywhere + premium SaaS type scale (final).
+   Forces Inter across all elements (overriding any Roboto/Helvetica/DM
+   Sans fallback) and standardizes sizes, weights, spacing, line-height.
+   ===================================================================== */
+:root { --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+
+/* Force Inter on every element (SVG chart text included). Print windows
+   are separate documents and keep their own fonts. */
+*, *::before, *::after { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important; }
+
+html, body {
+  font-family: 'Inter', system-ui, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv02","cv03","cv04","cv11";
+}
+body { font-size: 14px; line-height: 1.55; letter-spacing: -0.006em; color: #0F172A; }
+
+/* ── Type scale ── */
+/* Page titles — 32 / Bold */
+.sv-tab-title {
+  font-size: 32px !important; font-weight: 700 !important;
+  letter-spacing: -0.025em !important; line-height: 1.18 !important;
+}
+/* Section / card titles — 22 / Semibold */
+.sv-card > h3, .sv-section-title {
+  font-size: 20px !important; font-weight: 600 !important;
+  letter-spacing: -0.015em !important; line-height: 1.3 !important;
+}
+.sv-card h4 { font-size: 14px !important; font-weight: 600 !important; letter-spacing: -0.005em !important; color: #475569 !important; }
+/* KPI card values — 30–34 / Bold, tabular numerals */
+.sv-kpi-tile-value, .sv-kpi-value {
+  font-size: 30px !important; font-weight: 700 !important;
+  letter-spacing: -0.03em !important; line-height: 1.1 !important;
+  font-variant-numeric: tabular-nums;
+}
+/* KPI / card labels — 14 / Medium */
+.sv-kpi-tile-label, .sv-kpi-label {
+  font-size: 14px !important; font-weight: 500 !important;
+  letter-spacing: 0 !important; color: #64748B !important;
+}
+/* Table headers — 13–14 / Semibold */
+.sv-table thead th {
+  font-size: 13px !important; font-weight: 600 !important;
+  letter-spacing: 0.01em !important; text-transform: none !important; color: #64748B !important;
+}
+/* Table content — 14 / Regular */
+.sv-table tbody td { font-size: 14px !important; font-weight: 400 !important; color: #334155 !important; }
+/* Buttons — 14 / Medium */
+.sv-btn, .sv-period-btn, .sv-tab-btn, .sv-nav-btn, .sv-header-nav-btn {
+  font-size: 14px !important; font-weight: 500 !important; letter-spacing: -0.006em !important;
+}
+.sv-btn--sm { font-size: 12.5px !important; }
+/* Secondary text — 13 / Regular */
+.sv-text-muted, .sv-muted, .sv-sidebar-sub, .sv-msg-time, .sv-msg-lead, .sv-emp-count, .sv-login-subtitle {
+  font-size: 13px !important; font-weight: 400 !important; color: #64748B !important;
+}
+/* Inputs / labels */
+.sv-input, .sv-select, textarea.sv-input { font-size: 14px !important; font-weight: 400 !important; }
+.sv-form-label, .sv-label, .sv-section-label, .sv-field > span {
+  font-weight: 600 !important; letter-spacing: 0.01em !important;
+}
+/* Banner + topbar names */
+.sv-ov-banner-title { font-weight: 700 !important; letter-spacing: -0.02em !important; }
+.sv-topbar-name, .sv-sidebar-name { font-weight: 600 !important; letter-spacing: -0.006em !important; }

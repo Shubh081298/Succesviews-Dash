@@ -1,4 +1,13 @@
 node_modules
 dist
-.env
 .DS_Store
+Thumbs.db
+
+# Environment (never commit real keys)
+.env
+.env.*.local
+.env.bak.*
+
+# Vite temp config artifacts
+vite.config.js.timestamp-*
+*.timestamp-*.mjs

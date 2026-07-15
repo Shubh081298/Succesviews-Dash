@@ -1,35 +1,28 @@
 import { useState } from "react";
 
 /**
- * ClickCard — clickable metric tile that opens a drill-down DetailModal.
- * Used in the Overview tab's "Employee Activity" / "Client Activity"
- * sections. Hover state lifts the card and tints its shadow with `color`.
+ * ClickCard — premium clickable KPI tile that opens a drill-down DetailModal.
+ * Visual redesign: colored icon chip + accent, larger number, hover lift.
+ * (Purely presentational; the whole tile stays clickable — no logic change.)
  */
 export default function ClickCard({ label, value, icon, color, sub, onClick }) {
   const [hov, setHov] = useState(false);
   return (
     <div
-      className="sv-card"
+      className="sv-card sv-kpi-tile"
       onClick={onClick}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      style={{
-        borderTop: `3px solid ${color}`,
-        padding: "16px 18px",
-        cursor: "pointer",
-        boxShadow: hov ? `0 8px 24px ${color}28` : undefined,
-        transform: hov ? "translateY(-3px)" : "none",
-        transition: "all 0.18s ease",
-        userSelect: "none",
-      }}
+      style={{ cursor: "pointer", userSelect: "none", "--accent": color, transform: hov ? "translateY(-4px)" : "none" }}
     >
-      <div className="sv-flex sv-justify-between" style={{ alignItems: "flex-start", marginBottom: 6 }}>
-        <div className="sv-text-navy sv-font-800" style={{ fontSize: 28, lineHeight: 1 }}>{value}</div>
-        <div style={{ fontSize: 24 }}>{icon}</div>
+      <div className="sv-flex sv-justify-between" style={{ alignItems: "flex-start", gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <div className="sv-kpi-tile-value">{value}</div>
+          <div className="sv-kpi-tile-label">{label}</div>
+          {sub && <div className="sv-text-muted sv-text-xs" style={{ marginTop: 3 }}>{sub}</div>}
+        </div>
+        <div className="sv-kpi-tile-icon" style={{ background: `${color}1A`, color }}>{icon}</div>
       </div>
-      <div className="sv-font-700" style={{ fontSize: 12.5, color: "#64748B", marginBottom: 2 }}>{label}</div>
-      {sub && <div className="sv-text-muted sv-text-xs" style={{ marginBottom: 4 }}>{sub}</div>}
-      <div className="sv-font-700 sv-text-xs" style={{ color }}>View details →</div>
     </div>
   );
 }

@@ -2,9 +2,8 @@ import { fmtDate, fmtDateTime, fmtCurr, downloadCSV } from "../../utils/helpers.
 import { BLUE } from "../../utils/constants.js";
 
 /**
- * ViewModal — read-only detail view for a single submitted Daily
- * Status Report, opened from the Reports tab. Includes a CSV export
- * button for that one record.
+ * ViewModal — read-only detail view for one submitted DSR, opened from
+ * the admin Reports tab. `report` is a normalized submission record.
  */
 export default function ViewModal({ report, onClose, toast }) {
   if (!report) return null;
@@ -15,8 +14,22 @@ export default function ViewModal({ report, onClose, toast }) {
       <div className="sv-meta-value">{value}</div>
     </div>
   );
-  const section = (label, value) => (
-    <div style={{ marginBottom: 14 }}>
+
+  const rowsBlock = (label, rows, render) => {
+    const list = Array.isArray(rows) ? rows : [];
+    if (list.length === 0) return null;
+    return (
+      <div style={{ marginBottom: 12 }}>
+        <div className="sv-section-label">{label}</div>
+        <ul style={{ margin: "4px 0 0", paddingLeft: 18, fontSize: 13, color: "#374151", lineHeight: 1.6 }}>
+          {list.map((r, i) => <li key={i}>{render(r)}</li>)}
+        </ul>
+      </div>
+    );
+  };
+
+  const textBlock = (label, value) => (
+    <div style={{ marginBottom: 12 }}>
       <div className="sv-section-label">{label}</div>
       <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, color: "#374151", lineHeight: 1.6 }}>
         {value || "—"}
@@ -32,10 +45,10 @@ export default function ViewModal({ report, onClose, toast }) {
         <div className="sv-modal-header">
           <div>
             <div className="sv-text-navy sv-font-700" style={{ fontSize: 17 }}>
-              {report.employee}{report.employeeId ? ` (${report.employeeId})` : ""} — Daily Report
+              {report.empName} — {report.department} DSR
             </div>
             <div className="sv-text-muted" style={{ fontSize: 12.5, marginTop: 4 }}>
-              {fmtDate(report.date)} · Submitted {fmtDateTime(report.submittedAt)}
+              {fmtDate(report.date)}{report.ts ? ` · Submitted ${fmtDateTime(report.ts)}` : ""}
             </div>
           </div>
           <div className="sv-flex sv-items-center sv-gap-3">
@@ -44,29 +57,41 @@ export default function ViewModal({ report, onClose, toast }) {
           </div>
         </div>
         <div className="sv-modal-body">
-          <div className="sv-grid-2" style={{ marginBottom: 18 }}>
-            {meta("Sales Generated", fmtCurr(report.salesGenerated))}
-            {meta("Payment Received", fmtCurr(report.paymentReceived))}
-            {meta("Hours Worked", report.workingHours)}
-            {meta("Status", <span className={badgeClass}>{report.status}</span>)}
-          </div>
-          {section("Pending Tasks", report.pendingTasks)}
-          {section("Challenges / Blockers", report.challengesFaced || report.challenges || "None")}
-          {section("Updates for Team Lead", report.updatesForTeamLead)}
-          {report.remarks && section("Remarks", report.remarks)}
+          {report.attendance === "Absent" ? (
+            <p className="sv-text-muted" style={{ fontSize: 13.5, marginBottom: 14 }}>Marked absent — no activity recorded for this day.</p>
+          ) : (
+            <>
+              <div className="sv-grid-2" style={{ marginBottom: 18 }}>
+                {meta("Attendance", report.attendance)}
+                {meta("Hours Worked", report.workingHours || 0)}
+                {meta("Fresh Emails", report.freshEmails || 0)}
+                {meta("Reminder Emails", report.reminderEmails || 0)}
+                {meta("Sales", fmtCurr(report.salesGenerated))}
+                {meta("Payments", fmtCurr(report.paymentReceived))}
+              </div>
+              {rowsBlock("New Leads / Interested", report.leads, (r) => `${r.clientName || "—"} · ${r.idName || "—"} · ${r.domain || "—"}${r.price ? ` · ${r.price}` : ""}`)}
+              {rowsBlock("Client Follow-ups", report.followups, (r) => `${r.clientName || "—"} · ${r.domain || "—"}`)}
+              {rowsBlock("Scheduled Calls", report.calls, (r) => `${r.clientName || "—"} · ${r.idName || "—"} · ${r.domain || "—"} · ${r.time || "—"}${r.tz ? ` (${r.tz})` : ""}`)}
+              {rowsBlock("Sales Generated", report.sales, (r) => `${r.amount || 0} ${r.currency || ""} · ${r.idName || "—"}`)}
+              {rowsBlock("Payments Received", report.payments, (r) => `${r.amount || 0} ${r.currency || ""} · ${r.idName || "—"}`)}
+              {rowsBlock("Website Work", report.websitesData, (w) => `${w.name || "—"}: ${w.description || ""}`)}
+              {textBlock("Pending Tasks", report.pendingTasks)}
+              {textBlock("Updates for Team Lead", report.updatesForTeamLead)}
+            </>
+          )}
           <div className="sv-flex sv-gap-3" style={{ justifyContent: "flex-end", marginTop: 6 }}>
             <button
               className="sv-btn sv-btn--ghost"
               style={{ borderColor: BLUE, color: BLUE }}
               onClick={() => {
                 downloadCSV(
-                  `Report_${report.employee.replace(/\s/g, "_")}_${report.date}.csv`,
+                  `Report_${(report.empName || "emp").replace(/\s/g, "_")}_${report.date}.csv`,
                   [
-                    ["Employee", "Date", "Status", "Emails", "Leads", "Calls", "Sales", "Payment", "Hours", "Pending", "Challenges", "Updates"],
-                    [report.employee, report.date, report.status, report.emailsSent, report.newLeads, report.callsMade, report.salesGenerated, report.paymentReceived, report.workingHours, report.pendingTasks, report.challengesFaced, report.updatesForTeamLead],
+                    ["Employee", "Department", "Date", "Status", "Attendance", "Fresh Emails", "Reminder Emails", "Leads", "Follow-ups", "Calls", "Sales", "Payments", "Hours", "Pending", "Updates"],
+                    [report.empName, report.department, report.date, report.status, report.attendance, report.freshEmails, report.reminderEmails, report.newLeadsInterested, report.newFollowUps, report.callsScheduled, report.salesGenerated, report.paymentReceived, report.workingHours, report.pendingTasks, report.updatesForTeamLead],
                   ]
                 );
-                toast("Report exported");
+                toast && toast("Report exported");
               }}
             >
               Export CSV

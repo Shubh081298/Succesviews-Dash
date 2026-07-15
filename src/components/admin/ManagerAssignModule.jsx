@@ -9,7 +9,7 @@ import { BLUE } from "../../utils/constants.js";
  * reassign anyone via a per-row dropdown. Unassigned employees get
  * their own section at the bottom.
  */
-export default function ManagerAssignModule({ employees, setEmployees, showToast }) {
+export default function ManagerAssignModule({ employees, setEmployees, showToast, editMode = false }) {
   const allLeadNames = [...new Set(employees.map((e) => e.teamLead).filter(Boolean))];
   const grouped = allLeadNames.map((lead) => ({ lead, members: employees.filter((e) => e.teamLead === lead) }));
   const unassigned = employees.filter((e) => !e.teamLead);
@@ -21,13 +21,13 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
   };
 
   const TeamRow = ({ emp, idx }) => (
-    <div className="sv-flex sv-items-center sv-gap-3" style={{ padding: "9px 12px", background: "#F8FAFC", borderRadius: 8, border: "1px solid #E2E8F0" }}>
+    <div className="sv-flex sv-items-center sv-gap-3" style={{ padding: "9px 12px", background: "var(--sv-surface-2)", borderRadius: 8, border: "1px solid var(--sv-border)" }}>
       <Avatar emp={emp} idx={idx} size={32} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{empLabel(emp)}</div>
         <div className="sv-text-muted" style={{ fontSize: 11 }}>{emp.department || "Sales"}</div>
       </div>
-      <select className="sv-select" value={emp.teamLead || ""} onChange={(e) => assign(emp.id, e.target.value)} style={{ width: 180, padding: "5px 8px", fontSize: 12, background: "#fff" }}>
+      <select className="sv-select" value={emp.teamLead || ""} onChange={(e) => assign(emp.id, e.target.value)} style={{ width: 180, padding: "5px 8px", fontSize: 12, background: "var(--sv-surface)" }}>
         <option value="">— No Team Lead —</option>
         {employees.filter((x) => x.id !== emp.id).map((x) => (
           <option key={x.id} value={x.name}>{x.name}</option>

@@ -1,37 +1,25 @@
 /**
- * EmployeePortal.jsx
- * ─────────────────────────────────────────────────────────────
- * The entire Employee Portal — login screen + dashboard (Daily
- * Report / My History / Leave / Settings).
- *
- * HARD RULE: this file and everything it renders must contain ZERO
- * admin buttons, admin links, admin menus, or admin functionality.
- * There is no "Admin Login" link, no password-gate modal, and no
- * import from src/portals/admin or src/components/admin anywhere in
- * this tree. Admin is reached only by navigating to /admin/login
- * directly — never from inside the Employee Portal.
- *
- * Employee auth/session state (who's logged in, which form tab is
- * open, in-progress DSR draft, etc.) is local to this component —
- * it's per-portal UI state, not shared business data. The underlying
- * records (employees, submissions, leaves, announcements, messages,
- * customFields) come from the shared AppDataContext so both portals
- * stay in sync against the same "backend".
+ * EmployeePortal.jsx — the entire Employee Portal (login + dashboard).
+ * HARD RULE: zero admin buttons, links, menus or imports. Admin is
+ * reached only via /admin/login, never from inside this tree.
  */
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { ClipboardList, History, Palmtree, IdCard, Settings } from "lucide-react";
 import { useAppData } from "../../data/AppDataContext";
 import Sidebar from "../../components/layout/Sidebar";
 import { EmployeeLogin, EmployeeDashboard } from "../../components/employee";
 import { getTodayStr, fmtDate, blankDsr, dsrFromExisting } from "../../utils/helpers";
+import { supabase } from "../../utils/supabaseClient";
+import { employeeSignIn, employeeSignOut, sendPasswordReset } from "../../utils/auth";
 
 export default function EmployeePortal() {
   const {
     employees, saveEmployees,
-    submissions, saveSubs,
-    leaves, saveLeaves,
+    submissions, saveSubs, upsertSubmission,
+    leaves, saveLeaves, addLeave,
     customFields,
     announcements, saveAnnouncements,
-    messages, saveMessages,
+    messages, saveMessages, dismissMessage,
     websites,
     logo, theme, toggleTheme,
     showToast, pushNotification,
@@ -40,8 +28,10 @@ export default function EmployeePortal() {
   /* ── Employee session state (local to this portal) ───────── */
   const [loggedIn, setLoggedIn] = useState(false);
   const [emp, setEmp] = useState(null);
-  const [loginSel, setLoginSel] = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
   const [loginPwd, setLoginPwd] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [busy, setBusy] = useState(false);
 
   /* ── Employee dashboard UI state ──────────────────────────── */
   const [empTab, setEmpTab] = useState("form");
@@ -52,22 +42,56 @@ export default function EmployeePortal() {
   const [leaveForm, setLeaveForm] = useState({ fromDate: "", toDate: "", reason: "" });
 
   /* ── Auth handlers ─────────────────────────────────────────── */
-  const handleLogin = () => {
-    const found = employees.find((e) => String(e.id) === String(loginSel));
-    if (!found) { showToast("Select your name first.", "error"); return; }
-    if (String(found.password || "1234") !== loginPwd) { showToast("Incorrect password.", "error"); return; }
+  const handleLogin = async () => {
+    const email = loginEmail.trim();
+    if (!email || !loginPwd) { showToast("Enter your email and password.", "error"); return; }
+    setBusy(true);
+    try { localStorage.setItem("svd_remember", remember ? "true" : "false"); } catch (e) { /* ignore */ }
+    const res = await employeeSignIn(email, loginPwd);
+    if (!res.success) { showToast(res.error || "Login failed.", "error"); setBusy(false); return; }
+    const found = employees.find((e) => (e.email || "").toLowerCase() === email.toLowerCase());
+    if (!found) {
+      showToast("No employee profile found for this email. Contact your admin.", "error");
+      await employeeSignOut();
+      setBusy(false);
+      return;
+    }
     setEmp(found);
     setLoggedIn(true);
     setLoginPwd("");
+    setBusy(false);
     showToast(`Welcome back, ${found.name}!`, "success");
   };
 
-  const handleLogout = () => {
+  const handleForgot = async () => {
+    const email = loginEmail.trim();
+    if (!email) { showToast("Enter your email first, then click Forgot password.", "error"); return; }
+    const res = await sendPasswordReset(email);
+    if (res.success) showToast("Password reset email sent. Check your inbox.", "success");
+    else showToast(res.error || "Could not send reset email.", "error");
+  };
+
+  const handleLogout = async () => {
+    await employeeSignOut();
     setLoggedIn(false);
     setEmp(null);
-    setLoginSel("");
+    setLoginEmail("");
+    setLoginPwd("");
     setEmpTab("form");
   };
+
+  /* Restore an existing (remembered) session once employees are loaded. */
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      const sessEmail = data?.session?.user?.email;
+      if (!active || !sessEmail || loggedIn || !employees.length) return;
+      const found = employees.find((e) => (e.email || "").toLowerCase() === sessEmail.toLowerCase());
+      if (found) { setEmp(found); setLoggedIn(true); }
+    })();
+    return () => { active = false; };
+  }, [employees, loggedIn]);
 
   /* ── Employee self-service handlers ──────────────────────── */
   const updateMyPhoto = (dataUrl) => {
@@ -76,22 +100,21 @@ export default function EmployeePortal() {
     setEmp({ ...emp, photo: dataUrl });
   };
 
-  const onApplyLeave = () => {
+  const onApplyLeave = async () => {
     if (!leaveForm.fromDate || !leaveForm.toDate || !leaveForm.reason.trim()) {
       showToast("Fill in all leave fields.", "error");
       return;
     }
-    const rec = { id: Date.now(), empId: emp.id, empName: emp.name, ...leaveForm, status: "Pending", ts: Date.now() };
-    saveLeaves([rec, ...leaves]);
+    await addLeave(emp.id, emp.name, leaveForm.fromDate, leaveForm.toDate, leaveForm.reason);
     setLeaveForm({ fromDate: "", toDate: "", reason: "" });
     showToast("Leave request submitted.", "success");
-    pushNotification(`${emp.name} applied for leave (${rec.fromDate} → ${rec.toDate}).`);
+    pushNotification(`${emp.name} applied for leave (${leaveForm.fromDate} -> ${leaveForm.toDate}).`);
   };
 
   const dismissAnnouncement = (id) => {
     saveAnnouncements(announcements.map((a) => (a.id === id ? { ...a, dismissedBy: [...(a.dismissedBy || []), emp.id] } : a)));
   };
-  const dismissMessage = (id) => saveMessages(messages.map((m) => (m.id === id ? { ...m, dismissed: true } : m)));
+  const handleDismissMessage = (id) => dismissMessage(id);
 
   /* ── DSR (Daily Status Report) handlers ──────────────────── */
   const onDateChange = (date) => {
@@ -100,31 +123,50 @@ export default function EmployeePortal() {
     setDsrForm(dsrFromExisting(existing));
   };
 
-  const handleDsrSave = (status) => {
-    const idx = submissions.findIndex((s) => s.empId === emp.id && s.date === dsrDate);
+  const handleDsrSave = async (status) => {
+    if (status === "Submitted" && dsrForm.attendance !== "Absent") {
+      // Mandatory fields validation
+      if (!String(dsrForm.freshEmails || "").trim() || Number(dsrForm.freshEmails) < 0) {
+        showToast(" Fresh Emails Sent is required.", "error"); return;
+      }
+      if (!String(dsrForm.reminderEmails || "").trim() || Number(dsrForm.reminderEmails) < 0) {
+        showToast(" Reminder Emails Sent is required.", "error"); return;
+      }
+      // Scheduled Calls: NA is allowed (empty array). Only block if undefined.
+      if (!String(dsrForm.workingHours || "").trim() || Number(dsrForm.workingHours) <= 0) {
+        showToast(" Working Hours is required.", "error"); return;
+      }
+      if (!String(dsrForm.pendingTasks || "").trim() || !String(dsrForm.updatesForTeamLead || "").trim()) {
+        showToast(" Please fill Pending Tasks and Updates for Team Lead.", "error"); return;
+      }
+    }
+    const existing = submissions.find((s) => s.empId === emp.id && s.date === dsrDate);
     const websitesData = dsrForm.websites;
     const rec = {
-      id: idx >= 0 ? submissions[idx].id : Date.now(),
+      id: existing ? existing.id : String(Date.now()),
       empId: emp.id, empName: emp.name, department: emp.department, date: dsrDate,
       status, ts: Date.now(),
       ...dsrForm, websitesData,
     };
-    const next = idx >= 0 ? submissions.map((s, i) => (i === idx ? rec : s)) : [...submissions, rec];
-    saveSubs(next);
+    const res = await upsertSubmission(rec);
+    if (res && res.success === false) return; // save failed; error toast already shown
     showToast(status === "Submitted" ? "DSR submitted!" : "Draft saved.", "success");
     if (status === "Submitted") pushNotification(`${emp.name} submitted their DSR for ${fmtDate(dsrDate)}.`);
   };
 
-  /* ── Render: not logged in → Employee login only ─────────── */
+  /* ── Render: not logged in -> Employee login only ─────────── */
   if (!loggedIn) {
     return (
       <EmployeeLogin
-        employees={employees}
-        loginSel={loginSel}
-        setLoginSel={setLoginSel}
-        loginPwd={loginPwd}
-        setLoginPwd={setLoginPwd}
+        email={loginEmail}
+        setEmail={setLoginEmail}
+        password={loginPwd}
+        setPassword={setLoginPwd}
+        remember={remember}
+        setRemember={setRemember}
         onLogin={handleLogin}
+        onForgot={handleForgot}
+        busy={busy}
       />
     );
   }
@@ -133,13 +175,14 @@ export default function EmployeePortal() {
   return (
     <div className={`sv-app-shell${theme === "dark" ? " sv-dark" : ""}`}>
       <Sidebar
-        logo={logo} brandTitle={emp.name} brandSubtitle={emp.department}
+        logo={logo} brandTitle={emp.name} brandSubtitle={emp.department} brandPhoto={emp.photo}
         theme={theme} onToggleTheme={toggleTheme}
         nav={[
-          { key: "form", label: "📝 Daily Report" },
-          { key: "history", label: "🗂️ My History" },
-          { key: "leave", label: "🌴 Leave" },
-          { key: "settings", label: "⚙️ Settings" },
+          { key: "form", label: "Daily Report", icon: <ClipboardList size={18} /> },
+          { key: "history", label: "My History", icon: <History size={18} /> },
+          { key: "leave", label: "Leave", icon: <Palmtree size={18} /> },
+          { key: "assigned", label: "Assigned IDs", icon: <IdCard size={18} /> },
+          { key: "settings", label: "Settings", icon: <Settings size={18} /> },
         ]}
         active={empTab} onSelect={setEmpTab}
         onSignOut={handleLogout}
@@ -157,12 +200,13 @@ export default function EmployeePortal() {
           announcements={announcements.filter((a) => a.departments?.includes(emp.department) && !a.dismissedBy?.includes(emp.id))}
           onDismissAnn={dismissAnnouncement}
           myMessages={messages.filter((m) => m.empId === emp.id && !m.dismissed)}
-          onDismissMsg={dismissMessage}
+          onDismissMsg={handleDismissMessage}
           theme={theme} onToggleTheme={toggleTheme}
           leaves={leaves.filter((l) => l.empId === emp.id)}
           leaveForm={leaveForm} setLeaveForm={setLeaveForm} onApplyLeave={onApplyLeave}
           onUpdatePhoto={updateMyPhoto}
           employees={employees}
+          logo={logo}
         />
       </main>
     </div>

@@ -1,7 +1,6 @@
 /**
  * KPI — small metric card with an optional target/progress bar.
- * Used throughout Overview, Departments, and Analytics tabs.
- * `color` sets the left accent border and the progress-bar fill.
+ * Visual redesign: colored icon chip. `color` sets accent + bar fill.
  */
 export default function KPI({ label, value, icon, color, target, prefix = "" }) {
   const num = typeof value === "number" ? value : null;
@@ -16,7 +15,7 @@ export default function KPI({ label, value, icon, color, target, prefix = "" }) 
           <p className="sv-kpi-value">{prefix}{typeof value === "number" ? value.toLocaleString() : value}</p>
           {pct != null && <p className={`sv-kpi-target ${pctClass}`}>{pct}% of target</p>}
         </div>
-        <div style={{ fontSize: 28 }}>{icon}</div>
+        <div className="sv-kpi-chip" style={{ background: `${color}1A`, color }}>{icon}</div>
       </div>
       {pct != null && (
         <div className="sv-kpi-bar-track">

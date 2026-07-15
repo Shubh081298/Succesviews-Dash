@@ -1,26 +1,26 @@
 import { CHART_COLORS } from "../../utils/constants.js";
 
 /**
- * Avatar — circular employee avatar.
- * Renders the employee's uploaded photo if present, otherwise falls
- * back to a colored circle with their initials. The color is picked
- * deterministically from CHART_COLORS based on list index, so the
- * same employee gets a consistent color across renders.
+ * Avatar — circular employee avatar. Renders the uploaded photo if
+ * present, otherwise a colored circle with initials. Accepts either an
+ * `emp` object or loose `name`/`photo` props.
  */
-export default function Avatar({ emp, idx = 0, size = 32 }) {
+export default function Avatar({ emp, name, photo, idx = 0, size = 32 }) {
+  const displayName = emp?.name ?? name ?? "";
+  const displayPhoto = emp?.photo ?? photo ?? "";
   const color = CHART_COLORS[idx % CHART_COLORS.length];
-  const initials = (emp?.name || "")
+  const initials = displayName
     .split(" ")
     .map((w) => w[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
 
-  if (emp?.photo) {
+  if (displayPhoto) {
     return (
       <img
-        src={emp.photo}
-        alt={emp.name}
+        src={displayPhoto}
+        alt={displayName}
         className="sv-avatar"
         style={{ width: size, height: size, border: `1.5px solid ${color}` }}
       />

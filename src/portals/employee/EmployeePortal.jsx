@@ -8,6 +8,7 @@ import { ClipboardList, History, Palmtree, IdCard, Settings } from "lucide-react
 import { useAppData } from "../../data/AppDataContext";
 import Sidebar from "../../components/layout/Sidebar";
 import { EmployeeLogin, EmployeeDashboard } from "../../components/employee";
+import DesignerDashboard from "../../components/designer/DesignerDashboard";
 import { getTodayStr, fmtDate, blankDsr, dsrFromExisting } from "../../utils/helpers";
 import { supabase } from "../../utils/supabaseClient";
 import { employeeSignIn, employeeSignOut, sendPasswordReset } from "../../utils/auth";
@@ -21,6 +22,8 @@ export default function EmployeePortal() {
     announcements, saveAnnouncements,
     messages, saveMessages, dismissMessage,
     websites,
+    designProjects, designFiles, uploadDesignFile, deleteDesignFile, updateDesignProject,
+    expenses, addExpense,
     logo, theme, toggleTheme,
     showToast, pushNotification,
   } = useAppData();
@@ -47,15 +50,40 @@ export default function EmployeePortal() {
     if (!email || !loginPwd) { showToast("Enter your email and password.", "error"); return; }
     setBusy(true);
     try { localStorage.setItem("svd_remember", remember ? "true" : "false"); } catch (e) { /* ignore */ }
-    const res = await employeeSignIn(email, loginPwd);
-    if (!res.success) { showToast(res.error || "Login failed.", "error"); setBusy(false); return; }
-    const found = employees.find((e) => (e.email || "").toLowerCase() === email.toLowerCase());
-    if (!found) {
-      showToast("No employee profile found for this email. Contact your admin.", "error");
-      await employeeSignOut();
-      setBusy(false);
-      return;
+
+    let empId = null;
+
+    // 1) Supabase Auth (for employees provisioned that way).
+    try {
+      const res = await employeeSignIn(email, loginPwd);
+      if (res.success) {
+        const m = employees.find((e) => (e.email || "").toLowerCase() === email.toLowerCase());
+        if (m) empId = m.id;
+      }
+    } catch (e) { /* ignore */ }
+
+    // 2) Server-side verification — the password is checked INSIDE the
+    //    database (SECURITY DEFINER RPC), so plaintext passwords are never
+    //    downloaded to the browser.
+    if (!empId) {
+      try {
+        const { data } = await supabase.rpc("emp_login", { p_email: email, p_password: loginPwd });
+        const row = Array.isArray(data) ? data[0] : data;
+        if (row && row.id) empId = row.id;
+      } catch (e) { /* ignore */ }
     }
+
+    if (!empId) { showToast("Invalid email or password.", "error"); setBusy(false); return; }
+    const found = employees.find((e) => e.id === empId);
+    if (!found) { showToast("No employee profile found. Contact your admin.", "error"); setBusy(false); return; }
+
+    try {
+      const store = remember ? localStorage : sessionStorage;
+      const other = remember ? sessionStorage : localStorage;
+      store.setItem("svd_emp_session", empId);
+      other.removeItem("svd_emp_session");
+    } catch (e) { /* ignore */ }
+
     setEmp(found);
     setLoggedIn(true);
     setLoginPwd("");
@@ -73,6 +101,7 @@ export default function EmployeePortal() {
 
   const handleLogout = async () => {
     await employeeSignOut();
+    try { localStorage.removeItem("svd_emp_session"); sessionStorage.removeItem("svd_emp_session"); } catch (e) { /* ignore */ }
     setLoggedIn(false);
     setEmp(null);
     setLoginEmail("");
@@ -84,9 +113,18 @@ export default function EmployeePortal() {
   useEffect(() => {
     let active = true;
     (async () => {
+      if (loggedIn || !employees.length) return;
+      // a) Local session (RPC login) — remembered across reloads.
+      let sid = null;
+      try { sid = localStorage.getItem("svd_emp_session") || sessionStorage.getItem("svd_emp_session"); } catch (e) { /* ignore */ }
+      if (sid) {
+        const f = employees.find((e) => e.id === sid);
+        if (active && f) { setEmp(f); setLoggedIn(true); return; }
+      }
+      // b) Supabase Auth session (for provisioned accounts).
       const { data } = await supabase.auth.getSession();
       const sessEmail = data?.session?.user?.email;
-      if (!active || !sessEmail || loggedIn || !employees.length) return;
+      if (!active || !sessEmail) return;
       const found = employees.find((e) => (e.email || "").toLowerCase() === sessEmail.toLowerCase());
       if (found) { setEmp(found); setLoggedIn(true); }
     })();
@@ -167,6 +205,18 @@ export default function EmployeePortal() {
         onLogin={handleLogin}
         onForgot={handleForgot}
         busy={busy}
+      />
+    );
+  }
+
+  /* ── Render: Designer dashboard (Design department) ───────── */
+  if (emp && (emp.department || "").toLowerCase() === "design") {
+    return (
+      <DesignerDashboard
+        emp={emp} logo={logo} theme={theme} toggleTheme={toggleTheme} onLogout={handleLogout}
+        designProjects={designProjects} designFiles={designFiles}
+        uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} updateDesignProject={updateDesignProject}
+        expenses={expenses} addExpense={addExpense} showToast={showToast}
       />
     );
   }

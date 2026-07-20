@@ -3,7 +3,7 @@
  * Leaderboard, Analytics, Departments, Leave Board, Settings).
  * Admin-only; never imported by the Employee Portal.
  */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   PieChart, Pie, Cell, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -14,8 +14,9 @@ import {
   CHART_COLORS, TT, LEG, TICK, NAVY, BLUE, GREEN, ORANGE, PURPLE, AMBER,
 } from "../../utils/constants";
 import { fmtDate, fmtCurr, fmtSalary, sum, empLabel, humanizeKey, downloadCSV } from "../../utils/helpers";
+import { supabase } from "../../utils/supabaseClient";
 import { Mail, Send, Target, Handshake, CheckCircle2, Phone, Megaphone, IndianRupee, FileText, Banknote } from "lucide-react";
-import { Download, Plus, Pencil, KeyRound, Eye, EyeOff, X } from "lucide-react";
+import { Download, Plus, Pencil, KeyRound, Eye, EyeOff, X, Palette } from "lucide-react";
 
 /* ───────────────────────────────────────────────────────────────
  * OverviewTab — 5 primary + 5 secondary KPI cards (period-filtered)
@@ -32,7 +33,6 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
   const sales = sum(ovFiltered, "salesGenerated");
   const orders = ovFiltered.reduce((a, s) => a + ((s.contractOrders || []).length), 0);
   const payments = sum(ovFiltered, "paymentReceived");
-  const grid5 = { display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 16 };
 
   // Team Messages — employee updates written to the team lead in their DSR
   // (existing data; no backend change). Newest first.
@@ -80,7 +80,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
         )}
       </div>
 
-      <div style={grid5}>
+      <div className="sv-kpi-grid">
         <ClickCard label="Fresh Emails" value={freshEmails} icon={<Mail size={18} />} color={BLUE} onClick={() => openDM("emails")} />
         <ClickCard label="Reminder Emails" value={reminderEmails} icon={<Send size={18} />} color={PURPLE} onClick={() => openDM("reminders")} />
         <ClickCard label="New Leads" value={leads} icon={<Target size={18} />} color={GREEN} onClick={() => openDM("leads")} />
@@ -88,7 +88,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
         <ClickCard label="DSR Submitted" value={dsrSubmitted} icon={<CheckCircle2 size={18} />} color={NAVY} onClick={() => openDM("dsr")} />
       </div>
 
-      <div style={grid5}>
+      <div className="sv-kpi-grid">
         <ClickCard label="Scheduled Calls" value={calls} icon={<Phone size={18} />} color={ORANGE} onClick={() => openDM("calls")} />
         <ClickCard label="Team Lead Updates" value={updates} icon={<Megaphone size={18} />} color={BLUE} onClick={() => openDM("updates")} />
         <ClickCard label="Sales" value={fmtCurr(sales)} icon={<IndianRupee size={18} />} color={GREEN} onClick={() => openDM("sales")} />
@@ -488,7 +488,7 @@ export function LeaveBoardTab({ leaves, setLeaveStatus, editMode = false }) {
  * SettingsTab — employee management (incl. email), two-step admin
  * password, messaging, targets, branding, website list.
  * ──────────────────────────────────────────────────────────────*/
-export function SettingsTab({ employees, setEmployees, onUpdateEmp, onDeleteEmp, onResetPwd, newEmp, setNewEmp, addEmployeeQuick, adminPwd, setAdminPwd, msgEmpId, setMsgEmpId, msgText, setMsgText, sendMessage, messages, deleteMessage, targets, setTargets, logo, onLogoChange, onLogoRemove, websites, newWebsite, setNewWebsite, addWebsite, removeWebsite, pushNotification, showToast, editMode = false, setEditMode, settingsPwd = "Settings@123", setSettingsPwd }) {
+export function SettingsTab({ employees, setEmployees, onUpdateEmp, onDeleteEmp, onResetPwd, newEmp, setNewEmp, addEmployeeQuick, newEmpEmail, setNewEmpEmail, newEmpPwd, setNewEmpPwd, adminPwd, setAdminPwd, msgEmpId, setMsgEmpId, msgText, setMsgText, sendMessage, messages, deleteMessage, targets, setTargets, logo, onLogoChange, onLogoRemove, websites, newWebsite, setNewWebsite, addWebsite, removeWebsite, pushNotification, showToast, editMode = false, setEditMode, settingsPwd = "Settings@123", setSettingsPwd }) {
   const [curPwd, setCurPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
@@ -499,8 +499,10 @@ export function SettingsTab({ employees, setEmployees, onUpdateEmp, onDeleteEmp,
     reader.readAsDataURL(file);
   };
 
-  const changeAdminPwd = () => {
-    if (curPwd !== adminPwd) { showToast("Current password is incorrect.", "error"); return; }
+  const changeAdminPwd = async () => {
+    let okCur = false;
+    try { const { data } = await supabase.rpc("admin_login", { p_password: curPwd }); okCur = data === true; } catch (e) { /* ignore */ }
+    if (!okCur) { showToast("Current password is incorrect.", "error"); return; }
     if (!newPwd || newPwd.length < 4) { showToast("New password must be at least 4 characters.", "error"); return; }
     if (newPwd !== confirmPwd) { showToast("New passwords do not match.", "error"); return; }
     setAdminPwd(newPwd);
@@ -515,8 +517,10 @@ export function SettingsTab({ employees, setEmployees, onUpdateEmp, onDeleteEmp,
       <div className="sv-grid-2 sv-gap-md">
         <div className="sv-card">
           <h3>Manage Employees</h3>
-          <div className="sv-flex sv-gap-sm">
-            <input className="sv-input" placeholder="New employee name" value={newEmp} onChange={(e) => setNewEmp(e.target.value)} />
+          <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap" }}>
+            <input className="sv-input" placeholder="Full name" value={newEmp} onChange={(e) => setNewEmp(e.target.value)} style={{ flex: "1 1 150px" }} />
+            <input className="sv-input" type="email" placeholder="Email (for login)" value={newEmpEmail} onChange={(e) => setNewEmpEmail(e.target.value)} style={{ flex: "1 1 190px" }} />
+            <input className="sv-input" placeholder="Password (default 1234)" value={newEmpPwd} onChange={(e) => setNewEmpPwd(e.target.value)} style={{ flex: "1 1 150px" }} />
             <button className="sv-btn sv-btn--primary" onClick={addEmployeeQuick}>Add</button>
           </div>
           {/* Compact employee list — shows 4, scrollable, View All toggle */}
@@ -603,7 +607,7 @@ function EmployeeRow({ emp, onUpdateEmp, onDeleteEmp, onResetPwd }) {
       <div className="sv-emp-grid">
         <label className="sv-field"><span>Department</span>
           <select className="sv-select" value={draft.department} onChange={(e) => { const v = e.target.value; const next = { ...draft, department: v }; setDraft(next); onUpdateEmp(next); }}>
-            <option>Sales</option><option>Operations</option>
+            <option>Sales</option><option>Operations</option><option>Design</option>
           </select>
         </label>
         <label className="sv-field"><span>Employee Code</span>
@@ -664,8 +668,8 @@ function ResetPasswordInline({ empId, empName, onResetPwd, currentPassword }) {
           {reveal ? <><EyeOff size={14} /> Hide password</> : <><Eye size={14} /> View password</>}
         </button>
         {reveal && (
-          <code style={{ fontSize: 12, background: "#F1F5F9", padding: "3px 8px", borderRadius: 6, color: "#0F172A" }}>
-            {currentPassword ? currentPassword : "— not available —"}
+          <code style={{ fontSize: 12, background: "#FEF3C7", padding: "3px 8px", borderRadius: 6, color: "#92400E" }}>
+            {currentPassword ? currentPassword : "Hidden for security — use Reset Password to set a new one."}
           </code>
         )}
       </div>
@@ -1276,3 +1280,315 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
 }
 
 const lblS = { display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#475569" };
+
+/* ───────────────────────────────────────────────────────────────
+ * DesignsTab — Admin Design Management (Phase 1: project tracking).
+ * Create/list/search magazine design projects, assign a designer,
+ * drive the status workflow, and see live stats. File uploads,
+ * the Designer dashboard, versioning, revisions, notifications and
+ * the timeline come in later phases. Reuses existing .sv-* styles.
+ * ──────────────────────────────────────────────────────────────*/
+const DESIGN_STATUSES = ["Pending", "Draft Started", "Sample Ready", "Revision Required", "Final Design Ready", "Completed"];
+const DESIGN_PRIORITIES = ["High", "Medium", "Low"];
+const DESIGN_BLANK = { clientName: "", companyName: "", magazineName: "", edition: "", dueDate: "", priority: "Medium", assignedDesigner: "", assignedDesignerName: "", status: "Pending", instructions: "", internalNotes: "" };
+
+const designStatusStyle = (s) => ({
+  "Pending": { bg: "#F1F5F9", fg: "#475569" },
+  "Draft Started": { bg: "#FEE2E2", fg: "#B91C1C" },
+  "Sample Ready": { bg: "#FEF3C7", fg: "#B45309" },
+  "Revision Required": { bg: "#FFEDD5", fg: "#C2410C" },
+  "Final Design Ready": { bg: "#DBEAFE", fg: "#1D4ED8" },
+  "Completed": { bg: "#DCFCE7", fg: "#15803D" },
+}[s] || { bg: "#F1F5F9", fg: "#475569" });
+const designPriorityStyle = (p) => ({
+  "High": { bg: "#FEE2E2", fg: "#B91C1C" },
+  "Medium": { bg: "#FEF3C7", fg: "#B45309" },
+  "Low": { bg: "#DCFCE7", fg: "#15803D" },
+}[p] || { bg: "#F1F5F9", fg: "#475569" });
+
+export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile }) {
+  const [search, setSearch] = useState("");
+  const [fStatus, setFStatus] = useState("");
+  const [fPriority, setFPriority] = useState("");
+  const [fDesigner, setFDesigner] = useState("");
+  const [form, setForm] = useState(null);
+  const [isNew, setIsNew] = useState(false);
+  const [detail, setDetail] = useState(null);
+  const [confirmDel, setConfirmDel] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [uploadKind, setUploadKind] = useState("reference");
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
+  const KIND_LABELS = { reference: "Reference", draft: "Draft", sample: "Sample", revised: "Revised", final: "Final" };
+  const fmtSize = (b) => (!b ? "" : b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(0) + " KB" : (b / 1048576).toFixed(1) + " MB");
+  const onUploadFile = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file || !detail) return;
+    setUploading(true);
+    await uploadDesignFile(detail.id, uploadKind, file, "Admin");
+    setUploading(false);
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const isOverdue = (p) => p.dueDate && p.dueDate < todayISO && p.status !== "Completed";
+
+  const stats = {
+    total: designProjects.length,
+    pending: designProjects.filter((p) => p.status === "Pending").length,
+    draft: designProjects.filter((p) => p.status === "Draft Started").length,
+    sample: designProjects.filter((p) => p.status === "Sample Ready").length,
+    revision: designProjects.filter((p) => p.status === "Revision Required").length,
+    completed: designProjects.filter((p) => p.status === "Completed").length,
+    overdue: designProjects.filter(isOverdue).length,
+  };
+  const weekEnd = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); })();
+  const monthEnd = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().slice(0, 10); })();
+  const dueToday = designProjects.filter((p) => p.dueDate === todayISO && p.status !== "Completed").length;
+  const dueWeek = designProjects.filter((p) => p.dueDate && p.dueDate >= todayISO && p.dueDate <= weekEnd && p.status !== "Completed").length;
+  const dueMonth = designProjects.filter((p) => p.dueDate && p.dueDate >= todayISO && p.dueDate <= monthEnd && p.status !== "Completed").length;
+
+  const filtered = designProjects.filter((p) => {
+    const q = search.trim().toLowerCase();
+    if (q && !`${p.clientName} ${p.companyName} ${p.magazineName} ${p.edition} ${p.assignedDesignerName}`.toLowerCase().includes(q)) return false;
+    if (fStatus && p.status !== fStatus) return false;
+    if (fPriority && p.priority !== fPriority) return false;
+    if (fDesigner && p.assignedDesigner !== fDesigner) return false;
+    return true;
+  });
+
+  const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const openAdd = () => { setForm({ ...DESIGN_BLANK }); setIsNew(true); };
+  const openEdit = (p) => { setForm({ ...p }); setIsNew(false); setDetail(null); };
+  const setDesigner = (id) => {
+    const e = employees.find((x) => x.id === id);
+    setForm((f) => ({ ...f, assignedDesigner: id, assignedDesignerName: e ? e.name : "" }));
+  };
+  const save = async () => {
+    if (!form.clientName.trim()) return;
+    setSaving(true);
+    const ok = isNew ? await addDesignProject(form) : await updateDesignProject(form);
+    setSaving(false);
+    if (ok !== false) setForm(null);
+  };
+  const changeStatus = async (p, status) => { await updateDesignProject({ ...p, status }); setDetail((d) => (d && d.id === p.id ? { ...d, status } : d)); };
+  const doDelete = async () => { const id = confirmDel.id; setConfirmDel(null); setDetail(null); await deleteDesignProject(id); };
+
+  const statCard = (label, value, accent) => (
+    <div className="sv-card" style={{ padding: 16 }}>
+      <div style={{ fontSize: 26, fontWeight: 800, color: accent || "#0F172A", letterSpacing: "-0.02em" }}>{value}</div>
+      <div style={{ fontSize: 12.5, fontWeight: 600, color: "#64748B", marginTop: 2 }}>{label}</div>
+    </div>
+  );
+  const badge = (text, st) => <span style={{ display: "inline-block", fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: st.bg, color: st.fg }}>{text}</span>;
+  const metaCell = (l, v) => (<div className="sv-meta-cell"><div className="sv-meta-label">{l}</div><div className="sv-meta-value">{v || "—"}</div></div>);
+  const field = (label, node) => (<label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>{label}{node}</label>);
+
+  return (
+    <div className="sv-tab">
+      <h2 className="sv-tab-title">Designs</h2>
+
+      {/* Stats */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
+        {statCard("Total Projects", stats.total, "#2563EB")}
+        {statCard("Pending", stats.pending, "#64748B")}
+        {statCard("Draft", stats.draft, "#B91C1C")}
+        {statCard("Sample Ready", stats.sample, "#B45309")}
+        {statCard("Revision", stats.revision, "#C2410C")}
+        {statCard("Completed", stats.completed, "#15803D")}
+        {statCard("Overdue", stats.overdue, "#DC2626")}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
+        {statCard("Due Today", dueToday, "#2563EB")}
+        {statCard("Due This Week", dueWeek, "#2563EB")}
+        {statCard("Due This Month", dueMonth, "#2563EB")}
+      </div>
+
+      <div className="sv-card">
+        <div className="sv-flex sv-justify-between" style={{ alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Client Projects</h3>
+            <p className="sv-text-muted" style={{ fontSize: 12.5, margin: "2px 0 0" }}>Track every magazine design project in one place.</p>
+          </div>
+          <button className="sv-btn sv-btn--primary" onClick={openAdd}><Plus size={15} /> New Project</button>
+        </div>
+
+        {/* Filters */}
+        <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", marginBottom: 14 }}>
+          <input className="sv-input" placeholder="Search client / company / magazine / designer…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 220, flex: 1 }} />
+          <select className="sv-select" value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={{ maxWidth: 170 }}>
+            <option value="">All statuses</option>{DESIGN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select className="sv-select" value={fPriority} onChange={(e) => setFPriority(e.target.value)} style={{ maxWidth: 140 }}>
+            <option value="">All priorities</option>{DESIGN_PRIORITIES.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select className="sv-select" value={fDesigner} onChange={(e) => setFDesigner(e.target.value)} style={{ maxWidth: 170 }}>
+            <option value="">All designers</option>{employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+          </select>
+        </div>
+
+        {filtered.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "40px 16px", color: "#64748B" }}>
+            <div style={{ fontSize: 38 }}><Palette size={40} /></div>
+            <p style={{ fontWeight: 700, color: "#334155", margin: "8px 0 2px" }}>No design projects yet</p>
+            <p style={{ fontSize: 13, margin: "0 0 14px" }}>Create your first client project to start tracking.</p>
+            <button className="sv-btn sv-btn--primary" onClick={openAdd}><Plus size={15} /> New Project</button>
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table className="sv-table">
+              <thead><tr><th>Client</th><th>Magazine</th><th>Edition</th><th>Due</th><th>Priority</th><th>Designer</th><th>Status</th></tr></thead>
+              <tbody>
+                {filtered.map((p) => (
+                  <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => setDetail(p)}>
+                    <td style={{ fontWeight: 600 }}>{p.clientName}{p.companyName ? <span className="sv-text-muted" style={{ fontWeight: 400 }}> · {p.companyName}</span> : null}</td>
+                    <td>{p.magazineName || "—"}</td>
+                    <td>{p.edition || "—"}</td>
+                    <td style={{ color: isOverdue(p) ? "#DC2626" : undefined, fontWeight: isOverdue(p) ? 700 : 400 }}>{p.dueDate ? fmtDate(p.dueDate) : "—"}{isOverdue(p) ? " ⚠" : ""}</td>
+                    <td>{badge(p.priority, designPriorityStyle(p.priority))}</td>
+                    <td>{p.assignedDesignerName || "—"}</td>
+                    <td>{badge(p.status, designStatusStyle(p.status))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Detail modal */}
+      {detail && (
+        <div className="sv-modal-overlay" onClick={() => setDetail(null)}>
+          <div className="sv-modal" style={{ maxWidth: 640, maxHeight: "88vh", display: "flex", flexDirection: "column" }} onClick={(ev) => ev.stopPropagation()}>
+            <div className="sv-modal-header" style={{ flexShrink: 0 }}>
+              <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>{detail.clientName}</span>
+              <button className="sv-modal-close" onClick={() => setDetail(null)}>×</button>
+            </div>
+            <div style={{ overflowY: "auto", padding: "16px 20px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                {metaCell("Company", detail.companyName)}
+                {metaCell("Magazine", detail.magazineName)}
+                {metaCell("Edition", detail.edition)}
+                {metaCell("Due Date", detail.dueDate ? fmtDate(detail.dueDate) : "—")}
+                {metaCell("Priority", <span>{badge(detail.priority, designPriorityStyle(detail.priority))}</span>)}
+                {metaCell("Designer", detail.assignedDesignerName)}
+              </div>
+              <div style={{ marginTop: 16 }}>
+                <div className="sv-section-label">Status</div>
+                <div className="sv-flex sv-gap-xs" style={{ flexWrap: "wrap", marginTop: 6 }}>
+                  {DESIGN_STATUSES.map((s) => {
+                    const st = designStatusStyle(s);
+                    const active = detail.status === s;
+                    return (
+                      <button key={s} onClick={() => changeStatus(detail, s)}
+                        style={{ fontSize: 12, fontWeight: 700, padding: "5px 11px", borderRadius: 999, cursor: "pointer",
+                          background: active ? st.bg : "#fff", color: active ? st.fg : "#64748B",
+                          border: `1px solid ${active ? st.bg : "#E5E7EB"}` }}>{s}</button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{ marginTop: 16 }}>
+                <div className="sv-section-label">Instructions for Designer</div>
+                <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, color: "#374151", lineHeight: 1.6, marginTop: 4, whiteSpace: "pre-wrap" }}>{detail.instructions || "—"}</div>
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <div className="sv-section-label">Internal Notes</div>
+                <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, color: "#374151", lineHeight: 1.6, marginTop: 4, whiteSpace: "pre-wrap" }}>{detail.internalNotes || "—"}</div>
+              </div>
+              <div style={{ marginTop: 16 }}>
+                <div className="sv-section-label">Files &amp; Versions</div>
+                <div className="sv-flex sv-gap-sm" style={{ margin: "8px 0 12px", flexWrap: "wrap", alignItems: "center" }}>
+                  <select className="sv-select" value={uploadKind} onChange={(e) => setUploadKind(e.target.value)} style={{ maxWidth: 150 }}>
+                    {Object.entries(KIND_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                  </select>
+                  <input ref={fileRef} type="file" onChange={onUploadFile} disabled={uploading} accept=".pdf,.ai,.psd,.png,.jpg,.jpeg,.svg,.docx,.zip,image/*" style={{ fontSize: 12.5 }} />
+                  {uploading && <span className="sv-text-muted" style={{ fontSize: 12 }}>Uploading…</span>}
+                </div>
+                {(() => {
+                  const projFiles = designFiles.filter((x) => x.projectId === detail.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                  if (projFiles.length === 0) return <p className="sv-text-muted" style={{ fontSize: 12.5 }}>No files yet. Pick a type and upload logos, articles, PDFs, drafts, finals — every upload is versioned.</p>;
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {projFiles.map((f) => {
+                        const isImg = /\.(png|jpe?g|svg|gif|webp)$/i.test(f.fileName);
+                        return (
+                          <div key={f.id} className="sv-flex sv-gap-sm" style={{ alignItems: "center", border: "1px solid #E5E7EB", borderRadius: 10, padding: "8px 10px" }}>
+                            {isImg
+                              ? <img src={f.fileUrl} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", flex: "none" }} />
+                              : <span style={{ width: 36, height: 36, borderRadius: 6, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}><FileText size={16} /></span>}
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}</div>
+                              <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>{badge(`${KIND_LABELS[f.kind] || f.kind} v${f.version}`, designStatusStyle("Pending"))} · {fmtSize(f.sizeBytes)} · {f.uploadedByName} · {f.createdAt ? fmtDate(f.createdAt) : ""}</div>
+                            </div>
+                            <a className="sv-btn sv-btn--sm sv-btn--ghost" href={f.fileUrl} target="_blank" rel="noreferrer">Open</a>
+                            <a className="sv-btn sv-btn--sm sv-btn--ghost" href={f.fileUrl} download={f.fileName}>Download</a>
+                            <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => deleteDesignFile(f)}>Delete</button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+              <p className="sv-text-muted" style={{ fontSize: 11, marginTop: 14 }}>Revision comments, activity timeline &amp; the designer view arrive in the next phase.</p>
+            </div>
+            <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", flexShrink: 0, alignItems: "center" }}>
+              <button className="sv-btn sv-btn--danger" onClick={() => setConfirmDel(detail)}>Delete</button>
+              <button className="sv-btn sv-btn--primary" onClick={() => openEdit(detail)}><Pencil size={14} /> Edit</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add / Edit modal */}
+      {form && (
+        <div className="sv-modal-overlay" onClick={() => setForm(null)}>
+          <div className="sv-modal" style={{ maxWidth: 640, maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={(ev) => ev.stopPropagation()}>
+            <div className="sv-modal-header" style={{ flexShrink: 0 }}>
+              <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>{isNew ? "New Design Project" : "Edit Project"}</span>
+              <button className="sv-modal-close" onClick={() => setForm(null)}>×</button>
+            </div>
+            <div style={{ overflowY: "auto", padding: "16px 20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              {field("Client Name *", <input className="sv-input" value={form.clientName} onChange={(e) => upd("clientName", e.target.value)} placeholder="Client name" />)}
+              {field("Company Name", <input className="sv-input" value={form.companyName} onChange={(e) => upd("companyName", e.target.value)} placeholder="Company" />)}
+              {field("Magazine Name", <input className="sv-input" value={form.magazineName} onChange={(e) => upd("magazineName", e.target.value)} placeholder="Magazine" />)}
+              {field("Edition", <input className="sv-input" value={form.edition} onChange={(e) => upd("edition", e.target.value)} placeholder="e.g. Jan 2026" />)}
+              {field("Due Date", <input className="sv-input" type="date" value={form.dueDate || ""} onChange={(e) => upd("dueDate", e.target.value)} />)}
+              {field("Priority", <select className="sv-select" value={form.priority} onChange={(e) => upd("priority", e.target.value)}>{DESIGN_PRIORITIES.map((s) => <option key={s} value={s}>{s}</option>)}</select>)}
+              {field("Assigned Designer", (
+                <select className="sv-select" value={form.assignedDesigner} onChange={(e) => setDesigner(e.target.value)}>
+                  <option value="">Unassigned</option>{employees.map((e) => <option key={e.id} value={e.id}>{e.name}{e.department ? ` (${e.department})` : ""}</option>)}
+                </select>
+              ))}
+              {field("Status", <select className="sv-select" value={form.status} onChange={(e) => upd("status", e.target.value)}>{DESIGN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>)}
+              <div style={{ gridColumn: "1 / -1" }}>{field("Instructions for Designer", <textarea className="sv-input" rows={3} value={form.instructions} onChange={(e) => upd("instructions", e.target.value)} placeholder="e.g. Dark blue theme, premium look, keep logo on top, use supplied images only" style={{ resize: "vertical" }} />)}</div>
+              <div style={{ gridColumn: "1 / -1" }}>{field("Internal Notes", <textarea className="sv-input" rows={2} value={form.internalNotes} onChange={(e) => upd("internalNotes", e.target.value)} placeholder="Private notes (not shown to designer)" style={{ resize: "vertical" }} />)}</div>
+            </div>
+            <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", flexShrink: 0, alignItems: "center" }}>
+              <span className="sv-text-muted" style={{ fontSize: 12 }}>* Client name is required</span>
+              <div className="sv-flex sv-gap-sm">
+                <button className="sv-btn sv-btn--ghost" onClick={() => setForm(null)}>Cancel</button>
+                <button className="sv-btn sv-btn--primary" onClick={save} disabled={saving || !form.clientName.trim()}>{saving ? "Saving…" : isNew ? "Create" : "Save"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {confirmDel && (
+        <div className="sv-modal-overlay" onClick={() => setConfirmDel(null)}>
+          <div className="sv-modal" style={{ maxWidth: 380 }} onClick={(ev) => ev.stopPropagation()}>
+            <div className="sv-modal-header"><span className="sv-text-navy sv-font-800" style={{ fontSize: 15 }}>Delete project?</span><button className="sv-modal-close" onClick={() => setConfirmDel(null)}>×</button></div>
+            <div style={{ padding: "16px 20px", fontSize: 13.5, color: "#475569" }}>This permanently removes the project for <strong>{confirmDel.clientName}</strong>. This cannot be undone.</div>
+            <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9" }}>
+              <button className="sv-btn sv-btn--ghost" onClick={() => setConfirmDel(null)}>Cancel</button>
+              <button className="sv-btn sv-btn--danger" onClick={doDelete}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

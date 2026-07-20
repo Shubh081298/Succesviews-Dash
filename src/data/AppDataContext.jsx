@@ -27,8 +27,10 @@ export function AppDataProvider({ children }) {
   const [leaves, setLeaves]                 = useState([]);
   const [salaries, setSalaries]             = useState({});
   const [expenses, setExpenses]             = useState([]);
+  const [designProjects, setDesignProjects] = useState([]);
+  const [designFiles, setDesignFiles]       = useState([]);
   const [logo, setLogo]                     = useState(logoDefault);
-  const [adminPwd, setAdminPwdState]        = useState("Admin@123");
+  const [adminPwd, setAdminPwdState]        = useState(""); // login is verified server-side (admin_login RPC); no client-side password
   const [adminEmail, setAdminEmailState]    = useState("");
   const [settingsPwd, setSettingsPwdState]  = useState("Settings@123");
   const [toast, setToast]                   = useState(null);
@@ -70,6 +72,8 @@ export function AppDataProvider({ children }) {
         loadLeaves(),
         loadSalaries(),
         loadExpenses(),
+        loadDesignProjects(),
+        loadDesignFiles(),
         loadSettings(),
       ]);
     } catch (e) {
@@ -81,18 +85,20 @@ export function AppDataProvider({ children }) {
   /* ── Loaders ─────────────────────────────────────────────── */
 
   async function loadEmployees() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("employees")
-      .select("id, name, department, code, photo, team_lead, email, password_plain, assigned_ids")
+      .select("id, name, department, code, photo, team_lead, email, assigned_ids")
       .order("created_at");
+    if (error) console.error("loadEmployees failed:", error.message);
     if (data) setEmployees(data.map(normalizeEmployee));
   }
 
   async function loadSubmissions() {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("submissions")
       .select("*")
       .order("date", { ascending: false });
+    if (error) console.error("loadSubmissions failed:", error.message);
     if (data) setSubmissions(data.map(normalizeSubmission));
   }
 
@@ -263,6 +269,120 @@ export function AppDataProvider({ children }) {
     } catch (e) { /* table may not be migrated yet — ignore silently */ }
   }
 
+  /* ── Design Projects (Design Management module) ── */
+  const rowToProject = (r) => ({
+    id: r.id,
+    clientName: r.client_name || "",
+    companyName: r.company_name || "",
+    magazineName: r.magazine_name || "",
+    edition: r.edition || "",
+    dueDate: r.due_date || "",
+    priority: r.priority || "Medium",
+    assignedDesigner: r.assigned_designer || "",
+    assignedDesignerName: r.assigned_designer_name || "",
+    status: r.status || "Pending",
+    instructions: r.instructions || "",
+    internalNotes: r.internal_notes || "",
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  });
+  const projectToRow = (p) => ({
+    client_name: p.clientName || null,
+    company_name: p.companyName || null,
+    magazine_name: p.magazineName || null,
+    edition: p.edition || null,
+    due_date: p.dueDate || null,
+    priority: p.priority || "Medium",
+    assigned_designer: p.assignedDesigner || null,
+    assigned_designer_name: p.assignedDesignerName || null,
+    status: p.status || "Pending",
+    instructions: p.instructions || null,
+    internal_notes: p.internalNotes || null,
+    updated_at: new Date().toISOString(),
+  });
+
+  async function loadDesignProjects() {
+    const { data, error } = await supabase
+      .from("design_projects")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) console.error("loadDesignProjects failed:", error.message);
+    if (data) setDesignProjects(data.map(rowToProject));
+  }
+
+  async function addDesignProject(p) {
+    const { data, error } = await supabase.from("design_projects").insert(projectToRow(p)).select("*").single();
+    if (!error && data) { setDesignProjects((prev) => [rowToProject(data), ...prev]); showToast("Design project created.", "success"); return true; }
+    showToast(`Failed to create project${error ? ": " + error.message : ""}.`, "error");
+    return false;
+  }
+
+  async function updateDesignProject(p) {
+    setDesignProjects((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...p } : x)));
+    const { error } = await supabase.from("design_projects").update(projectToRow(p)).eq("id", p.id);
+    if (error) { showToast("Failed to update project.", "error"); return false; }
+    return true;
+  }
+
+  async function deleteDesignProject(id) {
+    const { error } = await supabase.from("design_projects").delete().eq("id", id);
+    if (!error) { setDesignProjects((prev) => prev.filter((x) => x.id !== id)); showToast("Project deleted.", "success"); }
+    else showToast("Failed to delete project.", "error");
+  }
+
+  /* ── Design Files (Supabase Storage + versions) ── */
+  const rowToFile = (r) => ({
+    id: r.id,
+    projectId: r.project_id,
+    kind: r.kind || "reference",
+    version: r.version || 1,
+    fileName: r.file_name || "",
+    filePath: r.file_path || "",
+    fileUrl: r.file_url || "",
+    fileType: r.file_type || "",
+    sizeBytes: r.size_bytes || 0,
+    uploadedByName: r.uploaded_by_name || "",
+    createdAt: r.created_at,
+  });
+
+  async function loadDesignFiles() {
+    const { data, error } = await supabase
+      .from("design_files")
+      .select("*")
+      .order("created_at", { ascending: true });
+    if (error) console.error("loadDesignFiles failed:", error.message);
+    if (data) setDesignFiles(data.map(rowToFile));
+  }
+
+  async function uploadDesignFile(projectId, kind, file, uploadedByName = "Admin") {
+    try {
+      const existing = designFiles.filter((f) => f.projectId === projectId && f.kind === kind);
+      const version = existing.length ? Math.max(...existing.map((f) => f.version || 1)) + 1 : 1;
+      const safe = (file.name || "file").replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `${projectId}/${kind}/v${version}-${Date.now()}-${safe}`;
+      const { error: upErr } = await supabase.storage.from("design-files").upload(path, file, { upsert: false });
+      if (upErr) { showToast("Upload failed: " + upErr.message, "error"); return false; }
+      const { data: pub } = supabase.storage.from("design-files").getPublicUrl(path);
+      const { data, error } = await supabase.from("design_files").insert({
+        project_id: projectId, kind, version,
+        file_name: file.name, file_path: path, file_url: pub.publicUrl,
+        file_type: file.type || (file.name || "").split(".").pop(), size_bytes: file.size,
+        uploaded_by: "admin", uploaded_by_name: uploadedByName,
+      }).select("*").single();
+      if (error || !data) { showToast("File uploaded but record failed.", "error"); return false; }
+      setDesignFiles((prev) => [...prev, rowToFile(data)]);
+      showToast(`Uploaded ${kind} v${version}.`, "success");
+      return true;
+    } catch (e) { showToast("Upload error.", "error"); return false; }
+  }
+
+  async function deleteDesignFile(fileRec) {
+    try { await supabase.storage.from("design-files").remove([fileRec.filePath]); } catch (e) { /* ignore */ }
+    const { error } = await supabase.from("design_files").delete().eq("id", fileRec.id);
+    if (!error) { setDesignFiles((prev) => prev.filter((x) => x.id !== fileRec.id)); showToast("File deleted.", "success"); }
+    else showToast("Failed to delete file.", "error");
+  }
+
   async function loadSettings() {
     const { data } = await supabase.from("settings").select("key, value");
     if (data) {
@@ -272,7 +392,7 @@ export function AppDataProvider({ children }) {
         if (row.key === "targets") {
           try { setTargets(JSON.parse(row.value)); } catch {}
         }
-        if (row.key === "admin_password" && row.value) setAdminPwdState(row.value);
+        // admin_password is verified server-side (admin_login RPC); never loaded to the client.
         if (row.key === "admin_email") setAdminEmailState(row.value || "");
       });
     }
@@ -346,7 +466,7 @@ export function AppDataProvider({ children }) {
         team_lead: emp.teamLead || "", email: emp.email || "", password_hash,
         password_plain: plain,
       })
-      .select("id, name, department, code, photo, team_lead, email, password_plain, assigned_ids")
+      .select("id, name, department, code, photo, team_lead, email, assigned_ids")
       .single();
     if (!error && data) {
       setEmployees((prev) => [...prev, normalizeEmployee(data)]);
@@ -695,6 +815,8 @@ export function AppDataProvider({ children }) {
     leaves, saveLeaves, addLeave, updateLeaveStatus,
     salaries, saveSalaries,
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,
+    designProjects, addDesignProject, updateDesignProject, deleteDesignProject,
+    designFiles, uploadDesignFile, deleteDesignFile,
     logo, onLogoChange, onLogoRemove,
     adminPwd, setAdminPwd,
     adminEmail, setAdminEmail,

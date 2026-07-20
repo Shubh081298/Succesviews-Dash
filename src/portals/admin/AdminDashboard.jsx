@@ -5,7 +5,7 @@
  */
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, FileText, Trophy, BarChart3, Building2, ScrollText, CreditCard, Palmtree, Wallet, Users, Settings, Search, Bell, ChevronDown } from "lucide-react";
+import { LayoutDashboard, FileText, Trophy, BarChart3, Building2, ScrollText, CreditCard, Palmtree, Wallet, Users, Settings, Search, Bell, ChevronDown, Palette } from "lucide-react";
 import { useAppData } from "../../data/AppDataContext";
 import { useAdminAuth } from "./AdminAuthContext";
 import Sidebar from "../../components/layout/Sidebar";
@@ -14,7 +14,7 @@ import { SalaryModule, ManagerAssignModule, AssignIdsModule } from "../../compon
 import InsertionOrderForm from "../../components/admin/InsertionOrderFormDynamic";
 import {
   OverviewTab, ReportsTab, LeaderboardTab, AnalyticsTab,
-  DepartmentsTab, LeaveBoardTab, SettingsTab, ExpenseTab,
+  DepartmentsTab, LeaveBoardTab, SettingsTab, ExpenseTab, DesignsTab,
 } from "./AdminTabs";
 import { DSR_STATUSES, CHART_COLORS } from "../../utils/constants";
 import { genCode, getTodayStr, fmtCurr, fmtDate, sum, downloadCSV } from "../../utils/helpers";
@@ -32,6 +32,8 @@ export default function AdminDashboard() {
     leaves, saveLeaves, updateLeaveStatus,
     salaries, saveSalaries,
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,
+    designProjects, addDesignProject, updateDesignProject, deleteDesignProject,
+    designFiles, uploadDesignFile, deleteDesignFile,
     logo, onLogoChange, onLogoRemove,
     adminPwd, setAdminPwd,
     settingsPwd, setSettingsPwd,
@@ -60,6 +62,8 @@ export default function AdminDashboard() {
   const [lbPeriod, setLbPeriod] = useState("month");
 
   const [newEmp, setNewEmp] = useState("");
+  const [newEmpEmail, setNewEmpEmail] = useState("");
+  const [newEmpPwd, setNewEmpPwd] = useState("");
   const [newDept, setNewDept] = useState("");
   const [newWebsite, setNewWebsite] = useState("");
   const [annText, setAnnText] = useState("");
@@ -79,10 +83,12 @@ export default function AdminDashboard() {
     if (!name) return;
     const namePart = name.replace(/[^a-zA-Z]/g, "").split(/\s+/)[0] || "Emp";
     const id = `${namePart}-${String(Date.now()).slice(-6)}`;
-    const ok = await addEmployee({ id, name, department: "Sales", code: genCode(), teamLead: "", email: "", photo: "" });
+    const pwd = newEmpPwd.trim() || "1234";
+    const email = newEmpEmail.trim();
+    const ok = await addEmployee({ id, name, department: "Sales", code: genCode(), teamLead: "", email, photo: "", password: pwd });
     if (!ok) return;
-    setNewEmp("");
-    showToast(`${name} added. Default password: 1234`, "success");
+    setNewEmp(""); setNewEmpEmail(""); setNewEmpPwd("");
+    showToast(email ? `${name} added. Login: ${email} / ${pwd}` : `${name} added (password ${pwd}). Add an email so they can log in.`, "success");
   };
 
   /* ── Leave board ──────────────────────────────────────────── */
@@ -307,6 +313,7 @@ export default function AdminDashboard() {
           { key: "leaveboard", label: "Leave Board", icon: <Palmtree size={18} />, badge: pendingLeaveCount || null },
           { key: "salary", label: "Salary", icon: <Wallet size={18} /> },
           { key: "expense", label: "Expense", icon: <CreditCard size={18} /> },
+          { key: "designs", label: "Designs", icon: <Palette size={18} /> },
           { key: "managerassign", label: "Manager/IDs Assign", icon: <Users size={18} /> },
           { key: "settings", label: "Settings", icon: <Settings size={18} /> },
         ]}
@@ -380,6 +387,9 @@ export default function AdminDashboard() {
         {tab === "expense" && (
           <ExpenseTab expenses={expenses} addExpense={addExpense} updateExpense={updateExpense} deleteExpense={deleteExpense} logo={logo} />
         )}
+        {tab === "designs" && (
+          <DesignsTab designProjects={designProjects} addDesignProject={addDesignProject} updateDesignProject={updateDesignProject} deleteDesignProject={deleteDesignProject} employees={employees} designFiles={designFiles} uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} />
+        )}
         {tab === "managerassign" && (
           <div className="sv-flex-col sv-gap-4">
             <ManagerAssignModule employees={employees} setEmployees={saveEmployees}
@@ -392,6 +402,7 @@ export default function AdminDashboard() {
             employees={employees} setEmployees={saveEmployees}
             onUpdateEmp={updateEmployee} onDeleteEmp={deleteEmployee} onResetPwd={resetEmployeePassword}
             newEmp={newEmp} setNewEmp={setNewEmp} addEmployeeQuick={addEmployeeQuick}
+            newEmpEmail={newEmpEmail} setNewEmpEmail={setNewEmpEmail} newEmpPwd={newEmpPwd} setNewEmpPwd={setNewEmpPwd}
             adminPwd={adminPwd} setAdminPwd={setAdminPwd}
             editMode={editMode} setEditMode={setEditMode} settingsPwd={settingsPwd} setSettingsPwd={setSettingsPwd}
             msgEmpId={msgEmpId} setMsgEmpId={setMsgEmpId} msgText={msgText} setMsgText={setMsgText}

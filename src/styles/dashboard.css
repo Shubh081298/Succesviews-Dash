@@ -2739,3 +2739,9 @@ body { font-size: 14px; line-height: 1.55; letter-spacing: -0.006em; color: #0F1
 /* Banner + topbar names */
 .sv-ov-banner-title { font-weight: 700 !important; letter-spacing: -0.02em !important; }
 .sv-topbar-name, .sv-sidebar-name { font-weight: 600 !important; letter-spacing: -0.006em !important; }
+
+/* Review fix #14 — responsive KPI grid (was a fixed 5-column inline grid) */
+.sv-kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+@media (max-width: 1100px) { .sv-kpi-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 680px)  { .sv-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 420px)  { .sv-kpi-grid { grid-template-columns: 1fr; } }

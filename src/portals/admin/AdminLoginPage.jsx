@@ -52,8 +52,15 @@ export default function AdminLoginPage() {
     return null;
   }
 
-  const handleSubmit = () => {
-    if (pwdInput === adminPwd) {
+  const handleSubmit = async () => {
+    // Password is verified INSIDE the database (SECURITY DEFINER RPC), so the
+    // admin password is never downloaded to the browser.
+    let okPwd = false;
+    try {
+      const { data } = await supabase.rpc("admin_login", { p_password: pwdInput });
+      okPwd = data === true;
+    } catch (e) { /* ignore */ }
+    if (okPwd) {
       setAdminLoggedIn(true);
       setPwdInput("");
       showToast("Admin access granted.", "success");

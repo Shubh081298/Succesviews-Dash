@@ -31,9 +31,9 @@ export const ATTENDANCE = ["Present", "Half Day", "Absent"];
 export const DSR_STATUSES = ["Draft", "Submitted", "Locked"];
 export const PERIOD_FACTOR = { today: 1, week: 5, month: 22, year: 260 };
 export const IO_STATUSES = ["Pending", "Confirmed", "Completed", "Cancelled"];
-export const DEFAULT_ADMIN_PWD = "Admin@123";
+export const DEFAULT_ADMIN_PWD = ""; // verified server-side (admin_login RPC)
 // Separate password that unlocks editing of Settings + Salary (distinct from admin login).
-export const DEFAULT_SETTINGS_PWD = "Settings@123";
+export const DEFAULT_SETTINGS_PWD = "Settings@123"; // client-side settings-edit gate (kept so admin can unlock)
 
 export const TT = { contentStyle: { fontFamily: FONT, fontSize: 12, borderRadius: 8, border: "1px solid #E2E8F0" } };
 export const LEG = { wrapperStyle: { fontFamily: FONT, fontSize: 12 } };

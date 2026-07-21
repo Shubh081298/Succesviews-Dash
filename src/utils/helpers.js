@@ -5,6 +5,15 @@
 
 export const genCode = () => String(Math.floor(1000 + Math.random() * 9000));
 
+/** Normalize an assigned mail-ID entry. Supports both legacy plain strings
+ *  ("mail@x.com") and the new object form ({ id, project }). Always returns
+ *  { id, project } so callers can render/edit consistently. */
+export const normAssignedId = (x) =>
+  typeof x === "string"
+    ? { id: x, project: "" }
+    : { id: (x && x.id) || "", project: (x && x.project) || "" };
+
+
 export const getTodayStr = () => new Date().toISOString().split("T")[0];
 
 export const fmtDate = (d) =>

@@ -28,6 +28,7 @@ const fmtSize = (b) => (!b ? "" : b < 1024 ? b + " B" : b < 1048576 ? (b / 1024)
 export default function DesignerDashboard({
   emp, logo, theme, toggleTheme, onLogout,
   designProjects = [], designFiles = [], uploadDesignFile, deleteDesignFile, updateDesignProject,
+  designActivity = [], changeProjectStatus,
   expenses = [], addExpense, showToast,
 }) {
   const [tab, setTab] = useState("designs");
@@ -50,7 +51,7 @@ export default function DesignerDashboard({
     setUploading(false);
     if (fileRef.current) fileRef.current.value = "";
   };
-  const setStatus = async (status) => { if (project) await updateDesignProject({ ...project, status }); };
+  const setStatus = async (status) => { if (project) await changeProjectStatus(project, status, "designer", emp.name); };
 
   const submitExpense = async () => {
     if (!exp.title.trim()) { showToast("Enter an expense title.", "error"); return; }
@@ -90,7 +91,7 @@ export default function DesignerDashboard({
         logo={logo} brandTitle={emp.name} brandSubtitle="Designer" brandPhoto={emp.photo}
         theme={theme} onToggleTheme={toggleTheme}
         nav={[
-          { key: "designs", label: "Designs", icon: <Palette size={18} /> },
+          { key: "designs", label: "Designs", icon: <Palette size={18} />, badge: myProjects.filter((p) => p.status === "Revision Required").length || null },
           { key: "expenses", label: "Expenses", icon: <CreditCard size={18} /> },
           { key: "profile", label: "Profile", icon: <User size={18} /> },
         ]}
@@ -187,6 +188,28 @@ export default function DesignerDashboard({
                   ? <p className="sv-text-muted" style={{ fontSize: 12.5 }}>No uploads yet. Pick a type and upload — every upload is versioned automatically.</p>
                   : designFiles.filter((f) => f.projectId === project.id && f.kind !== "reference").sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).map((f) => fileRow(f, true))}
               </div>
+            </div>
+
+            <div className="sv-card">
+              <h3>Activity &amp; Revisions</h3>
+              {(() => {
+                const acts = designActivity.filter((a) => a.projectId === project.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                if (!acts.length) return <p className="sv-text-muted" style={{ fontSize: 12.5, marginTop: 8 }}>No activity yet.</p>;
+                return (
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {acts.map((a) => (
+                      <div key={a.id} style={{ display: "flex", gap: 10 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 999, background: a.type === "revision" ? "#C2410C" : a.type === "upload" ? "#2563EB" : a.type === "status" ? "#15803D" : "#94A3B8", marginTop: 5, flex: "none" }} />
+                        <div style={{ fontSize: 12.5, color: "#334155" }}>
+                          <strong>{a.type === "created" ? "Project created" : a.type === "status" ? `Status \u2192 ${a.meta}` : a.type === "upload" ? `Uploaded ${a.meta}` : a.type === "revision" ? "Revision requested" : "Update"}</strong>
+                          {a.type === "revision" && a.comment ? <span> — {a.comment}</span> : null}
+                          <span className="sv-text-muted"> · {a.actorName} · {a.createdAt ? new Date(a.createdAt).toLocaleString() : ""}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

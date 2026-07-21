@@ -1,3 +1,4 @@
+import { Users } from "lucide-react";
 import Avatar from "../ui/Avatar.jsx";
 import { storageSet } from "../../utils/storage.js";
 import { empLabel } from "../../utils/helpers.js";
@@ -47,7 +48,10 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
   return (
     <div className="sv-flex-col sv-gap-4">
       <div className="sv-card">
-        <p className="sv-text-navy sv-font-800" style={{ margin: "0 0 4px", fontSize: 16 }}>👥 Manager & Team Assignment</p>
+        <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 4 }}>
+          <span className="sv-mod-icon"><Users size={16} /></span>
+          <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>Manager &amp; Team Assignment</p>
+        </div>
         <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>Assign employees to team leads. Changes reflect instantly across DSR and reports.</p>
       </div>
 

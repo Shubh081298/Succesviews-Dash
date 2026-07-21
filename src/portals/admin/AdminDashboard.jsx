@@ -34,6 +34,7 @@ export default function AdminDashboard() {
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,
     designProjects, addDesignProject, updateDesignProject, deleteDesignProject,
     designFiles, uploadDesignFile, deleteDesignFile,
+    designActivity, changeProjectStatus, requestRevision,
     logo, onLogoChange, onLogoRemove,
     adminPwd, setAdminPwd,
     settingsPwd, setSettingsPwd,
@@ -229,15 +230,21 @@ export default function AdminDashboard() {
 
   const ovFiltered = useMemo(() => {
     let from = ovDateFrom, to = ovDateTo || todayStr;
-    if (ovPeriod !== "custom") {
-      const days = { today: 0, week: 6, month: 29 }[ovPeriod] ?? 0;
-      // Compute the window in the SAME (UTC) frame as todayStr. Parsing
-      // todayStr as local midnight and re-serializing with toISOString()
-      // shifted `from` back a day for timezones ahead of UTC (e.g. IST),
-      // so "Today" leaked in yesterday's rows.
-      const fromDate = new Date(todayStr + "T00:00:00Z");
-      fromDate.setUTCDate(fromDate.getUTCDate() - days);
-      from = fromDate.toISOString().split("T")[0];
+    if (ovPeriod === "today") {
+      from = todayStr; to = todayStr;
+    } else if (ovPeriod === "week") {
+      // "This Week" = Monday–Saturday of the current week; resets every Monday.
+      const d = new Date(todayStr + "T00:00:00Z");
+      const dow = d.getUTCDay();                 // 0=Sun … 6=Sat
+      const toMon = dow === 0 ? -6 : 1 - dow;    // Sunday counts to the week just ended
+      const mon = new Date(d); mon.setUTCDate(d.getUTCDate() + toMon);
+      const sat = new Date(mon); sat.setUTCDate(mon.getUTCDate() + 5);
+      from = mon.toISOString().split("T")[0];
+      to = sat.toISOString().split("T")[0];
+    } else if (ovPeriod === "month") {
+      const d = new Date(todayStr + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() - 29);
+      from = d.toISOString().split("T")[0];
       to = todayStr;
     }
     return submissions.filter((s) => s.date >= (from || "0000-00-00") && s.date <= to);
@@ -388,7 +395,7 @@ export default function AdminDashboard() {
           <ExpenseTab expenses={expenses} addExpense={addExpense} updateExpense={updateExpense} deleteExpense={deleteExpense} logo={logo} />
         )}
         {tab === "designs" && (
-          <DesignsTab designProjects={designProjects} addDesignProject={addDesignProject} updateDesignProject={updateDesignProject} deleteDesignProject={deleteDesignProject} employees={employees} designFiles={designFiles} uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} />
+          <DesignsTab designProjects={designProjects} addDesignProject={addDesignProject} updateDesignProject={updateDesignProject} deleteDesignProject={deleteDesignProject} employees={employees} designFiles={designFiles} uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} designActivity={designActivity} changeProjectStatus={changeProjectStatus} requestRevision={requestRevision} />
         )}
         {tab === "managerassign" && (
           <div className="sv-flex-col sv-gap-4">

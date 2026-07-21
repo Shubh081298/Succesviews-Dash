@@ -29,6 +29,7 @@ export function AppDataProvider({ children }) {
   const [expenses, setExpenses]             = useState([]);
   const [designProjects, setDesignProjects] = useState([]);
   const [designFiles, setDesignFiles]       = useState([]);
+  const [designActivity, setDesignActivity] = useState([]);
   const [logo, setLogo]                     = useState(logoDefault);
   const [adminPwd, setAdminPwdState]        = useState(""); // login is verified server-side (admin_login RPC); no client-side password
   const [adminEmail, setAdminEmailState]    = useState("");
@@ -74,6 +75,7 @@ export function AppDataProvider({ children }) {
         loadExpenses(),
         loadDesignProjects(),
         loadDesignFiles(),
+        loadDesignActivity(),
         loadSettings(),
       ]);
     } catch (e) {
@@ -312,7 +314,7 @@ export function AppDataProvider({ children }) {
 
   async function addDesignProject(p) {
     const { data, error } = await supabase.from("design_projects").insert(projectToRow(p)).select("*").single();
-    if (!error && data) { setDesignProjects((prev) => [rowToProject(data), ...prev]); showToast("Design project created.", "success"); return true; }
+    if (!error && data) { setDesignProjects((prev) => [rowToProject(data), ...prev]); addActivity(data.id, "created", "admin", "Admin", "", ""); showToast("Design project created.", "success"); return true; }
     showToast(`Failed to create project${error ? ": " + error.message : ""}.`, "error");
     return false;
   }
@@ -371,6 +373,7 @@ export function AppDataProvider({ children }) {
       }).select("*").single();
       if (error || !data) { showToast("File uploaded but record failed.", "error"); return false; }
       setDesignFiles((prev) => [...prev, rowToFile(data)]);
+      addActivity(projectId, "upload", uploadedByName === "Admin" ? "admin" : "designer", uploadedByName, "", `${kind} v${version}`);
       showToast(`Uploaded ${kind} v${version}.`, "success");
       return true;
     } catch (e) { showToast("Upload error.", "error"); return false; }
@@ -381,6 +384,36 @@ export function AppDataProvider({ children }) {
     const { error } = await supabase.from("design_files").delete().eq("id", fileRec.id);
     if (!error) { setDesignFiles((prev) => prev.filter((x) => x.id !== fileRec.id)); showToast("File deleted.", "success"); }
     else showToast("Failed to delete file.", "error");
+  }
+
+  /* ── Design Activity (timeline + revision history — never deleted) ── */
+  const rowToActivity = (r) => ({
+    id: r.id, projectId: r.project_id, type: r.type || "note",
+    actorRole: r.actor_role || "", actorName: r.actor_name || "",
+    comment: r.comment || "", meta: r.meta || "", createdAt: r.created_at,
+  });
+  async function loadDesignActivity() {
+    const { data, error } = await supabase.from("design_activity").select("*").order("created_at", { ascending: true });
+    if (error) console.error("loadDesignActivity failed:", error.message);
+    if (data) setDesignActivity(data.map(rowToActivity));
+  }
+  async function addActivity(projectId, type, actorRole, actorName, comment = "", meta = "") {
+    const { data, error } = await supabase.from("design_activity")
+      .insert({ project_id: projectId, type, actor_role: actorRole, actor_name: actorName, comment, meta })
+      .select("*").single();
+    if (!error && data) setDesignActivity((prev) => [...prev, rowToActivity(data)]);
+  }
+  async function changeProjectStatus(project, status, actorRole = "admin", actorName = "Admin") {
+    await updateDesignProject({ ...project, status });
+    await addActivity(project.id, "status", actorRole, actorName, "", status);
+  }
+  async function requestRevision(projectId, comment, actorName = "Admin") {
+    if (!comment || !comment.trim()) { showToast("Write what needs changing.", "error"); return false; }
+    await addActivity(projectId, "revision", "admin", actorName, comment.trim(), "");
+    const proj = designProjects.find((p) => p.id === projectId);
+    if (proj) await updateDesignProject({ ...proj, status: "Revision Required" });
+    showToast("Revision requested — the designer will see it.", "success");
+    return true;
   }
 
   async function loadSettings() {
@@ -817,6 +850,7 @@ export function AppDataProvider({ children }) {
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,
     designProjects, addDesignProject, updateDesignProject, deleteDesignProject,
     designFiles, uploadDesignFile, deleteDesignFile,
+    designActivity, changeProjectStatus, requestRevision,
     logo, onLogoChange, onLogoRemove,
     adminPwd, setAdminPwd,
     adminEmail, setAdminEmail,

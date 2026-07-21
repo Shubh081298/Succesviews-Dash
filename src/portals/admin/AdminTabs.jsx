@@ -1306,7 +1306,7 @@ const designPriorityStyle = (p) => ({
   "Low": { bg: "#DCFCE7", fg: "#15803D" },
 }[p] || { bg: "#F1F5F9", fg: "#475569" });
 
-export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile }) {
+export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision }) {
   const [search, setSearch] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [fPriority, setFPriority] = useState("");
@@ -1318,6 +1318,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
   const [saving, setSaving] = useState(false);
   const [uploadKind, setUploadKind] = useState("reference");
   const [uploading, setUploading] = useState(false);
+  const [revComment, setRevComment] = useState("");
   const fileRef = useRef(null);
   const KIND_LABELS = { reference: "Reference", draft: "Draft", sample: "Sample", revised: "Revised", final: "Final" };
   const fmtSize = (b) => (!b ? "" : b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(0) + " KB" : (b / 1048576).toFixed(1) + " MB");
@@ -1371,7 +1372,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
     setSaving(false);
     if (ok !== false) setForm(null);
   };
-  const changeStatus = async (p, status) => { await updateDesignProject({ ...p, status }); setDetail((d) => (d && d.id === p.id ? { ...d, status } : d)); };
+  const changeStatus = async (p, status) => { await changeProjectStatus(p, status, "admin", "Admin"); setDetail((d) => (d && d.id === p.id ? { ...d, status } : d)); };
   const doDelete = async () => { const id = confirmDel.id; setConfirmDel(null); setDetail(null); await deleteDesignProject(id); };
 
   const statCard = (label, value, accent) => (
@@ -1531,7 +1532,32 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                   );
                 })()}
               </div>
-              <p className="sv-text-muted" style={{ fontSize: 11, marginTop: 14 }}>Revision comments, activity timeline &amp; the designer view arrive in the next phase.</p>
+              <div style={{ marginTop: 16 }}>
+                <div className="sv-section-label">Request Changes</div>
+                <textarea className="sv-input" rows={2} value={revComment} onChange={(e) => setRevComment(e.target.value)} placeholder="e.g. Increase logo size, replace image 2, font too small" style={{ resize: "vertical", marginTop: 4 }} />
+                <button className="sv-btn sv-btn--primary" style={{ marginTop: 8 }} disabled={!revComment.trim()} onClick={async () => { const ok = await requestRevision(detail.id, revComment, "Admin"); if (ok) { setRevComment(""); setDetail((d) => (d ? { ...d, status: "Revision Required" } : d)); } }}>Request Changes</button>
+              </div>
+              <div style={{ marginTop: 16 }}>
+                <div className="sv-section-label">Activity Timeline</div>
+                {(() => {
+                  const acts = designActivity.filter((a) => a.projectId === detail.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                  if (acts.length === 0) return <p className="sv-text-muted" style={{ fontSize: 12.5, marginTop: 4 }}>No activity yet.</p>;
+                  return (
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {acts.map((a) => (
+                        <div key={a.id} style={{ display: "flex", gap: 10 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 999, background: a.type === "revision" ? "#C2410C" : a.type === "upload" ? "#2563EB" : a.type === "status" ? "#15803D" : "#94A3B8", marginTop: 5, flex: "none" }} />
+                          <div style={{ fontSize: 12.5, color: "#334155" }}>
+                            <strong>{a.type === "created" ? "Project created" : a.type === "status" ? `Status → ${a.meta}` : a.type === "upload" ? `Uploaded ${a.meta}` : a.type === "revision" ? "Revision requested" : "Update"}</strong>
+                            {a.type === "revision" && a.comment ? <span> — {a.comment}</span> : null}
+                            <span className="sv-text-muted"> · {a.actorName} · {a.createdAt ? new Date(a.createdAt).toLocaleString() : ""}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
             </div>
             <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", flexShrink: 0, alignItems: "center" }}>
               <button className="sv-btn sv-btn--danger" onClick={() => setConfirmDel(detail)}>Delete</button>

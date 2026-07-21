@@ -1,7 +1,7 @@
 import { useState } from "react";
 import FormLabel from "./FormLabel.jsx";
 import { Avatar } from "../ui/index.js";
-import { getTodayStr, fmtDate, daysDiff, parsePayslipPayload, stripPayslipPayload } from "../../utils/helpers.js";
+import { getTodayStr, fmtDate, fmtDateTime, daysDiff, normAssignedId, parsePayslipPayload, stripPayslipPayload } from "../../utils/helpers.js";
 import PayslipView from "../PayslipView.jsx";
 import {
   blankLead, blankContractOrder, blankFollowup, blankCall, blankSale, blankPayment,
@@ -307,7 +307,7 @@ export default function EmployeeDashboard({
               {filteredHist.length === 0 && <p className="sv-text-muted" style={{ fontSize: 13 }}>No reports found.</p>}
               {filteredHist.map((r) => (
                 <div key={r.id} className="sv-flex sv-items-center sv-gap-3" style={{ padding: "10px 12px", background: "var(--bg-muted)", border: "1.5px solid var(--border-light)", borderRadius: 8, flexWrap: "wrap" }}>
-                  <div className="sv-text-navy sv-font-700" style={{ minWidth: 90, fontSize: 13 }}>{fmtDate(r.date)}</div>
+                  <div className="sv-text-navy sv-font-700" style={{ minWidth: 96, fontSize: 13 }}>{fmtDate(r.date)}{r.ts ? <span className="sv-text-muted" style={{ display: "block", fontSize: 11, fontWeight: 400 }}>{fmtDateTime(r.ts)}</span> : null}</div>
                   <span className={badgeClass(r.attendance === "Present" ? "Completed" : r.attendance === "Absent" ? "Pending" : "In Progress")}>{r.attendance}</span>
                   <span className={badgeClass(r.status === "Submitted" ? "Completed" : "Pending")}>{r.status}</span>
                   <div className="sv-flex sv-gap-2" style={{ marginLeft: "auto" }}>
@@ -412,7 +412,12 @@ export default function EmployeeDashboard({
             <p className="sv-text-muted" style={{ fontSize: 13 }}>No IDs assigned yet.</p>
           ) : (
             <div className="sv-flex sv-gap-2" style={{ flexWrap: "wrap" }}>
-              {(emp.assignedIds || []).map((id) => <span key={id} className="sv-chip">{id}</span>)}
+              {(emp.assignedIds || []).map(normAssignedId).map((r) => (
+                <span key={r.id} className="sv-chip sv-id-chip">
+                  <span className="sv-id-chip-id">{r.id}</span>
+                  {r.project ? <span className="sv-id-chip-proj">{r.project}</span> : null}
+                </span>
+              ))}
             </div>
           )}
         </div>
@@ -422,7 +427,7 @@ export default function EmployeeDashboard({
         <div className="sv-modal-overlay" onClick={() => setViewingDsr(null)}>
           <div className="sv-modal" style={{ maxWidth: 600 }} onClick={(e) => e.stopPropagation()}>
             <div className="sv-modal-header">
-              <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>{viewingDsr.department} DSR — {fmtDate(viewingDsr.date)}</p>
+              <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>{viewingDsr.department} DSR — {fmtDate(viewingDsr.date)}{viewingDsr.ts ? ` · Submitted ${fmtDateTime(viewingDsr.ts)}` : ""}</p>
               <button onClick={() => setViewingDsr(null)} className="sv-modal-close">×</button>
             </div>
             <div className="sv-modal-body">

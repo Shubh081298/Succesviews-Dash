@@ -23,6 +23,7 @@ export default function EmployeePortal() {
     messages, saveMessages, dismissMessage,
     websites,
     designProjects, designFiles, uploadDesignFile, deleteDesignFile, updateDesignProject,
+    designActivity, changeProjectStatus,
     expenses, addExpense,
     logo, theme, toggleTheme,
     showToast, pushNotification,
@@ -216,6 +217,7 @@ export default function EmployeePortal() {
         emp={emp} logo={logo} theme={theme} toggleTheme={toggleTheme} onLogout={handleLogout}
         designProjects={designProjects} designFiles={designFiles}
         uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} updateDesignProject={updateDesignProject}
+        designActivity={designActivity} changeProjectStatus={changeProjectStatus}
         expenses={expenses} addExpense={addExpense} showToast={showToast}
       />
     );

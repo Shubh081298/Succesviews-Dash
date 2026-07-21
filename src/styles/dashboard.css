@@ -2745,3 +2745,106 @@ body { font-size: 14px; line-height: 1.55; letter-spacing: -0.006em; color: #0F1
 @media (max-width: 1100px) { .sv-kpi-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 680px)  { .sv-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 420px)  { .sv-kpi-grid { grid-template-columns: 1fr; } }
+
+/* =====================================================================
+   BATCH 5.0 — UI/bug pass: header align (#1), Assign IDs projects (#5),
+   module icons (#6), full mobile responsiveness (#2). Visual only.
+   ===================================================================== */
+
+/* ── #1 Overview header alignment: equal-height cards + matching headers ── */
+.sv-grid-2:has(.sv-status-grid) { align-items: stretch; }
+.sv-grid-2:has(.sv-status-grid) > .sv-card { display: flex; flex-direction: column; }
+.sv-grid-2:has(.sv-status-grid) > .sv-card > h3 {
+  margin: 0 0 14px !important;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--border-light, #E9EDF5);
+  font-size: 15px; font-weight: 800; line-height: 1.2;
+}
+.sv-dark .sv-grid-2:has(.sv-status-grid) > .sv-card > h3 { border-bottom-color: rgba(255,255,255,.08); }
+
+/* ── #6 Module header icon chip (Assign IDs / Manager Assignment) ── */
+.sv-mod-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px;
+  background: rgba(37,99,235,.10); color: #2563EB; flex-shrink: 0;
+}
+.sv-dark .sv-mod-icon { background: rgba(96,165,250,.14); color: #60A5FA; }
+
+/* ── #5 Assign Mail IDs — per-ID Project rows ── */
+.sv-idrows { display: flex; flex-direction: column; gap: 6px; }
+.sv-idrow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sv-idrow-id {
+  flex: 0 0 auto; min-width: 140px; max-width: 230px;
+  padding: 5px 10px; border-radius: 7px;
+  background: var(--sv-surface-2, #F1F5F9); border: 1px solid var(--sv-border, #E2E8F0);
+  font-size: 12.5px; font-weight: 600; color: var(--sv-text-1, #0F172A);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sv-idrow-proj { flex: 1 1 130px; min-width: 110px; max-width: 220px; padding: 5px 9px !important; font-size: 12.5px !important; }
+.sv-idrow-id-input { flex: 0 0 auto; width: 180px; padding: 5px 9px !important; font-size: 12.5px !important; }
+.sv-idrow-x {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid var(--sv-border, #E2E8F0);
+  color: #DC2626; cursor: pointer;
+}
+.sv-idrow-x:hover { background: #FEE2E2; border-color: #FCA5A5; }
+.sv-idrow-add {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  padding: 6px 12px; border-radius: 7px; border: none; cursor: pointer;
+  background: var(--grad-primary, #2563EB); color: #fff; font-size: 12.5px; font-weight: 600;
+}
+.sv-idrow-add:disabled { opacity: .5; cursor: not-allowed; }
+.sv-idrow--add { margin-top: 2px; padding-top: 8px; border-top: 1px dashed var(--sv-border, #E2E8F0); }
+
+/* Employee "Assigned IDs" chip with project pill */
+.sv-id-chip { display: inline-flex; align-items: center; gap: 6px; }
+.sv-id-chip-proj {
+  font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+  background: rgba(37,99,235,.12); color: #2563EB;
+  text-transform: uppercase; letter-spacing: .02em;
+}
+
+/* ── #2 Full mobile responsiveness: off-canvas drawer + stacking ── */
+.sv-mobile-hamburger { display: none; }
+.sv-sidebar-close { display: none; }
+.sv-sidebar-overlay { display: none; }
+
+@media (max-width: 767px) {
+  .sv-mobile-hamburger {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: fixed; top: 12px; left: 12px; z-index: 60;
+    width: 42px; height: 42px; border-radius: 12px;
+    background: #0F172A; color: #fff; border: none;
+    box-shadow: 0 6px 18px rgba(0,0,0,.22); cursor: pointer;
+  }
+  .sv-sidebar {
+    position: fixed !important; top: 0; left: 0;
+    height: 100vh !important; min-height: 100vh !important;
+    width: 268px !important; min-width: 268px !important;
+    z-index: 70; transform: translateX(-100%);
+    transition: transform .25s ease;
+  }
+  .sv-sidebar--open { transform: translateX(0); box-shadow: 0 0 40px rgba(0,0,0,.45); }
+  .sv-sidebar-overlay { display: block; position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 65; }
+  .sv-sidebar-close {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: absolute; top: 12px; right: 12px; z-index: 3;
+    width: 32px; height: 32px; border-radius: 9px;
+    background: rgba(255,255,255,.1); color: #E2E8F0; border: none; cursor: pointer;
+  }
+  .sv-main { margin-left: 0 !important; padding: 62px 14px 20px !important; }
+
+  /* Stack all multi-column grids */
+  .sv-grid-2, .sv-grid-3, .sv-grid-4, .sv-status-grid { grid-template-columns: 1fr !important; }
+  .sv-kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* Let wide tables scroll instead of squishing */
+  .sv-card { padding: 16px 14px; }
+  .sv-tab-title { font-size: 20px; }
+  .sv-flex--between { flex-wrap: wrap; gap: 10px; }
+  .sv-assign-table { min-width: 520px; }
+}
+@media (max-width: 420px) {
+  .sv-kpi-grid { grid-template-columns: 1fr !important; }
+}

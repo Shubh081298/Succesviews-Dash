@@ -36,10 +36,14 @@ grant execute on function public.admin_login(text) to anon, authenticated;
 --            confirmed both admin + employee login still work on the live site.
 --            This is what actually hides the passwords from the public key. ----------
 
--- Hide employee password columns from the public/anon key:
+-- Hide the plaintext password from the public/anon key (keeps password_hash,
+-- which the employee "change my password" flow still needs). SAFE to run now:
+-- the deployed app no longer selects password_plain.
 --   revoke select on public.employees from anon, authenticated;
---   grant  select (id, name, department, code, photo, team_lead, email, assigned_ids, created_at)
+--   grant  select (id, name, department, code, photo, team_lead, email, password_hash, assigned_ids, created_at)
 --          on public.employees to anon, authenticated;
+-- Verify after: employees list still loads; admin + employee login still work;
+-- reload the live site and confirm the employees request no longer returns password_plain.
 
 -- Hide the admin password row from the public/anon key:
 --   alter table public.settings enable row level security;

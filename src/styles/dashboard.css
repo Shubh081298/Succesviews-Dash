@@ -2848,3 +2848,51 @@ body { font-size: 14px; line-height: 1.55; letter-spacing: -0.006em; color: #0F1
 @media (max-width: 420px) {
   .sv-kpi-grid { grid-template-columns: 1fr !important; }
 }
+
+/* =====================================================================
+   BATCH 5.1 — Assign IDs ownership split:
+   admin adds the mail ID; employee fills project name + start date.
+   ===================================================================== */
+
+/* Admin: read-only project / start-date cells */
+.sv-idrow-read {
+  flex: 1 1 150px; min-width: 120px; max-width: 230px;
+  padding: 5px 10px; border-radius: 7px;
+  background: transparent; border: 1px dashed var(--sv-border, #E2E8F0);
+  font-size: 12.5px; font-weight: 600; color: var(--sv-text-1, #0F172A);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sv-idrow-read--date { flex: 0 0 auto; min-width: 108px; max-width: 140px; }
+.sv-idrow-read--empty { color: var(--sv-text-3, #94A3B8); font-weight: 500; font-style: italic; }
+.sv-assign-th-sub { color: var(--sv-text-3, #94A3B8) !important; font-weight: 600 !important; }
+
+/* Employee: editable "My Assigned IDs" rows */
+.sv-myid-list { display: flex; flex-direction: column; gap: 8px; }
+.sv-myid-head,
+.sv-myid-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(150px, 1.4fr) minmax(150px, 1fr);
+  gap: 10px; align-items: center;
+}
+.sv-myid-head {
+  font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--sv-text-3, #94A3B8); padding: 0 2px 6px;
+  border-bottom: 1px solid var(--sv-border, #E2E8F0);
+}
+.sv-myid-id {
+  padding: 7px 11px; border-radius: 8px;
+  background: var(--sv-surface-2, #F1F5F9); border: 1px solid var(--sv-border, #E2E8F0);
+  font-size: 13px; font-weight: 700; color: var(--sv-text-1, #0F172A);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.sv-myid-input { padding: 7px 10px !important; font-size: 13px !important; width: 100%; }
+
+@media (max-width: 767px) {
+  .sv-myid-head { display: none; }
+  .sv-myid-row {
+    grid-template-columns: 1fr; gap: 6px;
+    padding: 10px; border-radius: 10px;
+    border: 1px solid var(--sv-border, #E2E8F0); background: var(--sv-surface-2, #F8FAFC);
+  }
+  .sv-idrow-read { flex: 1 1 100%; max-width: none; }
+}

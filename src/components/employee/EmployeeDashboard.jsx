@@ -47,12 +47,21 @@ export default function EmployeeDashboard({
   submissions, websites, onLogout, histSearch, setHistSearch, viewingDsr, setViewingDsr,
   customFields = [], announcements = [], onDismissAnn, myMessages = [], onDismissMsg,
   theme = "light", onToggleTheme, leaves = [], leaveForm, setLeaveForm, onApplyLeave,
-  onUpdatePhoto, employees = [], logo = "",
+  onUpdatePhoto, employees = [], logo = "", onSaveAssignedIds,
 }) {
   const today = getTodayStr();
   const dark = theme === "dark";
   const [viewingPayslip, setViewingPayslip] = useState(null);
   const cardClass = dark ? "sv-card sv-dark" : "sv-card";
+
+  /* Employee-owned fields on their assigned mail IDs (project + start date).
+     The admin still owns which IDs exist; this only fills in the details. */
+  const saveMyId = (targetId, field, value) => {
+    if (!onSaveAssignedIds) return;
+    const next = (emp.assignedIds || []).map(normAssignedId)
+      .map((r) => (r.id === targetId ? { ...r, [field]: value } : r));
+    onSaveAssignedIds(next);
+  };
   const myReports = submissions.filter((s) => s.empId === emp.id).sort((a, b) => b.date.localeCompare(a.date));
   const filteredHist = histSearch ? myReports.filter((r) => r.date === histSearch) : myReports;
   const existingForDate = submissions.find((s) => s.empId === emp.id && s.date === dsrDate);
@@ -407,16 +416,32 @@ export default function EmployeeDashboard({
       {empTab === "assigned" && (
         <div className={cardClass} style={{ marginTop: 14 }}>
           <p className={dark ? "sv-text-white sv-font-700" : "sv-text-navy sv-font-700"} style={{ margin: "0 0 4px", fontSize: 15 }}>🆔 My Assigned IDs</p>
-          <p className="sv-text-muted" style={{ margin: "0 0 14px", fontSize: 12 }}>These IDs are assigned to you by your admin. View only.</p>
+          <p className="sv-text-muted" style={{ margin: "0 0 14px", fontSize: 12 }}>
+            Your admin assigns the mail IDs. Add the <b>project name</b> and the <b>date the project starts</b> next to each ID — your admin can then see what is running on it.
+          </p>
           {(emp.assignedIds || []).length === 0 ? (
             <p className="sv-text-muted" style={{ fontSize: 13 }}>No IDs assigned yet.</p>
           ) : (
-            <div className="sv-flex sv-gap-2" style={{ flexWrap: "wrap" }}>
+            <div className="sv-myid-list">
+              <div className="sv-myid-head">
+                <span>Mail ID</span><span>Project name</span><span>Project start date</span>
+              </div>
               {(emp.assignedIds || []).map(normAssignedId).map((r) => (
-                <span key={r.id} className="sv-chip sv-id-chip">
-                  <span className="sv-id-chip-id">{r.id}</span>
-                  {r.project ? <span className="sv-id-chip-proj">{r.project}</span> : null}
-                </span>
+                <div key={r.id} className="sv-myid-row">
+                  <span className="sv-myid-id" title={r.id}>{r.id}</span>
+                  <input
+                    className="sv-input sv-myid-input"
+                    placeholder="Project name"
+                    defaultValue={r.project}
+                    onBlur={(e) => saveMyId(r.id, "project", e.target.value)}
+                  />
+                  <input
+                    type="date"
+                    className="sv-input sv-myid-input"
+                    defaultValue={r.startDate}
+                    onChange={(e) => saveMyId(r.id, "startDate", e.target.value)}
+                  />
+                </div>
               ))}
             </div>
           )}

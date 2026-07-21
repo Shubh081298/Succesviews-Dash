@@ -15,7 +15,7 @@ import { employeeSignIn, employeeSignOut, sendPasswordReset } from "../../utils/
 
 export default function EmployeePortal() {
   const {
-    employees, saveEmployees,
+    employees, saveEmployees, assignEmployeeIds,
     submissions, saveSubs, upsertSubmission,
     leaves, saveLeaves, addLeave,
     customFields,
@@ -133,6 +133,12 @@ export default function EmployeePortal() {
   }, [employees, loggedIn]);
 
   /* ── Employee self-service handlers ──────────────────────── */
+  /* Employee fills in project name + start date on the IDs the admin gave them. */
+  const saveMyAssignedIds = async (list) => {
+    setEmp((prev) => (prev ? { ...prev, assignedIds: list } : prev));
+    await assignEmployeeIds(emp.id, list);
+  };
+
   const updateMyPhoto = (dataUrl) => {
     const next = employees.map((e) => (e.id === emp.id ? { ...e, photo: dataUrl } : e));
     saveEmployees(next);
@@ -257,6 +263,7 @@ export default function EmployeePortal() {
           leaves={leaves.filter((l) => l.empId === emp.id)}
           leaveForm={leaveForm} setLeaveForm={setLeaveForm} onApplyLeave={onApplyLeave}
           onUpdatePhoto={updateMyPhoto}
+          onSaveAssignedIds={saveMyAssignedIds}
           employees={employees}
           logo={logo}
         />

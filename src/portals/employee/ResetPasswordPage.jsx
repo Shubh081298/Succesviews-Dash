@@ -45,7 +45,10 @@ export default function ResetPasswordPage() {
     if (res.success) {
       if (res.email) {
         try {
-          await supabase.from("employees").update({ password_plain: pwd }).eq("email", res.email);
+          // Keep the employees table's bcrypt hash in sync (no plaintext is ever stored).
+          const { hashPassword } = await import("../../utils/auth");
+          const password_hash = await hashPassword(pwd);
+          await supabase.from("employees").update({ password_hash }).eq("email", res.email);
         } catch (e) { /* non-fatal */ }
       }
       setDone(true);

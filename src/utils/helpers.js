@@ -14,7 +14,29 @@ export const normAssignedId = (x) =>
     : { id: (x && x.id) || "", project: (x && x.project) || "", startDate: (x && x.startDate) || "" };
 
 
-export const getTodayStr = () => new Date().toISOString().split("T")[0];
+// Local calendar date (YYYY-MM-DD) — NOT UTC, so "today" is correct in IST/GST
+// etc. even late in the evening. Use this everywhere instead of toISOString().
+export const localDateStr = (d = new Date()) => {
+  const dt = d instanceof Date ? d : new Date(d);
+  return new Date(dt.getTime() - dt.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+};
+export const getTodayStr = () => localDateStr();
+
+/** Deterministic colour for a client/magazine domain (e.g. "AWL", "CIO Visionaries").
+ *  Same name always maps to the same colour on both Admin & Designer sides — no setup. */
+export const domainColor = (name) => {
+  const s = String(name || "").trim().toLowerCase();
+  if (!s) return { solid: "#94A3B8", bg: "#F1F5F9", fg: "#475569" };
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  const hue = h % 360;
+  const sat = 62 + (h % 12); // slight variety, stays in a tasteful range
+  return {
+    solid: `hsl(${hue} ${sat}% 46%)`,
+    bg: `hsl(${hue} ${sat}% 95%)`,
+    fg: `hsl(${hue} ${Math.min(sat + 6, 72)}% 32%)`,
+  };
+};
 
 export const fmtDate = (d) =>
   new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short" });

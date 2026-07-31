@@ -4,10 +4,11 @@
  * reached only via /admin/login, never from inside this tree.
  */
 import { useState, useEffect } from "react";
-import { ClipboardList, History, Palmtree, IdCard, Settings } from "lucide-react";
+import { ClipboardList, History, Palmtree, IdCard, Settings, Contact } from "lucide-react";
 import { useAppData } from "../../data/AppDataContext";
 import Sidebar from "../../components/layout/Sidebar";
 import { EmployeeLogin, EmployeeDashboard } from "../../components/employee";
+import Pipeline from "../../components/employee/Pipeline";
 import DesignerDashboard from "../../components/designer/DesignerDashboard";
 import { getTodayStr, fmtDate, blankDsr, dsrFromExisting } from "../../utils/helpers";
 import { supabase } from "../../utils/supabaseClient";
@@ -23,10 +24,12 @@ export default function EmployeePortal() {
     messages, saveMessages, dismissMessage,
     websites,
     designProjects, designFiles, uploadDesignFile, deleteDesignFile, updateDesignProject,
-    designActivity, changeProjectStatus,
+    designActivity, changeProjectStatus, addProjectComment,
+    designWork, saveDesignWork,
+    designExtra, releaseDesign, addDesignFolder, deleteDesignFolder,
     expenses, addExpense,
     logo, theme, toggleTheme,
-    showToast, pushNotification,
+    showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications,
   } = useAppData();
 
   /* ── Employee session state (local to this portal) ───────── */
@@ -59,7 +62,11 @@ export default function EmployeePortal() {
       const res = await employeeSignIn(email, loginPwd);
       if (res.success) {
         const m = employees.find((e) => (e.email || "").toLowerCase() === email.toLowerCase());
-        if (m) empId = m.id;
+        if (m) {
+          empId = m.id;
+          // Groundwork for role-based RLS: link this employee row to its auth user.
+          try { if (res.user?.id) await supabase.from("employees").update({ auth_id: res.user.id }).eq("id", m.id).is("auth_id", null); } catch (e) { /* column may not exist yet */ }
+        }
       }
     } catch (e) { /* ignore */ }
 
@@ -162,27 +169,44 @@ export default function EmployeePortal() {
   const handleDismissMessage = (id) => dismissMessage(id);
 
   /* ── DSR (Daily Status Report) handlers ──────────────────── */
+  const draftKey = (date) => (emp ? `svd_dsr_draft_${emp.id}_${date}` : "");
+  const readDraft = (date) => { try { const r = localStorage.getItem(draftKey(date)); return r ? JSON.parse(r) : null; } catch (e) { return null; } };
   const onDateChange = (date) => {
     setDsrDate(date);
     const existing = submissions.find((s) => s.empId === emp.id && s.date === date);
-    setDsrForm(dsrFromExisting(existing));
+    const base = dsrFromExisting(existing);
+    // Restore an unsubmitted local draft if one exists for this date.
+    const draft = existing?.status === "Submitted" ? null : readDraft(date);
+    setDsrForm(draft ? { ...base, ...draft } : base);
   };
 
+  // Restore today's draft on first entering the portal.
+  useEffect(() => {
+    if (!emp) return;
+    const existing = submissions.find((s) => s.empId === emp.id && s.date === dsrDate);
+    const draft = existing?.status === "Submitted" ? null : readDraft(dsrDate);
+    if (draft) setDsrForm((f) => ({ ...f, ...draft }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emp?.id]);
+
+  // Auto-save the DSR draft every 30s while editing (debounced by dep on dsrForm).
+  useEffect(() => {
+    if (!emp || empTab !== "form") return;
+    const iv = setInterval(() => { try { localStorage.setItem(draftKey(dsrDate), JSON.stringify(dsrForm)); } catch (e) { /* ignore */ } }, 30000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emp?.id, empTab, dsrDate, dsrForm]);
+
   const handleDsrSave = async (status) => {
-    if (status === "Submitted" && dsrForm.attendance !== "Absent") {
-      // Mandatory fields validation
-      if (!String(dsrForm.freshEmails || "").trim() || Number(dsrForm.freshEmails) < 0) {
-        showToast(" Fresh Emails Sent is required.", "error"); return;
-      }
-      if (!String(dsrForm.reminderEmails || "").trim() || Number(dsrForm.reminderEmails) < 0) {
-        showToast(" Reminder Emails Sent is required.", "error"); return;
-      }
-      // Scheduled Calls: NA is allowed (empty array). Only block if undefined.
-      if (!String(dsrForm.workingHours || "").trim() || Number(dsrForm.workingHours) <= 0) {
-        showToast(" Working Hours is required.", "error"); return;
-      }
-      if (!String(dsrForm.pendingTasks || "").trim() || !String(dsrForm.updatesForTeamLead || "").trim()) {
-        showToast(" Please fill Pending Tasks and Updates for Team Lead.", "error"); return;
+    if (status === "Submitted") {
+      if (!dsrForm.attendance) { showToast("Please select Attendance.", "error"); return; }
+      if (dsrForm.attendance !== "Absent") {
+        // Simplified DSR — end-of-day summary fields only (CRM lives in Pipeline).
+        if (!String(dsrForm.freshEmails ?? "").trim()) { showToast("Please enter Fresh Emails Sent.", "error"); return; }
+        if (!String(dsrForm.reminderEmails ?? "").trim()) { showToast("Please enter Reminder Emails Sent.", "error"); return; }
+        if (!String(dsrForm.workingHours ?? "").trim() || Number(dsrForm.workingHours) <= 0) { showToast("Please enter Working Hours.", "error"); return; }
+        if (!String(dsrForm.pendingTasks ?? "").trim()) { showToast("Please enter Pending Tasks.", "error"); return; }
+        // Updates for Team Lead is optional (recommended).
       }
     }
     const existing = submissions.find((s) => s.empId === emp.id && s.date === dsrDate);
@@ -192,10 +216,19 @@ export default function EmployeePortal() {
       empId: emp.id, empName: emp.name, department: emp.department, date: dsrDate,
       status, ts: Date.now(),
       ...dsrForm, websitesData,
+      // BACKWARD-COMPAT: the DSR no longer edits CRM sections — preserve whatever
+      // the Pipeline already rolled up into today's row so Admin counters don't reset.
+      leads: existing?.leads || dsrForm.leads || [],
+      followups: existing?.followups || dsrForm.followups || [],
+      calls: existing?.calls || dsrForm.calls || [],
+      sales: existing?.sales || dsrForm.sales || [],
+      payments: existing?.payments || dsrForm.payments || [],
+      contractOrders: existing?.contractOrders || dsrForm.contractOrders || [],
     };
     const res = await upsertSubmission(rec);
     if (res && res.success === false) return; // save failed; error toast already shown
-    showToast(status === "Submitted" ? "DSR submitted!" : "Draft saved.", "success");
+    if (status === "Submitted") { try { localStorage.removeItem(draftKey(dsrDate)); } catch (e) { /* ignore */ } }
+    showToast(status === "Submitted" ? "Daily Status Report submitted successfully." : "Draft saved.", "success");
     if (status === "Submitted") pushNotification(`${emp.name} submitted their DSR for ${fmtDate(dsrDate)}.`);
   };
 
@@ -223,7 +256,10 @@ export default function EmployeePortal() {
         emp={emp} logo={logo} theme={theme} toggleTheme={toggleTheme} onLogout={handleLogout}
         designProjects={designProjects} designFiles={designFiles}
         uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} updateDesignProject={updateDesignProject}
-        designActivity={designActivity} changeProjectStatus={changeProjectStatus}
+        designActivity={designActivity} changeProjectStatus={changeProjectStatus} addProjectComment={addProjectComment}
+        notifications={notifications} markNotificationRead={markNotificationRead} markAllNotificationsRead={markAllNotificationsRead} clearNotifications={clearNotifications}
+        designWork={designWork} saveDesignWork={saveDesignWork} pushNotification={pushNotification}
+        designExtra={designExtra} releaseDesign={releaseDesign} addDesignFolder={addDesignFolder} deleteDesignFolder={deleteDesignFolder}
         expenses={expenses} addExpense={addExpense} showToast={showToast}
       />
     );
@@ -237,6 +273,7 @@ export default function EmployeePortal() {
         theme={theme} onToggleTheme={toggleTheme}
         nav={[
           { key: "form", label: "Daily Report", icon: <ClipboardList size={18} /> },
+          { key: "pipeline", label: "Pipeline", icon: <Contact size={18} /> },
           { key: "history", label: "My History", icon: <History size={18} /> },
           { key: "leave", label: "Leave", icon: <Palmtree size={18} /> },
           { key: "assigned", label: "Assigned IDs", icon: <IdCard size={18} /> },
@@ -246,6 +283,9 @@ export default function EmployeePortal() {
         onSignOut={handleLogout}
       />
       <main className="sv-main">
+        {empTab === "pipeline" ? (
+          <Pipeline mode="pipeline" emp={emp} onToast={showToast} goTab={setEmpTab} />
+        ) : (
         <EmployeeDashboard
           emp={emp} empTab={empTab} setEmpTab={setEmpTab}
           dsrDate={dsrDate} dsrForm={dsrForm} setDsrForm={setDsrForm}
@@ -267,6 +307,7 @@ export default function EmployeePortal() {
           employees={employees}
           logo={logo}
         />
+        )}
       </main>
     </div>
   );

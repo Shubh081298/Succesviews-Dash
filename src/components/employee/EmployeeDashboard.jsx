@@ -3,10 +3,19 @@ import FormLabel from "./FormLabel.jsx";
 import { Avatar } from "../ui/index.js";
 import { getTodayStr, fmtDate, fmtDateTime, daysDiff, normAssignedId, parsePayslipPayload, stripPayslipPayload } from "../../utils/helpers.js";
 import PayslipView from "../PayslipView.jsx";
+import PhotoCropper from "./PhotoCropper.jsx";
 import {
   blankLead, blankContractOrder, blankFollowup, blankCall, blankSale, blankPayment,
 } from "../../utils/helpers.js";
 import { ATTENDANCE, CURRENCIES, DOMAINS, BLUE } from "../../utils/constants.js";
+import { Mail, Send, Clock, Globe2, ClipboardList, Megaphone, CheckCircle2, XCircle, Info, CalendarDays, Sparkles, CheckCheck } from "lucide-react";
+
+const ATT_META = {
+  "Present": { icon: CheckCircle2, ac: "#16A34A", bg: "#DCFCE7" },
+  "Half Day": { icon: Clock, ac: "#CA8A04", bg: "#FEF9C3" },
+  "Absent": { icon: XCircle, ac: "#DC2626", bg: "#FEE2E2" },
+};
+const autoGrow = (e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(e.target.scrollHeight, 320) + "px"; };
 
 const LOCAL_TZ = (() => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; }
@@ -52,6 +61,8 @@ export default function EmployeeDashboard({
   const today = getTodayStr();
   const dark = theme === "dark";
   const [viewingPayslip, setViewingPayslip] = useState(null);
+  const [confirmSubmit, setConfirmSubmit] = useState(false);
+  const [cropSrc, setCropSrc] = useState(null);
   const cardClass = dark ? "sv-card sv-dark" : "sv-card";
 
   /* Employee-owned fields on their assigned mail IDs (project + start date).
@@ -152,151 +163,138 @@ export default function EmployeeDashboard({
       </div>
 
       {empTab === "form" && (
-        <div className={cardClass} style={{ marginTop: 14 }}>
-          <div className="sv-flex sv-justify-between sv-items-center" style={{ marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
-            <div className="sv-flex sv-items-center sv-gap-3">
-              <p className={dark ? "sv-text-white sv-font-700" : "sv-text-navy sv-font-700"} style={{ margin: 0, fontSize: 15 }}>{emp.department} DSR — {fmtDate(dsrDate)}</p>
-              {existingForDate && <span className={badgeClass(existingForDate.status === "Submitted" ? "Completed" : "Pending")}>{existingForDate.status}</span>}
+        <div className="sv-dsr" style={{ marginTop: 14 }}>
+          {/* Premium header */}
+          <div className="sv-dsr-head">
+            <div style={{ minWidth: 0 }}>
+              <h1 className="sv-dsr-title">Daily Status Report</h1>
+              <p className="sv-dsr-sub">{emp.department} · {fmtDate(dsrDate)} — a quick end-of-day summary of your work.</p>
             </div>
-            <input type="date" className="sv-input" value={dsrDate} max={today} onChange={(e) => onDateChange(e.target.value)} style={{ width: 160 }} />
+            <div className="sv-dsr-head-right">
+              <span className={`sv-dsr-status ${existingForDate?.status === "Submitted" ? "is-submitted" : "is-draft"}`}>
+                {existingForDate?.status === "Submitted" ? <><CheckCheck size={13} /> Submitted</> : <>Draft</>}
+              </span>
+              <label className="sv-dsr-date"><CalendarDays size={14} /><input type="date" value={dsrDate} max={today} onChange={(e) => onDateChange(e.target.value)} /></label>
+              {!locked && <span className="sv-dsr-autosave"><span className="dot" /> Auto-saving</span>}
+            </div>
           </div>
 
           {locked && (
-            <div style={{ marginBottom: 14, padding: 10, background: "#FEF3C7", border: "1.5px solid #FDE68A", borderRadius: 8, fontSize: 13, color: "#92400E", fontWeight: 600 }}>
-              🔒 This report is older than 2 days and is locked. Read-only view.
-            </div>
+            <div className="sv-dsr-locked">🔒 This report is older than 2 days and is locked. Read-only view.</div>
           )}
 
           <fieldset disabled={locked} style={{ border: "none", padding: 0, margin: 0 }}>
-            <FormLabel text="🗓️ Attendance Status *" />
-            <div className="sv-flex sv-gap-2" style={{ flexWrap: "wrap", marginBottom: 18 }}>
-              {ATTENDANCE.map((a) => (
-                <button key={a} type="button" disabled={locked} onClick={() => setDsrForm({ ...dsrForm, attendance: a })}
-                  style={{ padding: "8px 18px", borderRadius: 8, border: `1.5px solid ${attendance === a ? BLUE : "var(--border-input)"}`, background: attendance === a ? "#E6F6F6" : "#fff", color: attendance === a ? "#0E8A8A" : "#475569", fontWeight: 700, fontSize: 13, cursor: locked ? "default" : "pointer" }}>
-                  {a}
-                </button>
-              ))}
+            {/* Attendance */}
+            <div className="sv-dsr-sec sv-dsr-sec--green" style={{ animationDelay: "40ms" }}>
+              <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><CalendarDays size={16} /></span>Attendance</div>
+              <div className="sv-att">
+                {ATTENDANCE.map((a) => {
+                  const m = ATT_META[a] || ATT_META.Present; const Ic = m.icon; const on = attendance === a;
+                  return (
+                    <button key={a} type="button" disabled={locked} onClick={() => setDsrForm({ ...dsrForm, attendance: a })}
+                      className={`sv-att-btn${on ? " is-on" : ""}`} style={{ "--ac": m.ac, "--ac-bg": m.bg }}>
+                      <span className="sv-att-ic"><Ic size={18} /></span>{a}
+                    </button>
+                  );
+                })}
+              </div>
+              {attendance === "Absent" && (
+                <div className="sv-dsr-absent">Marked <b>Absent</b> for {fmtDate(dsrDate)}. No activity fields are required — just submit.</div>
+              )}
             </div>
 
-            {attendance === "Absent" && (
-              <div style={{ padding: "14px 16px", background: dark ? "#3F1D1D" : "#FEF2F2", border: "1.5px solid #FECACA", borderRadius: 10, fontSize: 13.5, color: dark ? "#FCA5A5" : "#B91C1C", fontWeight: 600, marginBottom: 4 }}>
-                Marked <b>Absent</b> for {fmtDate(dsrDate)}. No activity fields are required — just submit.
-              </div>
-            )}
-
-            {showFields && richDept && (
-              <div className="sv-grid-2">
-                <div>
-                  <FormLabel text="📧 Fresh Emails Sent" />
-                  <input type="number" min="0" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.freshEmails} onChange={(e) => setDsrForm({ ...dsrForm, freshEmails: e.target.value })} />
-                </div>
-                <div>
-                  <FormLabel text="📨 Reminder Emails Sent" />
-                  <input type="number" min="0" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.reminderEmails} onChange={(e) => setDsrForm({ ...dsrForm, reminderEmails: e.target.value })} />
-                </div>
-
-                <RepeatSection dsrForm={dsrForm} locked={locked} setNA={setNA} addRow={addRow} updateRow={updateRow} removeRow={removeRow}
-                  label="🎯 New Leads / Interested" fieldKey="leads" factory={blankLead}
-                  gridCols="1.4fr 0.8fr 1fr 0.9fr auto"
-                  columns={[{ field: "clientName", type: "text", placeholder: "Client name" }, { field: "price", type: "number", placeholder: "Price" }, { field: "idName", type: "text", placeholder: "ID name" }, { field: "domain", type: "select", options: DOMAINS }]}
-                />
-                <RepeatSection dsrForm={dsrForm} locked={locked} setNA={setNA} addRow={addRow} updateRow={updateRow} removeRow={removeRow}
-                  label="🧾 Contract Order Sent" fieldKey="contractOrders" factory={blankContractOrder}
-                  gridCols="1.4fr 0.8fr 1fr 0.9fr auto"
-                  columns={[{ field: "clientName", type: "text", placeholder: "Client name" }, { field: "price", type: "number", placeholder: "Price" }, { field: "idName", type: "text", placeholder: "ID name" }, { field: "domain", type: "select", options: DOMAINS }]}
-                />
-                <RepeatSection dsrForm={dsrForm} locked={locked} setNA={setNA} addRow={addRow} updateRow={updateRow} removeRow={removeRow}
-                  label="🤝 Client Follow-ups" fieldKey="followups" factory={blankFollowup}
-                  gridCols="1.6fr 1fr auto"
-                  columns={[{ field: "clientName", type: "text", placeholder: "Client name" }, { field: "domain", type: "select", options: DOMAINS }]}
-                />
-                <RepeatSection dsrForm={dsrForm} locked={locked} setNA={setNA} addRow={addRow} updateRow={updateRow} removeRow={removeRow}
-                  label="📞 Scheduled Calls" fieldKey="calls" factory={blankCall}
-                  gridCols="1.3fr 1fr 0.9fr 0.9fr 1.1fr auto"
-                  columns={[{ field: "clientName", type: "text", placeholder: "Client name" }, { field: "idName", type: "text", placeholder: "ID name" }, { field: "domain", type: "select", options: DOMAINS }, { field: "time", type: "time" }, { field: "tz", type: "select", options: TZ_OPTIONS }]}
-                />
-
-                <div>
-                  <FormLabel text="⏱️ Working Hours" />
-                  <input type="number" min="0" step="0.5" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.workingHours} onChange={(e) => setDsrForm({ ...dsrForm, workingHours: e.target.value })} />
-                </div>
-                <div />
-
-                <RepeatSection dsrForm={dsrForm} locked={locked} setNA={setNA} addRow={addRow} updateRow={updateRow} removeRow={removeRow}
-                  label="💰 Sales Generated" fieldKey="sales" factory={blankSale}
-                  gridCols="1fr 0.9fr 1.2fr auto"
-                  columns={[{ field: "amount", type: "number", placeholder: "Amount" }, { field: "currency", type: "select", options: CURRENCIES }, { field: "idName", type: "text", placeholder: "ID name" }]}
-                />
-                <RepeatSection dsrForm={dsrForm} locked={locked} setNA={setNA} addRow={addRow} updateRow={updateRow} removeRow={removeRow}
-                  label="💵 Payment Received" fieldKey="payments" factory={blankPayment}
-                  gridCols="1fr 0.9fr 1.2fr auto"
-                  columns={[{ field: "amount", type: "number", placeholder: "Amount" }, { field: "currency", type: "select", options: CURRENCIES }, { field: "idName", type: "text", placeholder: "ID name" }]}
-                />
-
-                {isOps && (
-                  <div style={{ gridColumn: "1/-1" }}>
-                    <FormLabel text="🌐 Website Work" />
-                    {dsrForm.websites.map((w, i) => (
-                      <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr auto", gap: 8, marginBottom: 8, alignItems: "start" }}>
-                        <select disabled={locked} className="sv-select" value={w.name} onChange={(e) => setWebsiteRow(i, "name", e.target.value)}>
-                          <option value="">-- Select Website --</option>
-                          {websites.map((wn) => <option key={wn} value={wn}>{wn}</option>)}
-                        </select>
-                        <textarea rows={2} disabled={locked} maxLength={2000} className="sv-textarea" value={w.description} onChange={(e) => setWebsiteRow(i, "description", e.target.value)} placeholder="Work description…" />
-                        {dsrForm.websites.length > 1 && !locked && <button onClick={() => removeWebsiteRow(i)} className="sv-row-remove">✕</button>}
+            {showFields && (
+              <>
+                {/* Daily Activity */}
+                <div className="sv-dsr-sec sv-dsr-sec--blue" style={{ animationDelay: "90ms" }}>
+                  <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><Sparkles size={16} /></span>Daily Activity</div>
+                  <div className="sv-grid-2">
+                    <label className="sv-dsr-field">
+                      <span className="sv-dsr-flabel"><Mail size={14} /> Fresh Emails Sent <b>*</b></span>
+                      <input type="number" min="0" inputMode="numeric" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.freshEmails} onChange={(e) => setDsrForm({ ...dsrForm, freshEmails: e.target.value })} />
+                    </label>
+                    <label className="sv-dsr-field">
+                      <span className="sv-dsr-flabel"><Send size={14} /> Reminder Emails Sent <b>*</b></span>
+                      <input type="number" min="0" inputMode="numeric" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.reminderEmails} onChange={(e) => setDsrForm({ ...dsrForm, reminderEmails: e.target.value })} />
+                    </label>
+                    <label className="sv-dsr-field">
+                      <span className="sv-dsr-flabel"><Clock size={14} /> Working Hours <b>*</b></span>
+                      <input type="number" min="0" step="0.5" inputMode="decimal" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.workingHours} onChange={(e) => setDsrForm({ ...dsrForm, workingHours: e.target.value })} />
+                    </label>
+                    <div />
+                    {isOps && (
+                      <div style={{ gridColumn: "1/-1" }}>
+                        <span className="sv-dsr-flabel"><Globe2 size={14} /> Website Work</span>
+                        {dsrForm.websites.map((w, i) => (
+                          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr auto", gap: 8, margin: "8px 0", alignItems: "start" }}>
+                            <select disabled={locked} className="sv-select" value={w.name} onChange={(e) => setWebsiteRow(i, "name", e.target.value)}>
+                              <option value="">-- Select Website --</option>
+                              {websites.map((wn) => <option key={wn} value={wn}>{wn}</option>)}
+                            </select>
+                            <textarea rows={2} disabled={locked} maxLength={2000} className="sv-textarea" value={w.description} onChange={(e) => setWebsiteRow(i, "description", e.target.value)} onInput={autoGrow} placeholder="Work description…" />
+                            {dsrForm.websites.length > 1 && !locked && <button onClick={() => removeWebsiteRow(i)} className="sv-row-remove">✕</button>}
+                          </div>
+                        ))}
+                        {!locked && <button type="button" onClick={addWebsiteRow} className="sv-pill sv-pill--add" style={{ marginTop: 2 }}>+ Add Another Website</button>}
                       </div>
-                    ))}
-                    {!locked && <button type="button" onClick={addWebsiteRow} className="sv-pill sv-pill--add" style={{ marginTop: 2 }}>+ Add Another Website</button>}
+                    )}
+                  </div>
+                </div>
+
+                {/* Pending Tasks */}
+                <div className="sv-dsr-sec sv-dsr-sec--orange" style={{ animationDelay: "140ms" }}>
+                  <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><ClipboardList size={16} /></span>Pending Tasks <b style={{ color: "#EA580C" }}>*</b></div>
+                  <div className="sv-notecard">
+                    <textarea rows={3} maxLength={1000} disabled={locked} className="sv-textarea" value={dsrForm.pendingTasks} onChange={(e) => setDsrForm({ ...dsrForm, pendingTasks: e.target.value })} onInput={autoGrow} placeholder="List anything still in progress or waiting on someone — one item per line works great." />
+                    <div className="sv-notecard-foot"><span>{(dsrForm.pendingTasks || "").length}/1000</span></div>
+                  </div>
+                </div>
+
+                {/* Team Updates */}
+                <div className="sv-dsr-sec sv-dsr-sec--purple" style={{ animationDelay: "190ms" }}>
+                  <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><Megaphone size={16} /></span>Updates for {teamLeadName} <span className="sv-text-muted" style={{ fontWeight: 600, fontSize: 11.5 }}>(optional)</span></div>
+                  <div className="sv-notecard">
+                    <textarea rows={3} maxLength={1000} disabled={locked} className="sv-textarea" value={dsrForm.updatesForTeamLead} onChange={(e) => setDsrForm({ ...dsrForm, updatesForTeamLead: e.target.value })} onInput={autoGrow} placeholder="Blockers, wins, or anything your team lead should know about today." />
+                    <div className="sv-notecard-foot"><span>{(dsrForm.updatesForTeamLead || "").length}/1000</span></div>
+                  </div>
+                </div>
+
+                {customFields.length > 0 && (
+                  <div className="sv-dsr-sec" style={{ "--sc-bg": "#FBFCFE", "--sc-bd": "#EAEFF5", "--sc-ac": "#475569", animationDelay: "230ms" }}>
+                    <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><ClipboardList size={16} /></span>Additional Fields</div>
+                    <div className="sv-grid-2">
+                      {customFields.map((f) => (
+                        <div key={f.id} style={{ gridColumn: f.type === "textarea" ? "1/-1" : "auto" }}>
+                          <span className="sv-dsr-flabel">{f.label}{f.required ? " *" : ""}</span>
+                          {f.type === "textarea" ? (
+                            <textarea rows={3} disabled={locked} className="sv-textarea" value={dsrForm.customFields?.[f.id] || ""} onChange={(e) => setCustomVal(f.id, e.target.value)} onInput={autoGrow} placeholder="Describe here…" />
+                          ) : (
+                            <input type={f.type === "number" ? "number" : "text"} disabled={locked} className="sv-input" value={dsrForm.customFields?.[f.id] || ""} onChange={(e) => setCustomVal(f.id, e.target.value)} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
-                <div style={{ gridColumn: "1/-1" }}>
-                  <FormLabel text="📌 Pending Tasks * (max 1000 chars)" />
-                  <textarea rows={3} maxLength={1000} disabled={locked} className="sv-textarea" value={dsrForm.pendingTasks} onChange={(e) => setDsrForm({ ...dsrForm, pendingTasks: e.target.value })} placeholder="Describe here…" />
-                  <div className="sv-text-muted" style={{ textAlign: "right", fontSize: 11 }}>{(dsrForm.pendingTasks || "").length}/1000</div>
-                </div>
-                <div style={{ gridColumn: "1/-1" }}>
-                  <FormLabel text={`📣 Updates for ${teamLeadName} (max 1000 chars)`} />
-                  <textarea rows={3} maxLength={1000} disabled={locked} className="sv-textarea" value={dsrForm.updatesForTeamLead} onChange={(e) => setDsrForm({ ...dsrForm, updatesForTeamLead: e.target.value })} placeholder="Describe here…" />
-                  <div className="sv-text-muted" style={{ textAlign: "right", fontSize: 11 }}>{(dsrForm.updatesForTeamLead || "").length}/1000</div>
-                </div>
-              </div>
-            )}
-
-            {showFields && !richDept && (
-              <div>
-                <div style={{ marginBottom: 14 }}>
-                  <FormLabel text="📌 Pending Tasks * (max 1000 chars)" />
-                  <textarea rows={3} maxLength={1000} disabled={locked} className="sv-textarea" value={dsrForm.pendingTasks} onChange={(e) => setDsrForm({ ...dsrForm, pendingTasks: e.target.value })} placeholder="Describe here…" />
-                </div>
-                <div style={{ marginBottom: 14 }}>
-                  <FormLabel text={`📣 Updates for ${teamLeadName} (max 1000 chars)`} />
-                  <textarea rows={3} maxLength={1000} disabled={locked} className="sv-textarea" value={dsrForm.updatesForTeamLead} onChange={(e) => setDsrForm({ ...dsrForm, updatesForTeamLead: e.target.value })} placeholder="Describe here…" />
-                </div>
-              </div>
-            )}
-
-            {showFields && customFields.length > 0 && (
-              <div style={{ marginTop: 4, marginBottom: 14, paddingTop: 14, borderTop: "1.5px dashed var(--border-light)" }}>
-                <div className="sv-grid-2">
-                  {customFields.map((f) => (
-                    <div key={f.id} style={{ gridColumn: f.type === "textarea" ? "1/-1" : "auto" }}>
-                      <FormLabel text={`${f.label}${f.required ? " *" : ""}`} />
-                      {f.type === "textarea" ? (
-                        <textarea rows={3} disabled={locked} className="sv-textarea" value={dsrForm.customFields?.[f.id] || ""} onChange={(e) => setCustomVal(f.id, e.target.value)} placeholder="Describe here…" />
-                      ) : (
-                        <input type={f.type === "number" ? "number" : "text"} disabled={locked} className="sv-input" value={dsrForm.customFields?.[f.id] || ""} onChange={(e) => setCustomVal(f.id, e.target.value)} />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
+              </>
             )}
           </fieldset>
 
           {!locked && (
-            <div className="sv-flex" style={{ marginTop: 18 }}>
-              <button className="sv-btn sv-btn--primary sv-btn--full" onClick={() => onSave("Submitted")}>🚀 Submit DSR</button>
+            <button className="sv-dsr-cta" onClick={() => setConfirmSubmit(true)}><Send size={17} /> Submit Daily Report</button>
+          )}
+
+          {confirmSubmit && (
+            <div className="sv-modal-overlay" onClick={() => setConfirmSubmit(false)}>
+              <div className="sv-modal sv-confirm" onClick={(e) => e.stopPropagation()}>
+                <p className="sv-confirm-msg">Submit today's Daily Status Report?</p>
+                <p className="sv-confirm-sub">You can still edit it until 11:59 PM today.</p>
+                <div className="sv-confirm-actions">
+                  <button className="sv-btn sv-btn--outline" onClick={() => setConfirmSubmit(false)}>Cancel</button>
+                  <button className="sv-btn sv-btn--success" onClick={() => { setConfirmSubmit(false); onSave("Submitted"); }}>Submit</button>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -396,8 +394,9 @@ export default function EmployeeDashboard({
                 <input type="file" accept="image/*" style={{ display: "none" }} onChange={(ev) => {
                   const file = ev.target.files?.[0]; if (!file) return;
                   const reader = new FileReader();
-                  reader.onload = () => onUpdatePhoto?.(reader.result);
+                  reader.onload = () => setCropSrc(reader.result);
                   reader.readAsDataURL(file);
+                  ev.target.value = "";
                 }} />
               </label>
               {emp.photo && <button onClick={() => onUpdatePhoto?.("")} style={{ padding: "7px 16px", background: "#FEE2E2", color: "#DC2626", border: "none", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Remove Photo</button>}
@@ -420,29 +419,35 @@ export default function EmployeeDashboard({
             Your admin assigns the mail IDs. Add the <b>project name</b> and the <b>date the project starts</b> next to each ID — your admin can then see what is running on it.
           </p>
           {(emp.assignedIds || []).length === 0 ? (
-            <p className="sv-text-muted" style={{ fontSize: 13 }}>No IDs assigned yet.</p>
+            <div className="sv-myid-blank">No mail IDs assigned to you yet.</div>
           ) : (
             <div className="sv-myid-list">
               <div className="sv-myid-head">
-                <span>Mail ID</span><span>Project name</span><span>Project start date</span>
+                <span>Mail ID</span><span>Project name</span><span>Project start date</span><span>Status</span>
               </div>
-              {(emp.assignedIds || []).map(normAssignedId).map((r) => (
-                <div key={r.id} className="sv-myid-row">
-                  <span className="sv-myid-id" title={r.id}>{r.id}</span>
-                  <input
-                    className="sv-input sv-myid-input"
-                    placeholder="Project name"
-                    defaultValue={r.project}
-                    onBlur={(e) => saveMyId(r.id, "project", e.target.value)}
-                  />
-                  <input
-                    type="date"
-                    className="sv-input sv-myid-input"
-                    defaultValue={r.startDate}
-                    onChange={(e) => saveMyId(r.id, "startDate", e.target.value)}
-                  />
-                </div>
-              ))}
+              {(emp.assignedIds || []).map(normAssignedId).map((r, i) => {
+                const active = !!(r.project && r.startDate);
+                return (
+                  <div key={r.id} className="sv-myid-row">
+                    <span className="sv-myid-id" title={r.id}>
+                      <span className="sv-myid-id-text">{r.id}</span>
+                    </span>
+                    <input
+                      className="sv-input sv-myid-input"
+                      placeholder="Enter project name"
+                      defaultValue={r.project}
+                      onBlur={(e) => saveMyId(r.id, "project", e.target.value)}
+                    />
+                    <input
+                      type="date"
+                      className="sv-input sv-myid-input"
+                      defaultValue={r.startDate}
+                      onChange={(e) => saveMyId(r.id, "startDate", e.target.value)}
+                    />
+                    <span className={`sv-team-badge sv-team-badge--${active ? "active" : "pending"}`}><span className="sv-team-badge-dot" />{active ? "Active" : "Pending"}</span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -489,6 +494,10 @@ export default function EmployeeDashboard({
             </div>
           </div>
         </div>
+      )}
+
+      {cropSrc && (
+        <PhotoCropper src={cropSrc} onCancel={() => setCropSrc(null)} onSave={(dataUrl) => { onUpdatePhoto?.(dataUrl); setCropSrc(null); }} />
       )}
     </div>
   );

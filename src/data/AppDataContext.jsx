@@ -2,9 +2,10 @@
  * AppDataContext.jsx — shared data layer, powered by Supabase.
  * The Employee Portal and Admin Portal both consume this context.
  */
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { supabase } from "../utils/supabaseClient";
 import { hashPassword } from "../utils/auth";
+import { localDateStr } from "../utils/helpers";
 import logoDefault from "../assets/successviews-logo.png";
 
 const AppDataContext = createContext(null);
@@ -15,12 +16,18 @@ export function AppDataProvider({ children }) {
   const [theme, setTheme]                   = useState("light");
   const [employees, setEmployees]           = useState([]);
   const [submissions, setSubmissions]       = useState([]);
-  const [departments, setDepartments]       = useState(["Sales", "Operations"]);
+  const [departments, setDepartments]       = useState(["Sales", "Operations", "Design"]);
   const [websites, setWebsites]             = useState([]);
   const [targets, setTargets]               = useState({
     emailsSent: 20, newLeads: 5, callsMade: 15,
     salesGenerated: 1000, followUps: 10, meetings: 2,
   });
+  const [teamMeta, setTeamMeta]             = useState({});   // { [leadName]: { target, status } }
+  const [freelancers, setFreelancers]       = useState([]);  // manual (non-user) payees
+  const [designWork, setDesignWork]         = useState([]);  // designer client-wise work items
+  const [designArchive, setDesignArchive]   = useState([]);  // soft-archived design projects
+  const [designExtra, setDesignExtra]       = useState({ drafts: [], folders: {}, links: {}, fileFolders: {} }); // submit-gate + custom folders + links (settings-backed)
+  const designExtraRef = useRef({ drafts: [], folders: {}, links: {}, fileFolders: {} }); // synchronous mirror to avoid stale-closure across sequential uploads
   const [customFields, setCustomFields]     = useState([]);
   const [announcements, setAnnouncements]   = useState([]);
   const [messages, setMessages]             = useState([]);
@@ -36,6 +43,16 @@ export function AppDataProvider({ children }) {
   const [settingsPwd, setSettingsPwdState]  = useState("Settings@123");
   const [toast, setToast]                   = useState(null);
   const [notifications, setNotifications]   = useState([]);
+  // ── Pipeline (Employee CRM) — additive; feeds the existing submissions rollup ──
+  const [pipelineClients, setPipelineClients]     = useState([]);
+  const [pipelineFollowups, setPipelineFollowups] = useState([]);
+  const [pipelineContracts, setPipelineContracts] = useState([]);
+  const [pipelineSales, setPipelineSales]         = useState([]);
+  const [pipelinePayments, setPipelinePayments]   = useState([]);
+  const [pipelineNotes, setPipelineNotes]         = useState([]);
+  const [pipelineHistory, setPipelineHistory]     = useState([]);
+  const [domains, setDomains]                     = useState([]);
+  const [pipelineStatuses, setPipelineStatuses]   = useState([]);
 
   /* ── Bootstrap: load all data on mount ──────────────────── */
   useEffect(() => {
@@ -59,6 +76,40 @@ export function AppDataProvider({ children }) {
     };
   }, []);
 
+  /* Real-time sync: subscribe to Postgres changes and re-fetch the affected
+     table instantly (debounced), so Admin ↔ Designer stay in sync without
+     waiting for the poll. If Realtime isn't enabled on the tables server-side,
+     no events arrive and the interval poll above still keeps things fresh. */
+  useEffect(() => {
+    const reloaders = {
+      design_projects: loadDesignProjects,
+      design_files: loadDesignFiles,
+      design_activity: loadDesignActivity,
+      submissions: loadSubmissions,
+      leaves: loadLeaves,
+      messages: loadMessages,
+      settings: loadSettings,
+      employees: loadEmployees,
+      pipeline_clients: loadPipeline,
+      pipeline_followups: loadPipeline,
+      pipeline_sales: loadPipeline,
+      pipeline_payments: loadPipeline,
+      pipeline_contracts: loadPipeline,
+    };
+    const timers = {};
+    const bump = (tbl) => { clearTimeout(timers[tbl]); timers[tbl] = setTimeout(() => { try { reloaders[tbl] && reloaders[tbl](); } catch (e) { /* ignore */ } }, 250); };
+    let ch;
+    try {
+      ch = supabase.channel("svd-realtime");
+      Object.keys(reloaders).forEach((tbl) => ch.on("postgres_changes", { event: "*", schema: "public", table: tbl }, () => bump(tbl)));
+      ch.subscribe();
+    } catch (e) { /* realtime unavailable — poll remains the fallback */ }
+    return () => {
+      Object.values(timers).forEach(clearTimeout);
+      try { if (ch) supabase.removeChannel(ch); } catch (e) { /* ignore */ }
+    };
+  }, []);
+
   async function loadAll() {
     setLoading(true);
     try {
@@ -77,6 +128,7 @@ export function AppDataProvider({ children }) {
         loadDesignFiles(),
         loadDesignActivity(),
         loadSettings(),
+        loadPipeline(),
       ]);
     } catch (e) {
       console.error("Failed to load data:", e);
@@ -356,7 +408,7 @@ export function AppDataProvider({ children }) {
     if (data) setDesignFiles(data.map(rowToFile));
   }
 
-  async function uploadDesignFile(projectId, kind, file, uploadedByName = "Admin") {
+  async function uploadDesignFile(projectId, kind, file, uploadedByName = "Admin", folderId = "") {
     try {
       const existing = designFiles.filter((f) => f.projectId === projectId && f.kind === kind);
       const version = existing.length ? Math.max(...existing.map((f) => f.version || 1)) + 1 : 1;
@@ -373,8 +425,8 @@ export function AppDataProvider({ children }) {
       }).select("*").single();
       if (error || !data) { showToast("File uploaded but record failed.", "error"); return false; }
       setDesignFiles((prev) => [...prev, rowToFile(data)]);
-      addActivity(projectId, "upload", uploadedByName === "Admin" ? "admin" : "designer", uploadedByName, "", `${kind} v${version}`);
-      showToast(`Uploaded ${kind} v${version}.`, "success");
+      await markFileDraft(data.id, folderId); // stays private to uploader until Submit/Send
+      showToast(`Uploaded ${kind} v${version} — saved as draft (not sent yet).`, "success");
       return true;
     } catch (e) { showToast("Upload error.", "error"); return false; }
   }
@@ -382,7 +434,7 @@ export function AppDataProvider({ children }) {
   async function deleteDesignFile(fileRec) {
     try { await supabase.storage.from("design-files").remove([fileRec.filePath]); } catch (e) { /* ignore */ }
     const { error } = await supabase.from("design_files").delete().eq("id", fileRec.id);
-    if (!error) { setDesignFiles((prev) => prev.filter((x) => x.id !== fileRec.id)); showToast("File deleted.", "success"); }
+    if (!error) { setDesignFiles((prev) => prev.filter((x) => x.id !== fileRec.id)); removeFileDraft(fileRec.id); showToast("File deleted.", "success"); }
     else showToast("Failed to delete file.", "error");
   }
 
@@ -415,6 +467,16 @@ export function AppDataProvider({ children }) {
     showToast("Revision requested — the designer will see it.", "success");
     return true;
   }
+  // Project conversation (ticket-style). Stored as design_activity type "message"
+  // so it lives with the project forever and is never overwritten.
+  async function addProjectComment(projectId, actorRole, actorName, text) {
+    if (!text || !text.trim()) return false;
+    await addActivity(projectId, "message", actorRole, actorName, text.trim(), "");
+    const proj = designProjects.find((p) => p.id === projectId);
+    const to = actorRole === "admin" ? "the designer" : "the admin";
+    pushNotification(`${actorName} messaged ${to} on ${proj ? proj.clientName : "a project"}: ${text.trim().slice(0, 50)}`, "review");
+    return true;
+  }
 
   async function loadSettings() {
     const { data } = await supabase.from("settings").select("key, value");
@@ -424,6 +486,21 @@ export function AppDataProvider({ children }) {
         if (row.key === "logo" && row.value) setLogo(row.value || logoDefault);
         if (row.key === "targets") {
           try { setTargets(JSON.parse(row.value)); } catch {}
+        }
+        if (row.key === "team_meta") {
+          try { setTeamMeta(JSON.parse(row.value) || {}); } catch {}
+        }
+        if (row.key === "freelancers") {
+          try { setFreelancers(JSON.parse(row.value) || []); } catch {}
+        }
+        if (row.key === "design_work") {
+          try { setDesignWork(JSON.parse(row.value) || []); } catch {}
+        }
+        if (row.key === "design_archive") {
+          try { setDesignArchive(JSON.parse(row.value) || []); } catch {}
+        }
+        if (row.key === "design_extra") {
+          try { const v = JSON.parse(row.value) || {}; const de = { drafts: v.drafts || [], folders: v.folders || {}, links: v.links || {}, fileFolders: v.fileFolders || {} }; designExtraRef.current = de; setDesignExtra(de); } catch {}
         }
         // admin_password is verified server-side (admin_login RPC); never loaded to the client.
         if (row.key === "admin_email") setAdminEmailState(row.value || "");
@@ -439,7 +516,6 @@ export function AppDataProvider({ children }) {
       code: e.code, photo: e.photo || "",
       teamLead: e.team_lead || "",
       email: e.email || "",
-      passwordPlain: e.password_plain || "",
       assignedIds: Array.isArray(e.assigned_ids) ? e.assigned_ids : [],
     };
   }
@@ -497,7 +573,6 @@ export function AppDataProvider({ children }) {
         id: emp.id, name: emp.name, department: emp.department,
         code: emp.code, photo: emp.photo || "",
         team_lead: emp.teamLead || "", email: emp.email || "", password_hash,
-        password_plain: plain,
       })
       .select("id, name, department, code, photo, team_lead, email, assigned_ids")
       .single();
@@ -547,7 +622,7 @@ export function AppDataProvider({ children }) {
   // Reset an employee's password — accepts custom password or defaults to "1234"
   async function resetEmployeePassword(id, newPlainPassword = "1234") {
     const password_hash = await hashPassword(newPlainPassword);
-    const { error } = await supabase.from("employees").update({ password_hash, password_plain: newPlainPassword }).eq("id", id);
+    const { error } = await supabase.from("employees").update({ password_hash }).eq("id", id);
     if (error) { showToast("Failed to reset password.", "error"); return false; }
     const target = employees.find((e) => e.id === id);
     if (target && target.email) {
@@ -785,6 +860,99 @@ export function AppDataProvider({ children }) {
       .upsert({ key: "targets", value: JSON.stringify(t), updated_at: new Date().toISOString() }, { onConflict: "key" });
   }
 
+  // Per-team metadata (target + status), keyed by team-lead name. Stored in
+  // the existing settings key/value table — no schema change.
+  async function saveTeamMeta(next) {
+    setTeamMeta(next);
+    await supabase.from("settings")
+      .upsert({ key: "team_meta", value: JSON.stringify(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
+  }
+
+  // Freelancers are manual payees (not dashboard users). Stored in the existing
+  // settings key/value table — no schema change. Each holds a payments[] log.
+  async function saveFreelancers(next) {
+    setFreelancers(next);
+    await supabase.from("settings")
+      .upsert({ key: "freelancers", value: JSON.stringify(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
+  }
+
+  // Designer client-wise work items (Cover Page, Layout, Ads, Revisions …) with
+  // amount + work status + payment status. Settings-backed — no schema change.
+  async function saveDesignWork(next) {
+    setDesignWork(next);
+    await supabase.from("settings")
+      .upsert({ key: "design_work", value: JSON.stringify(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
+  }
+
+  // Soft-archived design projects (id + reason + who + when). Settings-backed.
+  async function saveDesignArchive(next) {
+    setDesignArchive(next);
+    await supabase.from("settings")
+      .upsert({ key: "design_archive", value: JSON.stringify(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
+  }
+
+  /* ── Design "extra" store: submit-gate (drafts) + custom folders + links.
+     Settings-backed, one key. A file is PRIVATE to its uploader while its id is
+     in `drafts`; releasing (Submit/Send) removes it so the other party can see it.
+     Legacy files (never added to drafts) are treated as released → no regressions. */
+  async function saveDesignExtra(next) {
+    designExtraRef.current = next;
+    setDesignExtra(next);
+    await supabase.from("settings")
+      .upsert({ key: "design_extra", value: JSON.stringify(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
+  }
+  const genId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // Mark a freshly-uploaded file as an unsubmitted draft (optionally inside a folder).
+  async function markFileDraft(fileId, folderId = "") {
+    const cur = designExtraRef.current;
+    const next = { ...cur, drafts: [...new Set([...(cur.drafts || []), fileId])], fileFolders: { ...(cur.fileFolders || {}) } };
+    if (folderId) next.fileFolders[fileId] = folderId;
+    await saveDesignExtra(next);
+  }
+  async function removeFileDraft(fileId) {
+    const cur = designExtraRef.current;
+    const ff = { ...(cur.fileFolders || {}) }; delete ff[fileId];
+    await saveDesignExtra({ ...cur, drafts: (cur.drafts || []).filter((id) => id !== fileId), fileFolders: ff });
+  }
+  // Release everything the given side currently has pending for a project (files + folders + links).
+  async function releaseDesign(projectId, role) {
+    const cur = designExtraRef.current;
+    const mineIds = (designFiles || [])
+      .filter((f) => f.projectId === projectId && ((role === "admin") === (f.uploadedByName === "Admin")))
+      .map((f) => f.id);
+    const folders = { ...(cur.folders || {}) };
+    folders[projectId] = (folders[projectId] || []).map((fo) => (fo.side === role ? { ...fo, released: true } : fo));
+    const links = { ...(cur.links || {}) };
+    links[projectId] = (links[projectId] || []).map((ln) => (ln.side === role ? { ...ln, released: true } : ln));
+    await saveDesignExtra({ ...cur, drafts: (cur.drafts || []).filter((id) => !mineIds.includes(id)), folders, links });
+  }
+  async function addDesignFolder(projectId, name, side) {
+    const cur = designExtraRef.current;
+    const folders = { ...(cur.folders || {}) };
+    folders[projectId] = [...(folders[projectId] || []), { id: genId(), name: (name || "Folder").trim(), side, released: false, createdAt: new Date().toISOString() }];
+    await saveDesignExtra({ ...cur, folders });
+  }
+  async function deleteDesignFolder(projectId, folderId) {
+    const cur = designExtraRef.current;
+    const folders = { ...(cur.folders || {}) };
+    folders[projectId] = (folders[projectId] || []).filter((f) => f.id !== folderId);
+    const ff = { ...(cur.fileFolders || {}) };
+    Object.keys(ff).forEach((fid) => { if (ff[fid] === folderId) delete ff[fid]; });
+    await saveDesignExtra({ ...cur, folders, fileFolders: ff });
+  }
+  async function addDesignLink(projectId, label, url, side) {
+    const cur = designExtraRef.current;
+    const links = { ...(cur.links || {}) };
+    links[projectId] = [...(links[projectId] || []), { id: genId(), label: (label || url || "Link").trim(), url: (url || "").trim(), side, released: false, createdAt: new Date().toISOString() }];
+    await saveDesignExtra({ ...cur, links });
+  }
+  async function deleteDesignLink(projectId, linkId) {
+    const cur = designExtraRef.current;
+    const links = { ...(cur.links || {}) };
+    links[projectId] = (links[projectId] || []).filter((l) => l.id !== linkId);
+    await saveDesignExtra({ ...cur, links });
+  }
+
   async function setAdminPwd(v) {
     setAdminPwdState(v);
     await supabase.from("settings")
@@ -828,9 +996,251 @@ export function AppDataProvider({ children }) {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const pushNotification = (msg) => {
-    setNotifications((n) => [{ id: Date.now(), msg, ts: Date.now() }, ...n].slice(0, 50));
+  // Classify a notification message into a colour/priority type from keywords.
+  const classifyNotif = (msg) => {
+    const m = String(msg || "").toLowerCase();
+    if (/reject|revision|correction|declin/.test(m)) return "rejected";
+    if (/approv|complete|paid|released|✓/.test(m)) return "completed";
+    if (/review|sample|submit|uploaded|ready/.test(m)) return "review";
+    if (/wait|pending|due|required|request/.test(m)) return "waiting";
+    return "info";
   };
+  const pushNotification = (msg, type) => {
+    setNotifications((n) => [{ id: `${Date.now()}${Math.floor(Math.random() * 1000)}`, msg, ts: Date.now(), read: false, type: type || classifyNotif(msg) }, ...n].slice(0, 80));
+  };
+  const markNotificationRead = (id) => setNotifications((n) => n.map((x) => (x.id === id ? { ...x, read: true } : x)));
+  const markAllNotificationsRead = () => setNotifications((n) => n.map((x) => ({ ...x, read: true })));
+  const clearNotifications = () => setNotifications([]);
+
+  /* ══════════════════════════════════════════════════════════
+     Pipeline (Employee CRM) — additive data layer.
+     Every write also (a) appends a pipeline_history audit row and
+     (b) rolls up into TODAY's submissions row so the existing Admin
+     Dashboard / Reports / Analytics keep working unchanged.
+     ══════════════════════════════════════════════════════════ */
+  const rowToPClient = (r) => ({ id: r.id, employeeId: r.employee_id, assignedEmailId: r.assigned_email_id || "", domainId: r.domain_id || "", domainName: r.domain_name || "", clientName: r.client_name || "", companyName: r.company_name || "", projectName: r.project_name || "", clientEmail: r.client_email || "", region: r.region || "", status: r.status || "New Lead", notes: r.notes || "", lastFollowUp: r.last_follow_up || "", nextFollowUp: r.next_follow_up || "", nextFollowUpTime: r.next_follow_up_time || "", expectedAmount: Number(r.expected_amount) || 0, expectedCurrency: r.expected_currency || "", lostReason: r.lost_reason || "", isDeleted: !!r.is_deleted, createdAt: r.created_at, updatedAt: r.updated_at });
+  const rowToPFollowup = (r) => ({ id: r.id, clientId: r.client_id, employeeId: r.employee_id, followUpDate: r.follow_up_date || "", followUpTime: r.follow_up_time || "", communicationType: r.communication_type || "", notes: r.notes || "", status: r.status || "", nextFollowUp: r.next_follow_up || "", createdAt: r.created_at });
+  const rowToPContract = (r) => ({ id: r.id, clientId: r.client_id, contractNumber: r.contract_number || "", contractDate: r.contract_date || "", notes: r.notes || "", createdAt: r.created_at });
+  const rowToPSale = (r) => ({ id: r.id, clientId: r.client_id, packageName: r.package_name || "", amount: Number(r.amount) || 0, currency: r.currency || "USD", salesDate: r.sales_date || "", notes: r.notes || "", createdAt: r.created_at });
+  const rowToPPayment = (r) => ({ id: r.id, clientId: r.client_id, amount: Number(r.amount) || 0, currency: r.currency || "USD", paymentMethod: r.payment_method || "", referenceNumber: r.reference_number || "", paymentDate: r.payment_date || "", notes: r.notes || "", createdAt: r.created_at });
+  const rowToPNote = (r) => ({ id: r.id, clientId: r.client_id, employeeId: r.employee_id, note: r.note || "", createdAt: r.created_at });
+  const rowToPHistory = (r) => ({ id: r.id, clientId: r.client_id, employeeId: r.employee_id, action: r.action || "", oldValue: r.old_value || null, newValue: r.new_value || null, createdAt: r.created_at });
+  const rowToDomain = (r) => ({ id: r.id, name: r.domain_name, status: r.status !== false });
+  const rowToPStatus = (r) => ({ id: r.id, name: r.status_name, colour: r.colour || "", order: r.display_order || 0 });
+
+  async function loadPipeline() {
+    const grab = async (table, order, setter, mapper) => {
+      try {
+        const { data, error } = await supabase.from(table).select("*").order(order, { ascending: table === "domains" || table === "pipeline_status_master" });
+        if (!error && data) setter(data.map(mapper));
+      } catch (e) { /* table not migrated yet — ignore */ }
+    };
+    await Promise.all([
+      grab("pipeline_clients", "updated_at", setPipelineClients, rowToPClient),
+      grab("pipeline_followups", "created_at", setPipelineFollowups, rowToPFollowup),
+      grab("pipeline_contracts", "created_at", setPipelineContracts, rowToPContract),
+      grab("pipeline_sales", "created_at", setPipelineSales, rowToPSale),
+      grab("pipeline_payments", "created_at", setPipelinePayments, rowToPPayment),
+      grab("pipeline_notes", "created_at", setPipelineNotes, rowToPNote),
+      grab("pipeline_history", "created_at", setPipelineHistory, rowToPHistory),
+      grab("domains", "domain_name", setDomains, rowToDomain),
+      grab("pipeline_status_master", "display_order", setPipelineStatuses, rowToPStatus),
+    ]);
+  }
+
+  async function addPipelineHistory(clientId, employeeId, action, oldValue, newValue) {
+    try {
+      const { data } = await supabase.from("pipeline_history").insert({ client_id: clientId, employee_id: employeeId || null, action, old_value: oldValue || null, new_value: newValue || null }).select("*").single();
+      if (data) setPipelineHistory((prev) => [rowToPHistory(data), ...prev]);
+    } catch (e) { /* ignore */ }
+  }
+
+  // Roll a Pipeline event into TODAY's submission so the Admin numbers keep flowing.
+  async function rollupToSubmission(empId, kind, row) {
+    const emp = employees.find((e) => e.id === empId);
+    const today = localDateStr();
+    const base = submissions.find((x) => x.empId === empId && x.date === today) || {
+      id: String(Date.now()), empId, empName: emp?.name || "", department: emp?.department || "",
+      date: today, status: "Draft", attendance: "Present",
+      freshEmails: 0, reminderEmails: 0, workingHours: 0, pendingTasks: "", updatesForTeamLead: "",
+      leads: [], followups: [], calls: [], sales: [], payments: [], contractOrders: [], websitesData: [], customFields: {},
+    };
+    const key = { lead: "leads", followup: "followups", call: "calls", sale: "sales", payment: "payments", contract: "contractOrders" }[kind];
+    if (!key) return;
+    const merged = { ...base, [key]: [...(base[key] || []), row] };
+    try { await upsertSubmission(merged); } catch (e) { /* keep Pipeline write even if rollup hiccups */ }
+  }
+
+  async function addPipelineClient(p) {
+    try {
+      // F2: global duplicate prevention (across ALL employees) on (email, domain).
+      // Works even when domain_id is null — the DB unique index can't, so we check here.
+      const dupEmail = (p.clientEmail || "").trim();
+      if (dupEmail) {
+        try {
+          const { data: dup } = await supabase
+            .from("pipeline_clients").select("id, employee_id")
+            .eq("is_deleted", false).ilike("client_email", dupEmail)
+            .eq("domain_name", p.domainName || "").limit(1);
+          if (dup && dup.length) {
+            showToast("This client already exists under this domain (possibly with another team member).", "error");
+            return false;
+          }
+        } catch (e) { /* if the check itself fails, fall through and let the insert try */ }
+      }
+      const payload = {
+        employee_id: p.employeeId, assigned_email_id: p.assignedEmailId || null, domain_id: p.domainId || null,
+        domain_name: p.domainName || null, client_name: p.clientName, company_name: p.companyName || null,
+        project_name: p.projectName || null,
+        client_email: p.clientEmail || null, region: p.region || null, status: p.status || "New Lead",
+        notes: p.notes || null, next_follow_up: p.nextFollowUp || null, next_follow_up_time: p.nextFollowUpTime || null,
+      };
+      let { data, error } = await supabase.from("pipeline_clients").insert(payload).select("*").single();
+      if (error && /next_follow_up_time|project_name/.test(error.message || "")) { // columns not migrated yet — save without them
+        delete payload.next_follow_up_time; delete payload.project_name;
+        ({ data, error } = await supabase.from("pipeline_clients").insert(payload).select("*").single());
+      }
+      if (error || !data) {
+        const m = error?.message || "";
+        showToast(m.includes("uq_client_email_domain") ? "This client already exists under the selected domain."
+          : /relation .*pipeline_clients.* does not exist|schema cache|Could not find the table/i.test(m) ? "Pipeline tables not found — please run the database migration (pipeline-schema.sql)."
+          : "Could not save client" + (m ? " — " + m : "."), "error");
+        return false;
+      }
+      const rec = rowToPClient(data);
+      setPipelineClients((prev) => [rec, ...prev]);
+      await addPipelineHistory(rec.id, p.employeeId, "Client Created", null, { clientName: rec.clientName, status: rec.status });
+      await rollupToSubmission(p.employeeId, "lead", { client: rec.clientName, status: rec.status, ts: Date.now() });
+      pushNotification && pushNotification(`New client added: ${rec.clientName}`, "info");
+      return rec;
+    } catch (e) { showToast("Could not save client.", "error"); return false; }
+  }
+
+  async function updatePipelineClient(id, patch, employeeId) {
+    const old = pipelineClients.find((c) => c.id === id);
+    try {
+      const upd = {}; const map = { assignedEmailId: "assigned_email_id", domainId: "domain_id", domainName: "domain_name", clientName: "client_name", companyName: "company_name", projectName: "project_name", clientEmail: "client_email", region: "region", status: "status", notes: "notes", nextFollowUp: "next_follow_up", nextFollowUpTime: "next_follow_up_time", expectedAmount: "expected_amount", expectedCurrency: "expected_currency", lastFollowUp: "last_follow_up", lostReason: "lost_reason", isDeleted: "is_deleted" };
+      Object.keys(patch).forEach((k) => { if (map[k] !== undefined) upd[map[k]] = patch[k]; });
+      upd.updated_at = new Date().toISOString();
+      let { data, error } = await supabase.from("pipeline_clients").update(upd).eq("id", id).select("*").single();
+      if (error && /next_follow_up_time|project_name|expected_amount|expected_currency/.test(error.message || "")) { // columns not migrated yet
+        delete upd.next_follow_up_time; delete upd.project_name; delete upd.expected_amount; delete upd.expected_currency;
+        ({ data, error } = await supabase.from("pipeline_clients").update(upd).eq("id", id).select("*").single());
+      }
+      if (error || !data) { showToast("Could not update client.", "error"); return false; }
+      const rec = rowToPClient(data);
+      setPipelineClients((prev) => prev.map((c) => (c.id === id ? rec : c)));
+      await addPipelineHistory(id, employeeId, patch.status && old && old.status !== patch.status ? `Status → ${patch.status}` : "Client Edited", old ? { status: old.status, notes: old.notes, nextFollowUp: old.nextFollowUp } : null, { status: rec.status, notes: rec.notes, nextFollowUp: rec.nextFollowUp });
+      return rec;
+    } catch (e) { showToast("Could not update client.", "error"); return false; }
+  }
+
+  // Admin-only soft delete (never a hard delete — the row is kept with is_deleted=true
+  // so it can be restored). Views filter out !isDeleted; the row stays in state for undo.
+  async function softDeletePipelineClient(id, employeeId) {
+    try {
+      const { error } = await supabase.from("pipeline_clients").update({ is_deleted: true, updated_at: new Date().toISOString() }).eq("id", id);
+      if (error) { showToast("Could not delete client.", "error"); return false; }
+      setPipelineClients((prev) => prev.map((c) => (c.id === id ? { ...c, isDeleted: true } : c)));
+      await addPipelineHistory(id, employeeId, "Project Deleted", null, null);
+      return true;
+    } catch (e) { showToast("Could not delete client.", "error"); return false; }
+  }
+
+  // Restore a soft-deleted client (undo).
+  async function restorePipelineClient(id, employeeId) {
+    try {
+      const { error } = await supabase.from("pipeline_clients").update({ is_deleted: false, updated_at: new Date().toISOString() }).eq("id", id);
+      if (error) { showToast("Could not restore client.", "error"); return false; }
+      setPipelineClients((prev) => prev.map((c) => (c.id === id ? { ...c, isDeleted: false } : c)));
+      await addPipelineHistory(id, employeeId, "Project Restored", null, null);
+      return true;
+    } catch (e) { showToast("Could not restore client.", "error"); return false; }
+  }
+
+  async function addFollowup(p) {
+    try {
+      const { data, error } = await supabase.from("pipeline_followups").insert({
+        client_id: p.clientId, employee_id: p.employeeId, follow_up_date: p.followUpDate || localDateStr(),
+        follow_up_time: p.followUpTime || null, communication_type: p.communicationType || null, notes: p.notes || null,
+        status: p.status || null, next_follow_up: p.nextFollowUp || null,
+      }).select("*").single();
+      if (error || !data) { showToast("Could not save follow-up.", "error"); return false; }
+      const rec = rowToPFollowup(data);
+      setPipelineFollowups((prev) => [rec, ...prev]);
+      // keep the client's last/next follow-up + status current
+      await updatePipelineClient(p.clientId, { lastFollowUp: rec.followUpDate, nextFollowUp: p.nextFollowUp || undefined, ...(p.nextFollowUpTime !== undefined ? { nextFollowUpTime: p.nextFollowUpTime || null } : {}), ...(p.status ? { status: p.status } : {}) }, p.employeeId);
+      await rollupToSubmission(p.employeeId, "followup", { client: p.clientName || "", type: rec.communicationType, ts: Date.now() });
+      if (["Phone Call", "Zoom Meeting", "Google Meet"].includes(rec.communicationType)) {
+        await rollupToSubmission(p.employeeId, "call", { client: p.clientName || "", type: rec.communicationType, ts: Date.now() });
+      }
+      pushNotification && pushNotification(`Follow-up added${p.clientName ? " · " + p.clientName : ""}`, "review");
+      return rec;
+    } catch (e) { showToast("Could not save follow-up.", "error"); return false; }
+  }
+
+  async function addPipelineContract(p) {
+    try {
+      const { data, error } = await supabase.from("pipeline_contracts").insert({ client_id: p.clientId, contract_number: p.contractNumber || null, contract_date: p.contractDate || localDateStr(), notes: p.notes || null }).select("*").single();
+      if (error || !data) { showToast("Could not save contract.", "error"); return false; }
+      const rec = rowToPContract(data);
+      setPipelineContracts((prev) => [rec, ...prev]);
+      await addPipelineHistory(p.clientId, p.employeeId, "Contract Sent", null, { number: rec.contractNumber, date: rec.contractDate });
+      await rollupToSubmission(p.employeeId, "contract", { number: rec.contractNumber, date: rec.contractDate, ts: Date.now() });
+      pushNotification && pushNotification(`Contract sent${p.clientName ? " · " + p.clientName : ""}`, "info");
+      return rec;
+    } catch (e) { showToast("Could not save contract.", "error"); return false; }
+  }
+
+  async function addPipelineSale(p) {
+    try {
+      const { data, error } = await supabase.from("pipeline_sales").insert({ client_id: p.clientId, package_name: p.packageName || null, amount: Number(p.amount) || 0, currency: p.currency || "USD", sales_date: p.salesDate || localDateStr(), notes: p.notes || null }).select("*").single();
+      if (error || !data) { showToast("Could not save sale.", "error"); return false; }
+      const rec = rowToPSale(data);
+      setPipelineSales((prev) => [rec, ...prev]);
+      await addPipelineHistory(p.clientId, p.employeeId, "Sale Closed", null, { package: rec.packageName, amount: rec.amount, currency: rec.currency });
+      await rollupToSubmission(p.employeeId, "sale", { amount: rec.amount, currency: rec.currency, package: rec.packageName, ts: Date.now() });
+      pushNotification && pushNotification(`Sale closed${p.clientName ? " · " + p.clientName : ""} (${rec.currency} ${rec.amount})`, "completed");
+      return rec;
+    } catch (e) { showToast("Could not save sale.", "error"); return false; }
+  }
+
+  async function addPipelinePayment(p) {
+    try {
+      const { data, error } = await supabase.from("pipeline_payments").insert({ client_id: p.clientId, amount: Number(p.amount) || 0, currency: p.currency || "USD", payment_method: p.paymentMethod || null, reference_number: p.referenceNumber || null, payment_date: p.paymentDate || localDateStr(), notes: p.notes || null }).select("*").single();
+      if (error || !data) { showToast("Could not save payment.", "error"); return false; }
+      const rec = rowToPPayment(data);
+      setPipelinePayments((prev) => [rec, ...prev]);
+      await addPipelineHistory(p.clientId, p.employeeId, "Payment Received", null, { amount: rec.amount, currency: rec.currency, method: rec.paymentMethod });
+      await rollupToSubmission(p.employeeId, "payment", { amount: rec.amount, currency: rec.currency, method: rec.paymentMethod, ts: Date.now() });
+      pushNotification && pushNotification(`Payment received${p.clientName ? " · " + p.clientName : ""} (${rec.currency} ${rec.amount})`, "completed");
+      return rec;
+    } catch (e) { showToast("Could not save payment.", "error"); return false; }
+  }
+
+  // B3: reverse/refund a payment by recording a negative offsetting entry, so
+  // analytics net out correctly and there's a full audit trail. Never edits the original.
+  async function reversePipelinePayment(clientId, employeeId, amount, currency) {
+    try {
+      const amt = -Math.abs(Number(amount) || 0);
+      const { data, error } = await supabase.from("pipeline_payments").insert({ client_id: clientId, amount: amt, currency: currency || "USD", payment_method: "Reversal / Refund", payment_date: localDateStr(), notes: "Payment reversed by admin" }).select("*").single();
+      if (error || !data) { showToast("Could not reverse payment.", "error"); return false; }
+      setPipelinePayments((prev) => [rowToPPayment(data), ...prev]);
+      await addPipelineHistory(clientId, employeeId, "Payment Reversed", null, { amount: amt, currency: currency || "USD" });
+      return true;
+    } catch (e) { showToast("Could not reverse payment.", "error"); return false; }
+  }
+
+  async function addPipelineNote(p) {
+    try {
+      const { data, error } = await supabase.from("pipeline_notes").insert({ client_id: p.clientId, employee_id: p.employeeId, note: p.note }).select("*").single();
+      if (error || !data) { showToast("Could not save note.", "error"); return false; }
+      const rec = rowToPNote(data);
+      setPipelineNotes((prev) => [rec, ...prev]);
+      await addPipelineHistory(p.clientId, p.employeeId, "Note Added", null, { note: rec.note });
+      return rec;
+    } catch (e) { showToast("Could not save note.", "error"); return false; }
+  }
 
   /* ── Context value ───────────────────────────────────────── */
 
@@ -842,6 +1252,15 @@ export function AppDataProvider({ children }) {
     departments, saveDepartments,
     websites, saveWebsites,
     targets, saveTargets,
+    teamMeta, saveTeamMeta,
+    freelancers, saveFreelancers,
+    designWork, saveDesignWork,
+    designArchive, saveDesignArchive,
+    designExtra, releaseDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink,
+    // Pipeline (Employee CRM)
+    pipelineClients, pipelineFollowups, pipelineContracts, pipelineSales, pipelinePayments, pipelineNotes, pipelineHistory,
+    domains, pipelineStatuses,
+    addPipelineClient, updatePipelineClient, softDeletePipelineClient, restorePipelineClient, addFollowup, addPipelineContract, addPipelineSale, addPipelinePayment, reversePipelinePayment, addPipelineNote,
     customFields, saveCustomFields,
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,
     messages, saveMessages, addMessage, deleteMessage, dismissMessage,
@@ -850,13 +1269,13 @@ export function AppDataProvider({ children }) {
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,
     designProjects, addDesignProject, updateDesignProject, deleteDesignProject,
     designFiles, uploadDesignFile, deleteDesignFile,
-    designActivity, changeProjectStatus, requestRevision,
+    designActivity, changeProjectStatus, requestRevision, addProjectComment,
     logo, onLogoChange, onLogoRemove,
     adminPwd, setAdminPwd,
     adminEmail, setAdminEmail,
     settingsPwd, setSettingsPwd,
     toast, showToast,
-    notifications, pushNotification,
+    notifications, pushNotification, markNotificationRead, markAllNotificationsRead, clearNotifications,
   };
 
   return (

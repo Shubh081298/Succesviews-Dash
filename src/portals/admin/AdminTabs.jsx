@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useRef } from "react";
 import {
-  PieChart, Pie, Cell, BarChart, Bar, LineChart, Line,
+  PieChart, Pie, Cell, BarChart, Bar, LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import { ClickCard, Avatar } from "../../components/ui";
@@ -13,16 +13,33 @@ import { DeptCard } from "../../components/admin";
 import {
   CHART_COLORS, TT, LEG, TICK, NAVY, BLUE, GREEN, ORANGE, PURPLE, AMBER,
 } from "../../utils/constants";
-import { fmtDate, fmtCurr, fmtSalary, sum, empLabel, humanizeKey, downloadCSV } from "../../utils/helpers";
+import { fmtDate, fmtCurr, fmtSalary, sum, empLabel, humanizeKey, downloadCSV, domainColor } from "../../utils/helpers";
 import { supabase } from "../../utils/supabaseClient";
 import { Mail, Send, Target, Handshake, CheckCircle2, Phone, Megaphone, IndianRupee, FileText, Banknote } from "lucide-react";
-import { Download, Plus, Pencil, KeyRound, Eye, EyeOff, X, Palette } from "lucide-react";
+import { Download, Plus, Pencil, KeyRound, Eye, EyeOff, X, Palette, Building2 } from "lucide-react";
+import { Palmtree, CalendarDays, Clock, XCircle, Check, Search as SearchIcon, Inbox } from "lucide-react";
+import { Layers, TrendingUp, Trash2, UserPlus, CalendarCheck, FileSignature } from "lucide-react";
+import { Users, ShieldCheck, MessageSquare, Globe2, Image as ImageIcon, Briefcase as BriefcaseIcon, UserCog } from "lucide-react";
+import { FolderOpen, BookOpen, Wallet, Bell, ArrowLeft, AlertTriangle } from "lucide-react";
+import WorkflowTimeline, { buildRevisions } from "../../components/design/WorkflowTimeline";
+import LeadWorkflow from "../../components/crm/LeadWorkflow";
+import LeadTimeline from "../../components/crm/LeadTimeline";
+import LeadReverseActions from "../../components/crm/LeadReverseActions";
+import { NURTURE_STATUSES, WORKFLOW_STEPS, stageColour, progressOf, isClosed } from "../../utils/crmWorkflow";
 
 /* ───────────────────────────────────────────────────────────────
  * OverviewTab — 5 primary + 5 secondary KPI cards (period-filtered)
  * + analytics charts + today's submission grid + recent pending.
  * ──────────────────────────────────────────────────────────────*/
-export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM }) {
+export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {} }) {
+  const [clpOpen, setClpOpen] = useState(false);
+  const [clpPanel, setClpPanel] = useState(null); // inline expandable KPI panel (quick key)
+  const [clpSearch, setClpSearch] = useState("");
+  const [clpFilter, setClpFilter] = useState({ employee: "", status: "", domain: "" });
+  const [clpDetail, setClpDetail] = useState(null);
+  const [clpDelete, setClpDelete] = useState(null);
+  const [clpShowDeleted, setClpShowDeleted] = useState(false);
+  const [trendCur, setTrendCur] = useState("");
   const freshEmails = sum(ovFiltered, "freshEmails");
   const reminderEmails = sum(ovFiltered, "reminderEmails");
   const leads = sum(ovFiltered, "newLeadsInterested");
@@ -33,6 +50,31 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
   const sales = sum(ovFiltered, "salesGenerated");
   const orders = ovFiltered.reduce((a, s) => a + ((s.contractOrders || []).length), 0);
   const payments = sum(ovFiltered, "paymentReceived");
+
+  // C1: currency-correct money — read the real pipeline rows and group by
+  // currency for the selected period (never sum different currencies together).
+  const CUR_SYM = { USD: "$", INR: "₹", AED: "AED ", EUR: "€", GBP: "£", AUD: "A$", SGD: "S$" };
+  const _dts = ovFiltered.map((s) => s.date).filter(Boolean).sort();
+  const _from = ovDateFrom || _dts[0];
+  const _to = ovDateTo || _dts[_dts.length - 1];
+  const _inRange = (d) => !!d && (!_from || d >= _from) && (!_to || d <= _to);
+  // F1: only count money for live (non-deleted) clients — deleted clients must
+  // not leave orphaned sales/payments inflating the analytics.
+  const _liveIds = new Set((pipelineClients || []).filter((c) => !c.isDeleted).map((c) => c.id));
+  const groupByCur = (rows, dateKey) => {
+    const m = {};
+    (rows || []).forEach((x) => { if (_liveIds.has(x.clientId) && _inRange(String(x[dateKey]))) { const c = x.currency || "USD"; m[c] = (m[c] || 0) + (Number(x.amount) || 0); } });
+    return m;
+  };
+  const fmtMoneyByCur = (m) => {
+    const ents = Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+    if (!ents.length) return `${CUR_SYM.USD}0`;
+    const [c, v] = ents[0];
+    const head = `${CUR_SYM[c] || c + " "}${Number(v).toLocaleString()}`;
+    return ents.length > 1 ? `${head} +${ents.length - 1}` : head; // never mixes; extra currencies flagged
+  };
+  const salesByCur = groupByCur(pipelineSales, "salesDate");
+  const payByCur = groupByCur(pipelinePayments, "paymentDate");
 
   // Team Messages — employee updates written to the team lead in their DSR
   // (existing data; no backend change). Newest first.
@@ -81,48 +123,403 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
       </div>
 
       <div className="sv-kpi-grid">
-        <ClickCard label="Fresh Emails" value={freshEmails} icon={<Mail size={18} />} color={BLUE} onClick={() => openDM("emails")} />
-        <ClickCard label="Reminder Emails" value={reminderEmails} icon={<Send size={18} />} color={PURPLE} onClick={() => openDM("reminders")} />
-        <ClickCard label="New Leads" value={leads} icon={<Target size={18} />} color={GREEN} onClick={() => openDM("leads")} />
-        <ClickCard label="Follow-ups" value={followups} icon={<Handshake size={18} />} color={AMBER} onClick={() => openDM("followups")} />
-        <ClickCard label="DSR Submitted" value={dsrSubmitted} icon={<CheckCircle2 size={18} />} color={NAVY} onClick={() => openDM("dsr")} />
+        <ClickCard idx={0} label="Fresh Emails" value={freshEmails} icon={<Mail size={20} />} c1="#EAF4FF" c2="#CFE6FF" accent="#2563EB" onClick={() => openDM("emails")} />
+        <ClickCard idx={1} label="Reminder Emails" value={reminderEmails} icon={<Bell size={20} />} c1="#F3E8FF" c2="#E3D0FF" accent="#7C3AED" onClick={() => openDM("reminders")} />
+        <ClickCard idx={2} label="New Leads" value={leads} icon={<UserPlus size={20} />} c1="#ECFDF3" c2="#C8F5DA" accent="#16A34A" onClick={() => openDM("leads")} />
+        <ClickCard idx={3} label="Follow-ups" value={followups} icon={<CalendarCheck size={20} />} c1="#FFF6E5" c2="#FFE1A8" accent="#D97706" onClick={() => openDM("followups")} />
+        <ClickCard idx={4} label="DSR Submitted" value={dsrSubmitted} icon={<CheckCircle2 size={20} />} c1="#EEF2FF" c2="#DCE7FF" accent="#4F46E5" onClick={() => openDM("dsr")} />
       </div>
 
       <div className="sv-kpi-grid">
-        <ClickCard label="Scheduled Calls" value={calls} icon={<Phone size={18} />} color={ORANGE} onClick={() => openDM("calls")} />
-        <ClickCard label="Team Lead Updates" value={updates} icon={<Megaphone size={18} />} color={BLUE} onClick={() => openDM("updates")} />
-        <ClickCard label="Sales" value={fmtCurr(sales)} icon={<IndianRupee size={18} />} color={GREEN} onClick={() => openDM("sales")} />
-        <ClickCard label="Contract Order Sent" value={orders} icon={<FileText size={18} />} color={PURPLE} onClick={() => openDM("orders")} />
-        <ClickCard label="Payment Received" value={fmtCurr(payments)} icon={<Banknote size={18} />} color={AMBER} onClick={() => openDM("payments")} />
+        <ClickCard idx={5} label="Scheduled Calls" value={calls} icon={<Phone size={20} />} c1="#FFF1EC" c2="#FFD4C5" accent="#EA580C" onClick={() => openDM("calls")} />
+        <ClickCard idx={6} label="Team Lead Updates" value={updates} icon={<Megaphone size={20} />} c1="#ECFEFF" c2="#C9F7FF" accent="#0891B2" onClick={() => openDM("updates")} />
+        <ClickCard idx={7} label="Sales" value={fmtMoneyByCur(salesByCur)} icon={<TrendingUp size={20} />} c1="#ECFDF5" c2="#C9F7D8" accent="#059669" onClick={() => openDM("sales")} />
+        <ClickCard idx={8} label="Contract Order Sent" value={orders} icon={<FileSignature size={20} />} c1="#F5F0FF" c2="#DDCCFF" accent="#6D28D9" onClick={() => openDM("orders")} />
+        <ClickCard idx={9} label="Payment Received" value={fmtMoneyByCur(payByCur)} icon={<Wallet size={20} />} c1="#FFF8E6" c2="#FFE49C" accent="#CA8A04" onClick={() => openDM("payments")} />
       </div>
 
+      {(() => {
+        const ALL_ST = [...NURTURE_STATUSES, ...WORKFLOW_STEPS];
+        const statusList = ALL_ST.map((name) => ({ name, colour: stageColour(name) }));
+        const colourOf = (name) => stageColour(name);
+        const needsFU = (c) => { const p = progressOf(c.status); return p >= 0 && p < 3; };
+        const live = (pipelineClients || []).filter((c) => !c.isDeleted);
+        const t = todayISO;
+        const isOver = (c) => needsFU(c) && c.nextFollowUp && c.nextFollowUp < t;
+        const isDue = (c) => needsFU(c) && c.nextFollowUp === t;
+        const active = live.filter((c) => progressOf(c.status) >= 0 && !isClosed(c.status)).length;
+        const overdue = live.filter(isOver).length;
+        const dueToday = live.filter(isDue).length;
+        const byStatus = {}; live.forEach((c) => { byStatus[c.status] = (byStatus[c.status] || 0) + 1; });
+        const segments = statusList.filter((s) => byStatus[s.name]);
+        const rank = (c) => (isDue(c) ? 0 : isOver(c) ? 1 : 2);
+        const recent = [...live].sort((a, b) => (rank(a) - rank(b)) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, 12);
+        const empMapAll = Object.fromEntries((employees || []).map((e) => [e.id, e]));
+        const empName = (id) => (empMapAll[id] || {}).name || "—";
+        const codeOf = (id) => "SV-" + String(id || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toUpperCase();
+        const hasRec = (cid, arr) => (arr || []).some((x) => x.clientId === cid);
+        const lastActivityOf = (cid) => {
+          let best = "";
+          [pipelineHistory, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes]
+            .forEach((arr) => (arr || []).forEach((x) => { if (x.clientId === cid && String(x.createdAt) > best) best = String(x.createdAt); }));
+          return best || null;
+        };
+        const domainOpts = [...new Set(live.map((c) => c.domainName).filter(Boolean))];
+        const q = clpSearch.trim().toLowerCase();
+        const matchesQuick = (c) => !clpFilter.quick
+          || (clpFilter.quick === "active" ? !["Not Interested", "Lost", "Payment Received"].includes(c.status)
+            : clpFilter.quick === "today" ? isDue(c)
+              : clpFilter.quick === "overdue" ? isOver(c)
+                : clpFilter.quick === "interested" ? c.status === "Interested"
+                  : clpFilter.quick === "contracts" ? hasRec(c.id, pipelineContracts)
+                    : clpFilter.quick === "sales" ? hasRec(c.id, pipelineSales)
+                      : clpFilter.quick === "payments" ? hasRec(c.id, pipelinePayments) : true);
+        const filtered = live.filter((c) =>
+          (!q || `${c.clientName} ${c.companyName} ${c.clientEmail} ${c.domainName} ${codeOf(c.id)} ${empName(c.employeeId)}`.toLowerCase().includes(q)) &&
+          (!clpFilter.employee || c.employeeId === clpFilter.employee) &&
+          (!clpFilter.status || c.status === clpFilter.status) &&
+          (!clpFilter.domain || c.domainName === clpFilter.domain) && matchesQuick(c)
+        ).sort((a, b) => (rank(a) - rank(b)) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+        const openClp = (quick) => { setClpSearch(""); setClpFilter({ employee: "", status: "", domain: "", quick: quick || "" }); setClpOpen(true); };
+        const togglePanel = (k) => { setClpSearch(""); setClpFilter({ employee: "", status: "", domain: "", quick: k }); setClpPanel((p) => (p === k ? null : k)); };
+        const dc = clpDetail ? live.find((c) => c.id === clpDetail) : null;
+        const Controls = () => (
+          <div className="sv-flex sv-gap-2" style={{ flexWrap: "wrap" }}>
+            <div className="sv-mailids-search"><SearchIcon size={14} /><input placeholder="Search client / company / email / ID…" value={clpSearch} onChange={(e) => setClpSearch(e.target.value)} /></div>
+            <select className="sv-select" value={clpFilter.employee} onChange={(e) => setClpFilter({ ...clpFilter, employee: e.target.value })} style={{ maxWidth: 160 }}><option value="">All employees</option>{[...new Set(live.map((c) => c.employeeId))].map((id) => <option key={id} value={id}>{empName(id)}</option>)}</select>
+            <select className="sv-select" value={clpFilter.status} onChange={(e) => setClpFilter({ ...clpFilter, status: e.target.value })} style={{ maxWidth: 160 }}><option value="">All statuses</option>{statusList.map((sx) => <option key={sx.name}>{sx.name}</option>)}</select>
+            <select className="sv-select" value={clpFilter.domain} onChange={(e) => setClpFilter({ ...clpFilter, domain: e.target.value })} style={{ maxWidth: 150 }}><option value="">All domains</option>{domainOpts.map((d) => <option key={d}>{d}</option>)}</select>
+          </div>
+        );
+        const RowsTable = () => (
+          filtered.length === 0 ? (
+            <div className="sv-clp-empty">
+              <span className="sv-clp-empty-ic"><Inbox size={26} /></span>
+              <p className="sv-clp-empty-t">No leads here</p>
+              <p className="sv-clp-empty-s">Nothing matches this view yet — try clearing the filters or pick another KPI card above.</p>
+            </div>
+          ) : (
+            <div className="sv-mailids-scroll">
+              <table className="sv-mailids-table" style={{ minWidth: 1120 }}>
+                <thead><tr>{["Client", "Project", "Employee", "Assigned Email", "Region", "Status", "Next Follow-up", "Last Activity", "Contract", "Sale", "Payment"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {filtered.slice(0, 300).map((c) => {
+                    const over = isOver(c); const due = isDue(c); const col = colourOf(c.status); const la = lastActivityOf(c.id);
+                    const dot = (on, onCol) => <span className="sv-clp-dot" style={{ background: on ? onCol : "#E2E8F0", color: on ? "#fff" : "#94A3B8" }}>{on ? "✓" : "—"}</span>;
+                    return (
+                      <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer" }}>
+                        <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{c.clientName}</td>
+                        <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{c.projectName || "—"}</td>
+                        <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{empName(c.employeeId)}</td>
+                        <td className="sv-text-muted" style={{ fontSize: 12 }}>{c.assignedEmailId || "—"}</td>
+                        <td className="sv-text-muted" style={{ fontSize: 12 }}>{c.region || "—"}</td>
+                        <td><span className="sv-clp-badge" style={{ background: col + "1A", color: col }}>{c.status}</span></td>
+                        <td className={over ? "sv-clp-over" : due ? "sv-clp-due" : "sv-text-muted"} style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{over ? "Overdue · " : due ? "Today · " : ""}{c.nextFollowUp ? fmtDate(c.nextFollowUp) : "—"}</td>
+                        <td className="sv-text-muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{la ? fmtDate(String(la).slice(0, 10)) : "—"}</td>
+                        <td>{dot(hasRec(c.id, pipelineContracts), "#7C3AED")}</td>
+                        <td>{dot(hasRec(c.id, pipelineSales), "#0D9488")}</td>
+                        <td>{dot(hasRec(c.id, pipelinePayments), "#15803D")}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {filtered.length > 300 && <p className="sv-text-muted" style={{ fontSize: 12, padding: "8px 4px", textAlign: "center" }}>Showing first 300 of {filtered.length.toLocaleString()} — refine your search or filters to narrow the list.</p>}
+            </div>
+          )
+        );
+        const KPIS = [
+          ["", "Total Leads", live.length, "#475569", "#64748B", Layers],
+          ["active", "Active", active, "#2563EB", "#3B82F6", Users],
+          ["today", "Today's Follow-ups", dueToday, "#16A34A", "#22C55E", CalendarDays],
+          ["overdue", "Overdue", overdue, "#DC2626", "#F05252", AlertTriangle],
+          ["interested", "Interested", byStatus["Interested"] || 0, "#EA580C", "#F97316", Target],
+          ["contracts", "Contracts", (pipelineContracts || []).filter((x) => live.some((c) => c.id === x.clientId)).length, "#7C3AED", "#8B5CF6", FileText],
+          ["sales", "Sales", (pipelineSales || []).filter((x) => live.some((c) => c.id === x.clientId)).length, "#0D9488", "#14B8A6", TrendingUp],
+          ["payments", "Payments", (pipelinePayments || []).filter((x) => live.some((c) => c.id === x.clientId)).length, "#059669", "#10B981", Banknote],
+        ];
+        const panelMeta = KPIS.find((x) => x[0] === clpPanel) || ["", "All Leads", 0, "#475569", "#64748B", Layers];
+        const panelLabel = panelMeta[1];
+        const PanelIcon = panelMeta[5];
+        return (<>
+          <div className="sv-card">
+            <div className="sv-flex sv-justify-between sv-items-center" style={{ flexWrap: "wrap", gap: 10 }}>
+              <div><h3 style={{ margin: 0 }}>Client Pipeline</h3><p className="sv-text-muted" style={{ fontSize: 12.5, margin: "2px 0 0" }}>Live status of every client your team is working — updated in real time.</p></div>
+              {live.length > 0 && <button className="sv-btn sv-btn--sm sv-btn--primary" onClick={() => openClp("")}>View all clients</button>}
+            </div>
+            {/* Full-colour KPI cards — click to expand an inline panel below */}
+            <div className="sv-clp-kpigrid">
+              {KPIS.map(([k, l, v, c1, c2, Ic]) => (
+                <button key={l} className={`sv-clp-card${clpPanel === k ? " is-open" : ""}`} style={{ "--c1": c1, "--c2": c2 }} onClick={() => togglePanel(k)}>
+                  <span className="sv-clp-card-ic"><Ic size={18} /></span>
+                  <div className="sv-clp-card-v">{v}</div>
+                  <div className="sv-clp-card-l">{l}</div>
+                  <span className="sv-clp-card-caret" aria-hidden>{clpPanel === k ? "▲" : "▼"}</span>
+                </button>
+              ))}
+            </div>
+            {/* Inline expandable panel — appears in context under the cards */}
+            <div className={`sv-clp-panel${clpPanel !== null ? " is-open" : ""}`}>
+              {clpPanel !== null && (
+                <div className="sv-clp-panel-inner" style={{ "--pc": panelMeta[3], "--pc2": panelMeta[4] }}>
+                  <div className="sv-clp-phead">
+                    <span className="sv-clp-phead-ic"><PanelIcon size={18} /></span>
+                    <div className="sv-clp-phead-txt">
+                      <div className="sv-clp-phead-title">{panelLabel}</div>
+                      <div className="sv-clp-phead-sub">{filtered.length} {filtered.length === 1 ? "lead" : "leads"}</div>
+                    </div>
+                    <button className="sv-clp-phead-x" onClick={() => setClpPanel(null)} aria-label="Close"><X size={16} /></button>
+                  </div>
+                  <div className="sv-clp-fbar"><Controls /></div>
+                  <RowsTable />
+                </div>
+              )}
+            </div>
+
+            {live.length === 0 ? (
+              <p className="sv-text-muted" style={{ fontSize: 13, marginTop: 12 }}>No clients in the pipeline yet — they appear here as employees add them from their Pipeline module.</p>
+            ) : (
+              <>
+                <div className="sv-section-label" style={{ marginTop: 16 }}>Recent clients {overdue > 0 && <span className="sv-clp-flag">{overdue} need follow-up</span>}</div>
+                <div className="sv-mailids-scroll">
+                  <table className="sv-mailids-table" style={{ minWidth: 760 }}>
+                    <thead><tr>{["Client", "Project", "Domain", "Employee", "Status", "Next Follow-up"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {recent.map((c) => {
+                        const over = isOver(c);
+                        const due = isDue(c);
+                        const col = colourOf(c.status);
+                        return (
+                          <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer" }}>
+                            <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{c.clientName}</td>
+                            <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{c.projectName || "—"}</td>
+                            <td className="sv-text-muted" style={{ fontSize: 12 }}>{c.domainName || "—"}</td>
+                            <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{(employees.find((e) => e.id === c.employeeId) || {}).name || "—"}</td>
+                            <td><span className="sv-clp-badge" style={{ background: col + "1A", color: col }}>{c.status}</span></td>
+                            <td className={over ? "sv-clp-over" : due ? "sv-clp-due" : "sv-text-muted"} style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{over ? "Overdue · " : due ? "Today · " : ""}{c.nextFollowUp ? fmtDate(c.nextFollowUp) : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            {(pipelineClients || []).filter((c) => c.isDeleted).length > 0 && (
+              <div style={{ marginTop: 14, borderTop: "1px solid #F1F5F9", paddingTop: 10 }}>
+                <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => setClpShowDeleted((v) => !v)}>
+                  <Trash2 size={13} /> Recently deleted ({(pipelineClients || []).filter((c) => c.isDeleted).length})
+                </button>
+                {clpShowDeleted && (
+                  <div className="sv-rev-list" style={{ marginTop: 8 }}>
+                    {(pipelineClients || []).filter((c) => c.isDeleted).map((c) => (
+                      <div key={c.id} className="sv-rev-row">
+                        <span className="sv-text-navy sv-font-700" style={{ fontSize: 12.5 }}>{c.clientName}</span>
+                        <span className="sv-text-muted" style={{ fontSize: 11.5 }}>{c.projectName || c.domainName || ""}</span>
+                        <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ marginLeft: "auto" }} onClick={async () => { await restorePipelineClient(c.id, c.employeeId); }}>Restore</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {clpOpen && (
+            <div className="sv-modal-overlay" onClick={() => setClpOpen(false)}>
+              <div className="sv-modal" style={{ maxWidth: 920, maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+                <div className="sv-modal-header" style={{ flexShrink: 0 }}>
+                  <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>All Clients <span className="sv-text-muted" style={{ fontSize: 13, fontWeight: 600 }}>({filtered.length})</span></span>
+                  <button className="sv-modal-close" onClick={() => setClpOpen(false)}>×</button>
+                </div>
+                <div style={{ padding: "12px 20px", flexShrink: 0, borderBottom: "1px solid #F1F5F9" }}>
+                  <div className="sv-flex sv-gap-2" style={{ flexWrap: "wrap" }}>
+                    <div className="sv-mailids-search"><SearchIcon size={14} /><input placeholder="Search client / company / email / domain…" value={clpSearch} onChange={(e) => setClpSearch(e.target.value)} /></div>
+                    <select className="sv-select" value={clpFilter.employee} onChange={(e) => setClpFilter({ ...clpFilter, employee: e.target.value })} style={{ maxWidth: 170 }}><option value="">All employees</option>{[...new Set(live.map((c) => c.employeeId))].map((id) => <option key={id} value={id}>{empName(id)}</option>)}</select>
+                    <select className="sv-select" value={clpFilter.status} onChange={(e) => setClpFilter({ ...clpFilter, status: e.target.value })} style={{ maxWidth: 170 }}><option value="">All statuses</option>{statusList.map((sx) => <option key={sx.name}>{sx.name}</option>)}</select>
+                    <select className="sv-select" value={clpFilter.domain} onChange={(e) => setClpFilter({ ...clpFilter, domain: e.target.value })} style={{ maxWidth: 160 }}><option value="">All domains</option>{domainOpts.map((d) => <option key={d}>{d}</option>)}</select>
+                    {(clpSearch || clpFilter.employee || clpFilter.status || clpFilter.domain) && <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => { setClpSearch(""); setClpFilter({ employee: "", status: "", domain: "" }); }}>Clear</button>}
+                  </div>
+                </div>
+                <div style={{ overflowY: "auto", padding: "10px 20px 18px" }}>
+                  {filtered.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No clients match your search / filters.</p> : (
+                    <div className="sv-mailids-scroll">
+                      <table className="sv-mailids-table" style={{ minWidth: 1180 }}>
+                        <thead><tr>{["Client ID", "Client", "Company", "Employee", "Assigned Email", "Region", "Status", "Next Follow-up", "Last Activity", "Contract", "Sale", "Payment"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                        <tbody>
+                          {filtered.map((c) => {
+                            const over = isOver(c); const due = isDue(c); const col = colourOf(c.status);
+                            const la = lastActivityOf(c.id);
+                            const dot = (on, onCol) => <span className="sv-clp-dot" style={{ background: on ? onCol : "#E2E8F0", color: on ? "#fff" : "#94A3B8" }}>{on ? "✓" : "—"}</span>;
+                            return (
+                              <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer" }}>
+                                <td><span className="sv-clp-code">{codeOf(c.id)}</span></td>
+                                <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{c.clientName}</td>
+                                <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{c.companyName || "—"}</td>
+                                <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{empName(c.employeeId)}</td>
+                                <td className="sv-text-muted" style={{ fontSize: 12 }}>{c.assignedEmailId || "—"}</td>
+                                <td className="sv-text-muted" style={{ fontSize: 12 }}>{c.region || "—"}</td>
+                                <td><span className="sv-clp-badge" style={{ background: col + "1A", color: col }}>{c.status}</span></td>
+                                <td className={over ? "sv-clp-over" : due ? "sv-clp-due" : "sv-text-muted"} style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{over ? "Overdue · " : due ? "Today · " : ""}{c.nextFollowUp ? fmtDate(c.nextFollowUp) : "—"}</td>
+                                <td className="sv-text-muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{la ? fmtDate(String(la).slice(0, 10)) : "—"}</td>
+                                <td>{dot(hasRec(c.id, pipelineContracts), "#7C3AED")}</td>
+                                <td>{dot(hasRec(c.id, pipelineSales), "#0D9488")}</td>
+                                <td>{dot(hasRec(c.id, pipelinePayments), "#15803D")}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {dc && (() => {
+            const dcol = colourOf(dc.status);
+            const cell = (l, v) => <div className="sv-meta-cell"><div className="sv-meta-label">{l}</div><div className="sv-meta-value">{v || "—"}</div></div>;
+            return (
+              <div className="sv-modal-overlay" style={{ zIndex: 320 }} onClick={() => setClpDetail(null)}>
+                <div className="sv-modal" style={{ maxWidth: 680, maxHeight: "92vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+                  <div className="sv-modal-header" style={{ flexShrink: 0 }}>
+                    <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>{dc.clientName} <span className="sv-clp-badge" style={{ background: dcol + "1A", color: dcol, marginLeft: 6 }}>{dc.status}</span></span>
+                    <button className="sv-modal-close" onClick={() => setClpDetail(null)}>×</button>
+                  </div>
+                  <div style={{ overflowY: "auto", padding: "16px 20px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      {cell("Project", dc.projectName)}
+                      {cell("Client Email", dc.clientEmail)}
+                      {cell("Domain", dc.domainName)}
+                      {cell("Region", dc.region)}
+                      {cell("Assigned Email", dc.assignedEmailId)}
+                      {cell("Employee", empName(dc.employeeId))}
+                      {cell("Last Follow-up", dc.lastFollowUp ? fmtDate(dc.lastFollowUp) : "—")}
+                      {cell("Next Follow-up", dc.nextFollowUp ? fmtDate(dc.nextFollowUp) : "—")}
+                    </div>
+                    {dc.notes && <p className="sv-text-muted" style={{ fontSize: 12.5, marginTop: 10, whiteSpace: "pre-wrap" }}>{dc.notes}</p>}
+
+                    <div className="sv-section-label" style={{ marginTop: 14 }}>Production Workflow</div>
+                    <LeadWorkflow client={dc} actorId={dc.employeeId} onToast={() => {}} />
+
+                    <div className="sv-section-label" style={{ marginTop: 16 }}>Reverse / Cancel</div>
+                    <LeadReverseActions client={dc} actorId={dc.employeeId} onToast={() => {}} />
+
+                    <div className="sv-section-label" style={{ marginTop: 16 }}>Activity Timeline</div>
+                    <LeadTimeline clientId={dc.id} />
+
+                    <div className="sv-flex sv-justify-between sv-items-center" style={{ marginTop: 18, borderTop: "1px solid #F1F5F9", paddingTop: 14 }}>
+                      <span className="sv-text-muted" style={{ fontSize: 11.5 }}>Admin action</span>
+                      {clpDelete === dc.id ? (
+                        <div className="sv-flex sv-gap-2 sv-items-center">
+                          <span className="sv-text-muted" style={{ fontSize: 12.5 }}>Delete this project?</span>
+                          <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => setClpDelete(null)}>Cancel</button>
+                          <button className="sv-btn sv-btn--sm" style={{ background: "#DC2626", color: "#fff" }} onClick={async () => { await softDeletePipelineClient(dc.id, dc.employeeId); setClpDelete(null); setClpDetail(null); }}>Delete</button>
+                        </div>
+                      ) : (
+                        <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ color: "#DC2626", borderColor: "#FCA5A5" }} onClick={() => setClpDelete(dc.id)}><Trash2 size={13} /> Delete Project</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </>);
+      })()}
+
       <div className="sv-card">
-        <h3>Analytics</h3>
-        <div className="sv-grid-2 sv-gap-md" style={{ marginTop: 16 }}>
-          <div>
-            <h4>Activity Mix</h4>
-            <ResponsiveContainer width="100%" height={220}>
-              <PieChart>
-                <Pie data={ovPieData} dataKey="value" nameKey="name" innerRadius={54} outerRadius={82} paddingAngle={2}>
-                  {ovPieData.map((d, i) => <Cell key={i} fill={d.color} />)}
-                </Pie>
-                <Tooltip {...TT} /><Legend {...LEG} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div>
-            <h4>Sales vs Payments Received</h4>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={ovBarData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={TICK} /><YAxis tick={TICK} />
-                <Tooltip {...TT} /><Legend {...LEG} />
-                <Bar dataKey="sales" fill={GREEN} name="Sales" />
-                <Bar dataKey="payment" fill={ORANGE} name="Payment" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+        {(() => {
+          // Period-aware DSR counts (respect Today / Week / Month / Custom via ovFiltered)
+          const dsrSub = ovFiltered.filter((s) => s.status === "Submitted").length;
+          const dsrPend = ovFiltered.filter((s) => s.status !== "Submitted").length;
+          const taskData = [
+            { name: "Fresh Emails", value: freshEmails, color: "#2563EB" },
+            { name: "Reminder Emails", value: reminderEmails, color: "#7C3AED" },
+            { name: "DSR Submitted", value: dsrSub, color: "#16A34A" },
+            { name: "DSR Pending", value: dsrPend, color: "#F59E0B" },
+          ];
+          const taskTotal = taskData.reduce((s, d) => s + (Number(d.value) || 0), 0) || 1;
+          const pct = (v) => Math.round((v / taskTotal) * 100);
+          // Currency-aware Sales & Payments trend — built from real pipeline records,
+          // grouped by the selected currency so different currencies are never mixed.
+          const CUR_SYM = { USD: "$", INR: "₹", AED: "AED ", EUR: "€", GBP: "£", AUD: "A$", SGD: "S$" };
+          const curList = [...new Set([...(pipelineSales || []), ...(pipelinePayments || [])].map((x) => x.currency).filter(Boolean))];
+          if (!curList.length) curList.push("USD");
+          const activeCur = curList.includes(trendCur) ? trendCur : curList[0];
+          const curSym = CUR_SYM[activeCur] || (activeCur + " ");
+          const liveClientIds = new Set((pipelineClients || []).filter((c) => !c.isDeleted).map((c) => c.id));
+          const trendData = (ovBarData || []).map((row) => ({
+            date: row.date,
+            sales: (pipelineSales || []).filter((s) => liveClientIds.has(s.clientId) && s.currency === activeCur && String(s.salesDate) === row.date).reduce((a, b) => a + (Number(b.amount) || 0), 0),
+            payment: (pipelinePayments || []).filter((p) => liveClientIds.has(p.clientId) && p.currency === activeCur && String(p.paymentDate) === row.date).reduce((a, b) => a + (Number(b.amount) || 0), 0),
+          }));
+          return (
+            <>
+              <h3>Analytics</h3>
+              <div className="sv-grid-2 sv-gap-md" style={{ marginTop: 16 }}>
+                <div className="sv-anacard">
+                  <div className="sv-anacard-head"><h4>Task Summary</h4><span className="sv-anacard-sub">Today's distribution</span></div>
+                  <div className="sv-tasksum">
+                    <div className="sv-tasksum-chart">
+                      <ResponsiveContainer width="100%" height={196}>
+                        <PieChart>
+                          <Pie data={taskData} dataKey="value" nameKey="name" innerRadius={58} outerRadius={84} paddingAngle={2} stroke="none">
+                            {taskData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                          </Pie>
+                          <Tooltip {...TT} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="sv-tasksum-center"><b>{taskTotal.toLocaleString()}</b><span>total</span></div>
+                    </div>
+                    <div className="sv-tasksum-list">
+                      {taskData.map((d) => (
+                        <div key={d.name} className="sv-tasksum-row">
+                          <span className="sv-tasksum-dot" style={{ background: d.color }} />
+                          <span className="sv-tasksum-label">{d.name}</span>
+                          <span className="sv-tasksum-count">{Number(d.value).toLocaleString()}</span>
+                          <span className="sv-tasksum-pct" style={{ color: d.color }}>{pct(d.value)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="sv-anacard">
+                  <div className="sv-anacard-head">
+                    <h4>Sales &amp; Payments Trend</h4>
+                    <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", alignItems: "center" }}>
+                      {curList.length > 1 && (
+                        <select className="sv-select sv-select--sm" value={activeCur} onChange={(e) => setTrendCur(e.target.value)} title="Currency">
+                          {curList.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      )}
+                      {curList.length === 1 && <span className="sv-anacard-sub">{activeCur}</span>}
+                      {["today", "week", "month"].map((p) => (
+                        <button key={p} className={`sv-period-btn sv-period-btn--sm ${ovPeriod === p ? "sv-period-btn--active" : ""}`} onClick={() => setOvPeriod(p)}>{p === "today" ? "Today" : p === "week" ? "Week" : "Month"}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={trendData} margin={{ top: 8, right: 8, left: -6, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="gSales" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#16A34A" stopOpacity={0.32} /><stop offset="100%" stopColor="#16A34A" stopOpacity={0} /></linearGradient>
+                        <linearGradient id="gPay" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2563EB" stopOpacity={0.30} /><stop offset="100%" stopColor="#2563EB" stopOpacity={0} /></linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#EEF2F7" />
+                      <XAxis dataKey="date" tick={TICK} axisLine={false} tickLine={false} />
+                      <YAxis tick={TICK} axisLine={false} tickLine={false} width={54} tickFormatter={(v) => `${curSym}${Number(v).toLocaleString()}`} />
+                      <Tooltip {...TT} formatter={(v, n) => [`${curSym}${Number(v).toLocaleString()}`, n]} />
+                      <Legend {...LEG} />
+                      <Area type="monotone" dataKey="sales" name={`Sales (${activeCur})`} stroke="#16A34A" strokeWidth={2.5} fill="url(#gSales)" dot={false} activeDot={{ r: 4 }} />
+                      <Area type="monotone" dataKey="payment" name={`Payments (${activeCur})`} stroke="#2563EB" strokeWidth={2.5} fill="url(#gPay)" dot={false} activeDot={{ r: 4 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </>
+          );
+        })()}
       </div>
 
       <div className="sv-grid-2 sv-gap-md">
@@ -173,42 +570,72 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
 /* ───────────────────────────────────────────────────────────────
  * ReportsTab — filterable submissions table + CSV export + view.
  * ──────────────────────────────────────────────────────────────*/
-export function ReportsTab({ reportEmpSearch, setReportEmpSearch, reportDept, setReportDept, departments = [], reportDateFrom, setReportDateFrom, reportDateTo, setReportDateTo, rows, onView, onExport }) {
+export function ReportsTab({ reportEmpSearch, setReportEmpSearch, reportDept, setReportDept, departments = [], reportDateFrom, setReportDateFrom, reportDateTo, setReportDateTo, rows, onView, onExport, pipelineClients = [], pipelineSales = [], pipelinePayments = [] }) {
+  // C1: currency-correct money per row — read the real pipeline rows for that
+  // employee + date and group by currency (never sum different currencies).
+  const CUR_SYM = { USD: "$", INR: "₹", AED: "AED ", EUR: "€", GBP: "£", AUD: "A$", SGD: "S$" };
+  const cliEmp = Object.fromEntries((pipelineClients || []).filter((c) => !c.isDeleted).map((c) => [c.id, c.employeeId]));
+  const moneyFor = (src, dateKey, empId, date) => {
+    const m = {};
+    (src || []).forEach((x) => { if (cliEmp[x.clientId] === empId && String(x[dateKey]) === date) { const c = x.currency || "USD"; m[c] = (m[c] || 0) + (Number(x.amount) || 0); } });
+    return m;
+  };
+  const fmtMoneyByCur = (m, fallback) => {
+    const ents = Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+    if (!ents.length) return fallback; // no pipeline rows that day → show the legacy scalar
+    const [c, v] = ents[0];
+    const head = `${CUR_SYM[c] || c + " "}${Number(v).toLocaleString()}`;
+    return ents.length > 1 ? `${head} +${ents.length - 1}` : head;
+  };
   return (
     <div className="sv-tab">
-      <div className="sv-flex sv-flex--between">
+      <div className="sv-flex sv-flex--between" style={{ flexWrap: "wrap", gap: 10 }}>
         <h2 className="sv-tab-title">Reports</h2>
         <button className="sv-btn sv-btn--outline" onClick={onExport}><Download size={15} /> Export CSV</button>
       </div>
-      <div className="sv-flex sv-gap-sm" style={{ marginBottom: 16, flexWrap: "wrap" }}>
-        <input className="sv-input" placeholder="Search employee..." value={reportEmpSearch} onChange={(e) => setReportEmpSearch(e.target.value)} style={{ maxWidth: 220 }} />
-        <select className="sv-select" value={reportDept} onChange={(e) => setReportDept(e.target.value)} style={{ maxWidth: 180 }}>
-          <option value="">All Departments</option>
-          {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
-        <input className="sv-input" type="date" value={reportDateFrom} onChange={(e) => setReportDateFrom(e.target.value)} style={{ maxWidth: 160 }} />
-        <input className="sv-input" type="date" value={reportDateTo} onChange={(e) => setReportDateTo(e.target.value)} style={{ maxWidth: 160 }} />
+      <div className="sv-card">
+        <div className="sv-flex sv-justify-between sv-items-center" style={{ flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+          <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap" }}>
+            <div className="sv-mailids-search"><SearchIcon size={14} /><input placeholder="Search employee…" value={reportEmpSearch} onChange={(e) => setReportEmpSearch(e.target.value)} /></div>
+            <select className="sv-select" value={reportDept} onChange={(e) => setReportDept(e.target.value)} style={{ maxWidth: 180 }}>
+              <option value="">All Departments</option>
+              {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <input className="sv-input" type="date" value={reportDateFrom} onChange={(e) => setReportDateFrom(e.target.value)} style={{ maxWidth: 160 }} />
+            <input className="sv-input" type="date" value={reportDateTo} onChange={(e) => setReportDateTo(e.target.value)} style={{ maxWidth: 160 }} />
+          </div>
+          <span className="sv-text-muted" style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{rows.length} report{rows.length !== 1 ? "s" : ""}</span>
+        </div>
+        {rows.length === 0 ? (
+          <div className="sv-leave-empty"><FileText size={26} /><span>No reports match your search / filters.</span></div>
+        ) : (
+          <div className="sv-mailids-scroll">
+            <table className="sv-mailids-table" style={{ minWidth: 920 }}>
+              <thead>
+                <tr>
+                  <th>Employee</th><th>Dept</th><th>Attendance</th><th>Date</th><th>Status</th>
+                  <th>Emails</th><th>Leads</th><th>Calls</th><th>Sales</th><th>Payments</th><th>Hrs</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{r.empName}</td>
+                    <td className="sv-text-muted">{r.department}</td><td className="sv-text-muted">{r.attendance}</td><td className="sv-text-muted" style={{ whiteSpace: "nowrap" }}>{fmtDate(r.date)}</td>
+                    <td><span className={`sv-badge sv-badge--${(r.status || "pending").toLowerCase()}`}>{r.status}</span></td>
+                    <td>{(Number(r.freshEmails) || 0) + (Number(r.reminderEmails) || 0)}</td>
+                    <td>{r.newLeadsInterested}</td><td>{r.callsScheduled}</td>
+                    <td className="sv-font-700" style={{ whiteSpace: "nowrap" }}>{fmtMoneyByCur(moneyFor(pipelineSales, "salesDate", r.empId, r.date), fmtCurr(r.salesGenerated))}</td>
+                    <td className="sv-font-700" style={{ whiteSpace: "nowrap" }}>{fmtMoneyByCur(moneyFor(pipelinePayments, "paymentDate", r.empId, r.date), fmtCurr(r.paymentReceived))}</td>
+                    <td>{r.workingHours}</td>
+                    <td><button className="sv-btn sv-btn--sm sv-btn--outline" onClick={() => onView(r)}>View</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-      <table className="sv-table">
-        <thead>
-          <tr>
-            <th>Employee</th><th>Dept</th><th>Attendance</th><th>Date</th><th>Status</th>
-            <th>Emails</th><th>Leads</th><th>Calls</th><th>Sales</th><th>Payments</th><th>Hrs</th><th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td>{r.empName}</td><td>{r.department}</td><td>{r.attendance}</td><td>{fmtDate(r.date)}</td>
-              <td><span className={`sv-badge sv-badge--${(r.status || "pending").toLowerCase()}`}>{r.status}</span></td>
-              <td>{(Number(r.freshEmails) || 0) + (Number(r.reminderEmails) || 0)}</td>
-              <td>{r.newLeadsInterested}</td><td>{r.callsScheduled}</td>
-              <td>{fmtCurr(r.salesGenerated)}</td><td>{fmtCurr(r.paymentReceived)}</td><td>{r.workingHours}</td>
-              <td><button className="sv-btn sv-btn--sm sv-btn--outline" onClick={() => onView(r)}>View</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
@@ -372,38 +799,81 @@ export function AnalyticsTab({ empStats, statusPie, chartData, monthlySalary = [
  * ──────────────────────────────────────────────────────────────*/
 export function DepartmentsTab({ departments, employees, submissions, newDept, setNewDept, addDept, removeDept, annText, setAnnText, annDepts, setAnnDepts, publishAnnouncement, announcements, customFields, setCustomFields, onPublishDeptAnnouncement, onDeleteAnnouncement, onAddField, onEditField, onRemoveField, todayStr, editMode = false }) {
   const toggleAnnDept = (d) => setAnnDepts((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+  const DEPT_COLORS = ["#3B82F6", "#22C55E", "#8B5CF6", "#F59E0B", "#EC4899", "#14B8A6"];
+  const colorFor = (d) => { let h = 0; for (let i = 0; i < d.length; i++) h = (h * 31 + d.charCodeAt(i)) >>> 0; return DEPT_COLORS[h % DEPT_COLORS.length]; };
+
+  // Case-insensitive union of configured departments + departments actually
+  // used by employees — so e.g. "Design" (designers) always shows, and any
+  // case-variant duplicates ("Sales"/"sales") collapse into one.
+  const lc = (x) => (x || "").trim().toLowerCase();
+  const map = new Map();
+  departments.forEach((d) => { const k = lc(d); if (d && !map.has(k)) map.set(k, d.trim()); });
+  employees.forEach((e) => { const d = (e.department || "").trim(); const k = lc(d); if (d && !map.has(k)) map.set(k, d); });
+  const allDepts = [...map.values()];
+  const configuredLc = new Set(departments.map(lc));
+  const autoDetected = allDepts.filter((d) => !configuredLc.has(lc(d)));
+  const countFor = (d) => employees.filter((e) => lc(e.department) === lc(d)).length;
+
   return (
     <div className="sv-tab">
       <h2 className="sv-tab-title">Departments</h2>
+
       <div className="sv-card">
-        <h3>Manage Departments</h3>
-        <div className="sv-flex sv-gap-sm">
-          <input className="sv-input" placeholder="New department name" value={newDept} onChange={(e) => setNewDept(e.target.value)} />
-          <button className="sv-btn sv-btn--primary" onClick={addDept}>Add</button>
+        <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 4 }}>
+          <span className="sv-mod-icon"><Building2 size={16} /></span>
+          <div>
+            <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>Manage Departments</p>
+            <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>Add or remove departments used across the workspace</p>
+          </div>
         </div>
-        <div className="sv-flex sv-gap-xs" style={{ marginTop: 12, flexWrap: "wrap" }}>
+        <div className="sv-flex sv-gap-sm" style={{ marginTop: 12 }}>
+          <input className="sv-input" placeholder="New department name" value={newDept} onChange={(e) => setNewDept(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addDept(); }} />
+          <button className="sv-btn sv-btn--primary" onClick={addDept}><Plus size={14} /> Add</button>
+        </div>
+        <div className="sv-dept-chips">
           {departments.map((d) => (
-            <span key={d} className="sv-chip">{d} <button onClick={() => removeDept(d)} style={{ border: "none", background: "transparent", cursor: "pointer", marginLeft: 4 }}>×</button></span>
+            <span key={d} className="sv-dept-chip" style={{ "--dc": colorFor(d) }}>
+              <span className="sv-dept-chip-dot" />
+              {d}
+              <span className="sv-dept-chip-count">{countFor(d)}</span>
+              <button className="sv-dept-chip-x" title={`Remove ${d}`} onClick={() => removeDept(d)}><X size={12} /></button>
+            </span>
           ))}
         </div>
+        {autoDetected.length > 0 && (
+          <div className="sv-dept-auto">
+            <span className="sv-dept-auto-label">On employees but not in your list:</span>
+            {autoDetected.map((d) => (
+              <button key={d} className="sv-dept-auto-chip" onClick={() => { setNewDept(d); }}>
+                {d} <span className="sv-dept-auto-count">{countFor(d)}</span> <Plus size={11} />
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="sv-card">
-        <h3>Broadcast Announcement</h3>
-        <textarea className="sv-textarea" placeholder="Announcement text..." value={annText} onChange={(e) => setAnnText(e.target.value)} />
-        <div className="sv-flex sv-gap-sm" style={{ marginTop: 8, flexWrap: "wrap" }}>
-          {["All", ...departments].map((d) => (
-            <label key={d} className="sv-flex sv-gap-xs sv-flex--center">
+        <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 4 }}>
+          <span className="sv-mod-icon"><Megaphone size={16} /></span>
+          <div>
+            <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>Broadcast Announcement</p>
+            <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>Send a message to one or more departments</p>
+          </div>
+        </div>
+        <textarea className="sv-textarea" placeholder="Announcement text..." value={annText} onChange={(e) => setAnnText(e.target.value)} style={{ marginTop: 12 }} />
+        <div className="sv-flex sv-gap-sm" style={{ marginTop: 10, flexWrap: "wrap" }}>
+          {["All", ...allDepts].map((d) => (
+            <label key={d} className={`sv-dept-pick${annDepts.includes(d) ? " sv-dept-pick--on" : ""}`}>
               <input type="checkbox" checked={annDepts.includes(d)} onChange={() => toggleAnnDept(d)} /> {d}
             </label>
           ))}
         </div>
-        <button className="sv-btn sv-btn--primary" style={{ marginTop: 12 }} onClick={publishAnnouncement}>Publish</button>
+        <button className="sv-btn sv-btn--primary" style={{ marginTop: 14 }} onClick={publishAnnouncement}><Megaphone size={14} /> Publish</button>
       </div>
 
-      <div className="sv-grid-2 sv-gap-md">
-        {departments.map((d) => {
-          const deptEmps = employees.filter((e) => e.department === d);
+      <div className="sv-dept-grid">
+        {allDepts.map((d, i) => {
+          const deptEmps = employees.filter((e) => lc(e.department) === lc(d));
           const deptSubsToday = submissions.filter((s) => s.date === todayStr && s.status === "Submitted" && deptEmps.some((e) => e.id === s.empId));
           const deptSubmittedNames = deptSubsToday.map((s) => s.empName);
           const deptPendingNames = deptEmps.filter((e) => !deptSubsToday.some((s) => s.empId === e.id));
@@ -412,6 +882,7 @@ export function DepartmentsTab({ departments, employees, submissions, newDept, s
             <DeptCard
               key={d}
               dept={d}
+              accent={colorFor(d)}
               deptEmps={deptEmps}
               deptSubmittedNames={deptSubmittedNames}
               deptPendingNames={deptPendingNames}
@@ -434,52 +905,184 @@ export function DepartmentsTab({ departments, employees, submissions, newDept, s
 /* ───────────────────────────────────────────────────────────────
  * LeaveBoardTab — approve/reject with mandatory remark + history.
  * ──────────────────────────────────────────────────────────────*/
-export function LeaveBoardTab({ leaves, setLeaveStatus, editMode = false }) {
+export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode = false }) {
   const [remarks, setRemarks] = useState({});
+  const [pendingRemark, setPendingRemark] = useState({}); // id -> "Approved"|"Rejected" awaiting confirm
+  const [errorId, setErrorId] = useState(null);
+  const [confirm, setConfirm] = useState(null); // { leave, status, remark }
+  const [histSearch, setHistSearch] = useState("");
+  const [histFilter, setHistFilter] = useState("All");
+  const [histPeriod, setHistPeriod] = useState("Today"); // Today | Month | Year
+
+  const empById = Object.fromEntries(employees.map((e) => [e.id, e]));
   const pending = leaves.filter((l) => l.status === "Pending");
-  const history = leaves.filter((l) => l.status !== "Pending");
-  const decide = (l, status) => {
-    const remark = (remarks[l.id] || "").trim();
-    if (!remark) { alert("Please add a remark before approving or rejecting."); return; }
-    setLeaveStatus(l.id, status, remark);
-    setRemarks((prev) => ({ ...prev, [l.id]: "" }));
+  const decided = leaves.filter((l) => l.status !== "Pending");
+  const approvedCount = decided.filter((l) => l.status === "Approved").length;
+  const rejectedCount = decided.filter((l) => l.status === "Rejected").length;
+
+  const days = (from, to) => {
+    try { const a = new Date(from + "T00:00:00"); const b = new Date(to + "T00:00:00");
+      return Math.max(1, Math.round((b - a) / 86400000) + 1); } catch { return 1; }
   };
+
+  const ask = (l, status) => {
+    const remark = (remarks[l.id] || "").trim();
+    if (!remark) { setErrorId(l.id); return; }
+    setErrorId(null);
+    setConfirm({ leave: l, status, remark });
+  };
+  const applyDecision = () => {
+    if (!confirm) return;
+    setLeaveStatus(confirm.leave.id, confirm.status, confirm.remark);
+    setRemarks((prev) => ({ ...prev, [confirm.leave.id]: "" }));
+    setConfirm(null);
+  };
+
+  const StatCard = ({ icon, label, value, color }) => (
+    <div className="sv-leave-stat">
+      <span className="sv-leave-stat-ic" style={{ background: `${color}1A`, color }}>{icon}</span>
+      <div><div className="sv-leave-stat-v">{value}</div><div className="sv-leave-stat-l">{label}</div></div>
+    </div>
+  );
+
+  const Person = ({ l, size = 38 }) => {
+    const emp = empById[l.empId];
+    return (
+      <div className="sv-flex sv-items-center sv-gap-2" style={{ minWidth: 0 }}>
+        <Avatar emp={emp} name={l.empName} idx={0} size={size} />
+        <div style={{ minWidth: 0 }}>
+          <div className="sv-text-navy sv-font-700" style={{ fontSize: 13.5 }}>{l.empName}</div>
+          <div className="sv-text-muted" style={{ fontSize: 11 }}>{emp?.department || "—"}</div>
+        </div>
+      </div>
+    );
+  };
+
+  const DateRange = ({ l }) => {
+    const d = days(l.fromDate, l.toDate);
+    return (
+      <span className="sv-leave-range">
+        <CalendarDays size={13} /> {fmtDate(l.fromDate)}{l.toDate !== l.fromDate ? ` → ${fmtDate(l.toDate)}` : ""}
+        <span className="sv-leave-days">{d} day{d !== 1 ? "s" : ""}</span>
+      </span>
+    );
+  };
+
+  const nowIso = new Date().toISOString();
+  const periodPrefix = histPeriod === "Today" ? nowIso.slice(0, 10) : histPeriod === "Month" ? nowIso.slice(0, 7) : nowIso.slice(0, 4);
+  const histFiltered = decided.filter((l) => {
+    if (histFilter !== "All" && l.status !== histFilter) return false;
+    if (!String(l.fromDate || "").startsWith(periodPrefix)) return false;
+    if (histSearch) { const q = histSearch.toLowerCase();
+      return [l.empName, l.reason, l.remark].some((v) => (v || "").toLowerCase().includes(q)); }
+    return true;
+  });
+
   return (
     <div className="sv-tab">
       <h2 className="sv-tab-title">Leave Board {pending.length > 0 && <span className="sv-badge sv-badge--pending" style={{ marginLeft: 8 }}>{pending.length} pending</span>}</h2>
 
-      <div className="sv-card">
-        <h3>Pending Requests</h3>
-        <ul className="sv-list sv-leave-list" style={{ marginTop: 12 }}>
-          {pending.length === 0 && <li className="sv-muted">No pending leave requests.</li>}
-          {pending.map((l) => (
-            <li key={l.id} className="sv-leave-item">
-              <div className="sv-flex sv-flex--between" style={{ flexWrap: "wrap", gap: 8 }}>
-                <span><strong>{l.empName}</strong> — {fmtDate(l.fromDate)} → {fmtDate(l.toDate)} <span className="sv-muted">({l.reason})</span></span>
-                <span className="sv-badge sv-badge--pending">Pending</span>
-              </div>
-              <input className="sv-input sv-leave-remark" placeholder="Remark (required)" value={remarks[l.id] || ""} onChange={(e) => setRemarks((p) => ({ ...p, [l.id]: e.target.value }))} />
-              <div className="sv-flex sv-gap-xs" style={{ marginTop: 8 }}>
-                <button className="sv-btn sv-btn--sm sv-btn--success" onClick={() => decide(l, "Approved")}>Approve</button>
-                <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => decide(l, "Rejected")}>Reject</button>
-              </div>
-            </li>
-          ))}
-        </ul>
+      <div className="sv-leave-stats">
+        <StatCard icon={<Clock size={18} />} label="Pending" value={pending.length} color="#F59E0B" />
+        <StatCard icon={<Check size={18} />} label="Approved" value={approvedCount} color="#22C55E" />
+        <StatCard icon={<XCircle size={18} />} label="Rejected" value={rejectedCount} color="#EF4444" />
+        <StatCard icon={<Palmtree size={18} />} label="Total requests" value={leaves.length} color="#3B82F6" />
       </div>
 
       <div className="sv-card">
-        <h3>History</h3>
-        <ul className="sv-list sv-leave-list" style={{ marginTop: 12 }}>
-          {history.length === 0 && <li className="sv-muted">No decided leave requests yet.</li>}
-          {history.map((l) => (
-            <li key={l.id} className="sv-leave-item sv-flex sv-flex--between" style={{ flexWrap: "wrap", gap: 8 }}>
-              <span><strong>{l.empName}</strong> — {fmtDate(l.fromDate)} → {fmtDate(l.toDate)} <span className="sv-muted">({l.reason}){l.remark ? ` · Note: ${l.remark}` : ""}</span></span>
-              <span className={`sv-badge sv-badge--${l.status.toLowerCase()}`}>{l.status}</span>
-            </li>
-          ))}
-        </ul>
+        <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 4 }}>
+          <span className="sv-mod-icon" style={{ background: "rgba(245,158,11,.14)", color: "#D97706" }}><Clock size={16} /></span>
+          <div>
+            <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>Pending Requests</p>
+            <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>Review and decide — a remark is required</p>
+          </div>
+        </div>
+
+        {pending.length === 0 ? (
+          <div className="sv-leave-empty"><Inbox size={26} /><span>No pending leave requests.</span></div>
+        ) : (
+          <div className="sv-leave-pending-list">
+            {pending.map((l) => (
+              <div key={l.id} className="sv-leave-req">
+                <div className="sv-leave-req-top">
+                  <Person l={l} />
+                  <span className="sv-badge sv-badge--pending">Pending</span>
+                </div>
+                <div className="sv-leave-req-meta">
+                  <DateRange l={l} />
+                  <span className="sv-leave-reason">{l.reason}</span>
+                </div>
+                <input className={`sv-input sv-leave-remark${errorId === l.id ? " sv-input--err" : ""}`} placeholder="Add a remark (required)…"
+                  value={remarks[l.id] || ""} onChange={(e) => { setRemarks((p) => ({ ...p, [l.id]: e.target.value })); if (errorId === l.id) setErrorId(null); }} />
+                {errorId === l.id && <p className="sv-leave-err-msg">Please add a remark before deciding.</p>}
+                <div className="sv-flex sv-gap-2" style={{ marginTop: 8 }}>
+                  <button className="sv-btn sv-btn--sm sv-btn--success" onClick={() => ask(l, "Approved")}><Check size={13} /> Approve</button>
+                  <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => ask(l, "Rejected")}><XCircle size={13} /> Reject</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      <div className="sv-card">
+        <div className="sv-leave-hist-head">
+          <div className="sv-flex sv-items-center sv-gap-2">
+            <span className="sv-mod-icon"><CalendarDays size={16} /></span>
+            <div>
+              <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>History</p>
+              <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>{decided.length} decided request{decided.length !== 1 ? "s" : ""}</p>
+            </div>
+          </div>
+          <div className="sv-leave-hist-tools">
+            <div className="sv-mailids-search">
+              <SearchIcon size={14} />
+              <input placeholder="Search name, reason…" value={histSearch} onChange={(e) => setHistSearch(e.target.value)} />
+            </div>
+            <div className="sv-seg">
+              {["Today", "Month", "Year"].map((p) => (
+                <button key={p} className={`sv-seg-btn${histPeriod === p ? " sv-seg-btn--on" : ""}`} onClick={() => setHistPeriod(p)}>{p}</button>
+              ))}
+            </div>
+            <div className="sv-seg">
+              {["All", "Approved", "Rejected"].map((f) => (
+                <button key={f} className={`sv-seg-btn${histFilter === f ? " sv-seg-btn--on" : ""}`} onClick={() => setHistFilter(f)}>{f}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {histFiltered.length === 0 ? (
+          <div className="sv-leave-empty"><Inbox size={26} /><span>No matching leave records.</span></div>
+        ) : (
+          <div className="sv-leave-hist-list">
+            {histFiltered.map((l) => (
+              <div key={l.id} className={`sv-leave-hrow sv-leave-hrow--${l.status.toLowerCase()}`}>
+                <Person l={l} size={34} />
+                <div className="sv-leave-hrow-mid">
+                  <DateRange l={l} />
+                  <span className="sv-leave-reason">{l.reason}</span>
+                  {l.remark && <span className="sv-leave-note">Note: {l.remark}</span>}
+                </div>
+                <span className={`sv-badge sv-badge--${l.status.toLowerCase()}`}>{l.status}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {confirm && (
+        <div className="sv-modal-overlay" onClick={() => setConfirm(null)}>
+          <div className="sv-modal sv-confirm" onClick={(e) => e.stopPropagation()}>
+            <p className="sv-confirm-msg">{confirm.status === "Approved" ? "Approve" : "Reject"} {confirm.leave.empName}'s leave?</p>
+            <p className="sv-confirm-sub">{fmtDate(confirm.leave.fromDate)}{confirm.leave.toDate !== confirm.leave.fromDate ? ` → ${fmtDate(confirm.leave.toDate)}` : ""} · Note: {confirm.remark}</p>
+            <div className="sv-confirm-actions">
+              <button className="sv-btn sv-btn--outline" onClick={() => setConfirm(null)}>No</button>
+              <button className={`sv-btn ${confirm.status === "Approved" ? "sv-btn--success" : "sv-btn--danger-solid"}`} onClick={applyDecision}>Yes, {confirm.status === "Approved" ? "Approve" : "Reject"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -488,10 +1091,36 @@ export function LeaveBoardTab({ leaves, setLeaveStatus, editMode = false }) {
  * SettingsTab — employee management (incl. email), two-step admin
  * password, messaging, targets, branding, website list.
  * ──────────────────────────────────────────────────────────────*/
-export function SettingsTab({ employees, setEmployees, onUpdateEmp, onDeleteEmp, onResetPwd, newEmp, setNewEmp, addEmployeeQuick, newEmpEmail, setNewEmpEmail, newEmpPwd, setNewEmpPwd, adminPwd, setAdminPwd, msgEmpId, setMsgEmpId, msgText, setMsgText, sendMessage, messages, deleteMessage, targets, setTargets, logo, onLogoChange, onLogoRemove, websites, newWebsite, setNewWebsite, addWebsite, removeWebsite, pushNotification, showToast, editMode = false, setEditMode, settingsPwd = "Settings@123", setSettingsPwd }) {
+export function SettingsTab({ employees, setEmployees, departments = [], freelancers = [], teamMeta = {}, onUpdateEmp, onDeleteEmp, onResetPwd, newEmp, setNewEmp, addEmployeeQuick, newEmpEmail, setNewEmpEmail, newEmpPwd, setNewEmpPwd, adminPwd, setAdminPwd, msgEmpId, setMsgEmpId, msgText, setMsgText, sendMessage, messages, deleteMessage, targets, setTargets, logo, onLogoChange, onLogoRemove, websites, newWebsite, setNewWebsite, addWebsite, removeWebsite, pushNotification, showToast, editMode = false, setEditMode, settingsPwd = "Settings@123", setSettingsPwd }) {
   const [curPwd, setCurPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const [unlockPwd, setUnlockPwd] = useState("");
+
+  // Inline unlock (same check as the lock bar) so config sections can be
+  // unlocked right where they are, without scrolling back to the top.
+  const doInlineUnlock = () => {
+    if (unlockPwd === settingsPwd) { setEditMode && setEditMode(true); setUnlockOpen(false); setUnlockPwd(""); showToast("Settings unlocked.", "success"); }
+    else showToast("Incorrect Settings Password.", "error");
+  };
+  // Rendered as a function call (not a nested <Component/>) so the password
+  // input keeps focus while typing.
+  const lockHint = () => (editMode ? null : (
+    <div className="sv-sal-lock" style={{ marginTop: 12 }}>
+      <span className="sv-sal-lock-msg">🔒 Locked — unlock with the Settings Password to edit.</span>
+      {unlockOpen ? (
+        <div className="sv-sal-unlock-form">
+          <input type="password" className="sv-input" autoFocus placeholder="Settings Password" value={unlockPwd}
+            onChange={(e) => setUnlockPwd(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doInlineUnlock(); if (e.key === "Escape") { setUnlockOpen(false); setUnlockPwd(""); } }} />
+          <button className="sv-btn sv-btn--primary sv-btn--sm" onClick={doInlineUnlock} disabled={!unlockPwd}>Unlock</button>
+          <button className="sv-btn sv-btn--outline sv-btn--sm" onClick={() => { setUnlockOpen(false); setUnlockPwd(""); }}>Cancel</button>
+        </div>
+      ) : (
+        <button className="sv-btn sv-btn--primary sv-btn--sm" onClick={() => setUnlockOpen(true)}>Unlock</button>
+      )}
+    </div>
+  ));
 
   const onLogoFile = (file) => {
     const reader = new FileReader();
@@ -510,25 +1139,53 @@ export function SettingsTab({ employees, setEmployees, onUpdateEmp, onDeleteEmp,
     showToast("Admin password updated.", "success");
   };
 
+  const deptCount = new Set(employees.map((e) => (e.department || "").trim().toLowerCase()).filter(Boolean)).size || departments.length;
+  const managerCount = new Set(employees.map((e) => e.teamLead).filter(Boolean)).size;
+  const designerCount = employees.filter((e) => (e.department || "").toLowerCase() === "design").length;
+  const stats = [
+    { icon: <Users size={18} />, label: "Employees", value: employees.length, color: "#3B82F6" },
+    { icon: <Building2 size={18} />, label: "Departments", value: deptCount, color: "#8B5CF6" },
+    { icon: <UserCog size={18} />, label: "Managers", value: managerCount, color: "#0EA5E9" },
+    { icon: <Palette size={18} />, label: "Designers", value: designerCount, color: "#EC4899" },
+    { icon: <BriefcaseIcon size={18} />, label: "Freelancers", value: (freelancers || []).length, color: "#F59E0B" },
+    { icon: <Globe2 size={18} />, label: "Websites", value: (websites || []).length, color: "#22C55E" },
+  ];
+  const SecHead = ({ icon, color = "#2563EB", bg, title, desc }) => (
+    <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 12 }}>
+      <span className="sv-mod-icon" style={{ background: bg || "rgba(37,99,235,.1)", color }}>{icon}</span>
+      <div><p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 15.5 }}>{title}</p><p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>{desc}</p></div>
+    </div>
+  );
+
   return (
     <div className="sv-tab">
       <h2 className="sv-tab-title">Settings</h2>
+
+      <div className="sv-leave-stats" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
+        {stats.map((s) => (
+          <div key={s.label} className="sv-leave-stat">
+            <span className="sv-leave-stat-ic" style={{ background: `${s.color}1A`, color: s.color }}>{s.icon}</span>
+            <div><div className="sv-leave-stat-v">{s.value}</div><div className="sv-leave-stat-l">{s.label}</div></div>
+          </div>
+        ))}
+      </div>
+
       <SettingsLockBar editMode={editMode} setEditMode={setEditMode} settingsPwd={settingsPwd} setSettingsPwd={setSettingsPwd} showToast={showToast} />
       <div className="sv-grid-2 sv-gap-md">
         <div className="sv-card">
-          <h3>Manage Employees</h3>
+          <SecHead icon={<Users size={16} />} title="Employee Management" desc="Add employees and manage their details" />
           <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap" }}>
             <input className="sv-input" placeholder="Full name" value={newEmp} onChange={(e) => setNewEmp(e.target.value)} style={{ flex: "1 1 150px" }} />
             <input className="sv-input" type="email" placeholder="Email (for login)" value={newEmpEmail} onChange={(e) => setNewEmpEmail(e.target.value)} style={{ flex: "1 1 190px" }} />
             <input className="sv-input" placeholder="Password (default 1234)" value={newEmpPwd} onChange={(e) => setNewEmpPwd(e.target.value)} style={{ flex: "1 1 150px" }} />
-            <button className="sv-btn sv-btn--primary" onClick={addEmployeeQuick}>Add</button>
+            <button className="sv-btn sv-btn--primary" onClick={addEmployeeQuick}><Plus size={14} /> Add</button>
           </div>
           {/* Compact employee list — shows 4, scrollable, View All toggle */}
           <EmployeeListCompact employees={employees} onUpdateEmp={onUpdateEmp} onDeleteEmp={onDeleteEmp} onResetPwd={onResetPwd} />
         </div>
 
         <div className="sv-card">
-          <h3>Admin Security (Two-step)</h3>
+          <SecHead icon={<ShieldCheck size={16} />} color="#16A34A" bg="rgba(22,163,74,.12)" title="Admin Security" desc="Two-step admin password change" />
           <label className="sv-label">Current Password</label>
           <input className="sv-input" type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} style={{ marginBottom: 8 }} />
           <label className="sv-label">New Password</label>
@@ -539,7 +1196,7 @@ export function SettingsTab({ employees, setEmployees, onUpdateEmp, onDeleteEmp,
         </div>
 
         <div className="sv-card">
-          <h3>Message an Employee</h3>
+          <SecHead icon={<MessageSquare size={16} />} color="#7C3AED" bg="rgba(124,58,237,.12)" title="Message an Employee" desc="Send a direct message to any employee" />
           <select className="sv-select" value={msgEmpId} onChange={(e) => setMsgEmpId(e.target.value)}>
             <option value="">Select employee...</option>
             {employees.map((e) => <option key={e.id} value={e.id}>{empLabel(e)}</option>)}
@@ -558,7 +1215,8 @@ export function SettingsTab({ employees, setEmployees, onUpdateEmp, onDeleteEmp,
 
 
         <div className="sv-card">
-          <h3>Company Branding</h3>
+          <SecHead icon={<ImageIcon size={16} />} color="#EA580C" bg="rgba(234,88,12,.12)" title="Company Branding" desc="Logo shown across the dashboard" />
+          {lockHint()}
           <div className="sv-logo-preview">
             {logo ? <img src={logo} alt="Logo" /> : <span>SV</span>}
           </div>
@@ -567,13 +1225,26 @@ export function SettingsTab({ employees, setEmployees, onUpdateEmp, onDeleteEmp,
         </div>
 
         <div className="sv-card">
-          <h3>Website Master List</h3>
-          <div className="sv-flex sv-gap-sm">
-            <input className="sv-input" placeholder="Website name" disabled={!editMode} value={newWebsite} onChange={(e) => setNewWebsite(e.target.value)} />
-            <button className="sv-btn sv-btn--primary" onClick={addWebsite} disabled={!editMode}>Add</button>
+          <SecHead icon={<Globe2 size={16} />} color="#16A34A" bg="rgba(22,163,74,.12)" title="Website Management" desc="Websites your team works on" />
+          <div className="sv-info-note">
+            <Globe2 size={15} />
+            <span>These are the websites your team works on. When an employee fills their <b>Daily Status Report</b>, they pick a website from this list and describe what they did on it that day. Add every site your team handles so it appears as an option in their report.</span>
           </div>
-          <div className="sv-flex sv-gap-xs" style={{ marginTop: 12, flexWrap: "wrap" }}>
-            {websites.map((w) => <span key={w} className="sv-chip">{w} <button disabled={!editMode} onClick={() => removeWebsite(w)} style={{ border: "none", background: "transparent", cursor: editMode ? "pointer" : "not-allowed", marginLeft: 4 }}>×</button></span>)}
+          {lockHint()}
+          <label className="sv-label" style={{ marginTop: 12 }}>Add a website</label>
+          <div className="sv-flex sv-gap-sm">
+            <input className="sv-input" placeholder="e.g. Main Website, Company Blog" disabled={!editMode} value={newWebsite} onChange={(e) => setNewWebsite(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && editMode) addWebsite(); }} />
+            <button className="sv-btn sv-btn--primary" onClick={addWebsite} disabled={!editMode}><Plus size={14} /> Add</button>
+          </div>
+          <div className="sv-website-list">
+            <span className="sv-website-list-label">Employees can report on {websites.length} website{websites.length !== 1 ? "s" : ""}:</span>
+            {websites.length === 0 ? (
+              <span className="sv-text-muted" style={{ fontSize: 12.5 }}>None yet — add your first website above.</span>
+            ) : (
+              <div className="sv-flex sv-gap-xs" style={{ flexWrap: "wrap", marginTop: 6 }}>
+                {websites.map((w) => <span key={w} className="sv-chip">{w} <button disabled={!editMode} onClick={() => removeWebsite(w)} style={{ border: "none", background: "transparent", cursor: editMode ? "pointer" : "not-allowed", marginLeft: 4 }}>×</button></span>)}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -616,20 +1287,16 @@ function EmployeeRow({ emp, onUpdateEmp, onDeleteEmp, onResetPwd }) {
         <label className="sv-field"><span>Email</span>
           <input className="sv-input" placeholder="name@company.com" value={draft.email || ""} onChange={(e) => set("email", e.target.value)} onBlur={() => onUpdateEmp(draft)} />
         </label>
-        <label className="sv-field"><span>Team Lead</span>
-          <input className="sv-input" placeholder="Team lead name" value={draft.teamLead || ""} onChange={(e) => set("teamLead", e.target.value)} onBlur={() => onUpdateEmp(draft)} />
-        </label>
       </div>
-      <ResetPasswordInline empId={emp.id} empName={emp.name} onResetPwd={onResetPwd} currentPassword={emp.passwordPlain} />
+      <ResetPasswordInline empId={emp.id} empName={emp.name} onResetPwd={onResetPwd} />
       </div>
       )}
     </li>
   );
 }
 
-function ResetPasswordInline({ empId, empName, onResetPwd, currentPassword }) {
+function ResetPasswordInline({ empId, empName, onResetPwd }) {
   const [open, setOpen] = useState(false);
-  const [reveal, setReveal] = useState(false);
   const [newPwd, setNewPwd] = useState("");
   const [confirm, setConfirm] = useState("");
   const [saving, setSaving] = useState(false);
@@ -660,18 +1327,7 @@ function ResetPasswordInline({ empId, empName, onResetPwd, currentPassword }) {
         >
           {open ? <><X size={14} /> Cancel</> : <><KeyRound size={14} /> Reset Password</>}
         </button>
-        <button
-          type="button"
-          className="sv-btn sv-btn--sm sv-btn--outline"
-          onClick={() => setReveal((r) => !r)}
-        >
-          {reveal ? <><EyeOff size={14} /> Hide password</> : <><Eye size={14} /> View password</>}
-        </button>
-        {reveal && (
-          <code style={{ fontSize: 12, background: "#FEF3C7", padding: "3px 8px", borderRadius: 6, color: "#92400E" }}>
-            {currentPassword ? currentPassword : "Hidden for security — use Reset Password to set a new one."}
-          </code>
-        )}
+        <span className="sv-text-muted" style={{ fontSize: 11 }}>Passwords are encrypted and can't be viewed — reset to set a new one.</span>
       </div>
       {open && (
         <div style={{ marginTop: 8, padding: "10px 12px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8 }}>
@@ -1288,74 +1944,114 @@ const lblS = { display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5,
  * the Designer dashboard, versioning, revisions, notifications and
  * the timeline come in later phases. Reuses existing .sv-* styles.
  * ──────────────────────────────────────────────────────────────*/
-const DESIGN_STATUSES = ["Pending", "Draft Started", "Sample Ready", "Revision Required", "Final Design Ready", "Completed"];
+const STEPS = [
+  { key: "Draft", label: "Draft", color: "#64748B" },
+  { key: "Sample Design", label: "Sample Design", color: "#7C3AED" },
+  { key: "Client Review", label: "Client Review", color: "#0EA5E9" },
+  { key: "Final CP/CS", label: "Final CP/CS", color: "#8B5CF6" },
+  { key: "Index Page", label: "Index Page", color: "#0891B2" },
+  { key: "Magazine", label: "Magazine", color: "#4F46E5" },
+  { key: "Final Review", label: "Final Review", color: "#D97706" },
+  { key: "Completed", label: "Completed", color: "#16A34A" },
+];
+const STEP_KEYS = STEPS.map((x) => x.key);
+const STEP_ALIAS = {
+  "Pending": "Draft", "Draft Started": "Draft", "Draft": "Draft", "Draft Sent": "Draft",
+  "Cover Design": "Sample Design", "Cover Ready": "Sample Design", "Sample": "Sample Design", "Sample Ready": "Sample Design", "Sample Design": "Sample Design",
+  "Admin Review": "Client Review", "Sent to Client": "Client Review", "Client Review": "Client Review",
+  "Final CP/CS": "Final CP/CS", "CP/CS Review": "Final CP/CS",
+  "Index Page": "Index Page", "Index Approval": "Index Page",
+  "Content Designing": "Magazine", "Final Magazine": "Magazine", "Final Design Ready": "Magazine", "Final Uploaded": "Magazine", "Magazine": "Magazine",
+  "Admin Final Review": "Final Review", "Final Review": "Final Review",
+  "Revision Required": "Sample Design",
+  "Approved": "Completed", "Completed": "Completed",
+};
+const stepOf = (st) => STEP_ALIAS[st] || (STEP_KEYS.includes(st) ? st : "Draft");
+const stepIndex = (st) => STEP_KEYS.indexOf(stepOf(st));
+const DESIGN_STATUSES = STEP_KEYS;
+const canonicalStage = (st) => stepOf(st);
+const designProgress = (st) => { const i = stepIndex(st); return i < 0 ? 0 : Math.round((i / (STEP_KEYS.length - 1)) * 100); };
+const designStatusStyle = (s) => { const st = STEPS.find((x) => x.key === stepOf(s)) || STEPS[0]; return { bg: st.color + "1A", fg: st.color }; };
 const DESIGN_PRIORITIES = ["High", "Medium", "Low"];
-const DESIGN_BLANK = { clientName: "", companyName: "", magazineName: "", edition: "", dueDate: "", priority: "Medium", assignedDesigner: "", assignedDesignerName: "", status: "Pending", instructions: "", internalNotes: "" };
-
-const designStatusStyle = (s) => ({
-  "Pending": { bg: "#F1F5F9", fg: "#475569" },
-  "Draft Started": { bg: "#FEE2E2", fg: "#B91C1C" },
-  "Sample Ready": { bg: "#FEF3C7", fg: "#B45309" },
-  "Revision Required": { bg: "#FFEDD5", fg: "#C2410C" },
-  "Final Design Ready": { bg: "#DBEAFE", fg: "#1D4ED8" },
-  "Completed": { bg: "#DCFCE7", fg: "#15803D" },
-}[s] || { bg: "#F1F5F9", fg: "#475569" });
+const DESIGN_BLANK = { clientName: "", companyName: "", magazineName: "", edition: "", dueDate: "", priority: "Medium", assignedDesigner: "", assignedDesignerName: "", status: "Draft", instructions: "", internalNotes: "" };
 const designPriorityStyle = (p) => ({
   "High": { bg: "#FEE2E2", fg: "#B91C1C" },
   "Medium": { bg: "#FEF3C7", fg: "#B45309" },
   "Low": { bg: "#DCFCE7", fg: "#15803D" },
 }[p] || { bg: "#F1F5F9", fg: "#475569" });
 
-export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision }) {
+export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision, designWork = [], saveDesignWork, pushNotification, captureExpense, designArchive = [], saveDesignArchive, addProjectComment, designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {} }, releaseDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink }) {
   const [search, setSearch] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [fPriority, setFPriority] = useState("");
   const [fDesigner, setFDesigner] = useState("");
+  const [sort, setSort] = useState("updated");
+  const [view, setView] = useState("projects");
+  const [payDesigner, setPayDesigner] = useState("");
+  const [paySearch, setPaySearch] = useState("");
+  const [payOpen, setPayOpen] = useState(null); // project id whose cost sheet is open
+  const [payComment, setPayComment] = useState("");
+  const [flowAsk, setFlowAsk] = useState(null); // { message, onYes, onNo }
+  const [showArchived, setShowArchived] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(null);
+  const [archiveAsk, setArchiveAsk] = useState(null); // { project, mode }
+  const [archiveReason, setArchiveReason] = useState("");
+  const [openKeys, setOpenKeys] = useState(() => new Set());
+  const [fmSearch, setFmSearch] = useState("");
+  const [convoText, setConvoText] = useState("");
+  const ask = (message, onYes, onNo) => setFlowAsk({ message, onYes, onNo });
   const [form, setForm] = useState(null);
   const [isNew, setIsNew] = useState(false);
   const [detail, setDetail] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [uploadKind, setUploadKind] = useState("reference");
+  const [uploadKind, setUploadKind] = useState("draft");
   const [uploading, setUploading] = useState(false);
   const [revComment, setRevComment] = useState("");
   const fileRef = useRef(null);
-  const KIND_LABELS = { reference: "Reference", draft: "Draft", sample: "Sample", revised: "Revised", final: "Final" };
+  const KIND_LABELS = { draft: "Draft", reference: "Client Draft", images: "Images", sample: "Sample", cp: "Cover Page", cs: "Cover Story", index: "Index Page", magazine: "Magazine", revised: "Revised", final: "Final" };
   const fmtSize = (b) => (!b ? "" : b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(0) + " KB" : (b / 1048576).toFixed(1) + " MB");
-  const onUploadFile = async (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file || !detail) return;
-    setUploading(true);
-    await uploadDesignFile(detail.id, uploadKind, file, "Admin");
-    setUploading(false);
-    if (fileRef.current) fileRef.current.value = "";
-  };
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadFolder, setUploadFolder] = useState(""); // target custom folder id
+  const [newFolder, setNewFolder] = useState("");
+  const [openFolders, setOpenFolders] = useState({}); // collapsed by default
+  const toggleFolder = (id) => setOpenFolders((o) => ({ ...o, [id]: !o[id] }));
+  const [linkLabel, setLinkLabel] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const isDraftFile = (id) => (designExtra.drafts || []).includes(id);
+  const uploadOne = async (file) => { if (!file || !detail) return; setUploading(true); await uploadDesignFile(detail.id, uploadKind, file, "Admin", uploadFolder); setUploading(false); };
+  const onUploadFile = async (e) => { const files = [...(e.target.files || [])]; for (const fl of files) await uploadOne(fl); if (fileRef.current) fileRef.current.value = ""; setUploadFolder(""); };
+  const onDropFiles = async (e) => { e.preventDefault(); setDragOver(false); const files = [...((e.dataTransfer && e.dataTransfer.files) || [])]; for (const fl of files) await uploadOne(fl); setUploadFolder(""); };
 
   const todayISO = new Date().toISOString().slice(0, 10);
   const isOverdue = (p) => p.dueDate && p.dueDate < todayISO && p.status !== "Completed";
 
+  const bucketCount = (name) => designProjects.filter((p) => canonicalStage(p.status) === name).length;
   const stats = {
     total: designProjects.length,
-    pending: designProjects.filter((p) => p.status === "Pending").length,
-    draft: designProjects.filter((p) => p.status === "Draft Started").length,
-    sample: designProjects.filter((p) => p.status === "Sample Ready").length,
-    revision: designProjects.filter((p) => p.status === "Revision Required").length,
-    completed: designProjects.filter((p) => p.status === "Completed").length,
+    draft: bucketCount("Draft"),
+    sample: bucketCount("Sample Design"),
+    review: bucketCount("Admin Review") + bucketCount("Client Review"),
+    index: bucketCount("Index Approval"),
+    final: bucketCount("Final Magazine") + bucketCount("Admin Final Review"),
+    completed: bucketCount("Completed"),
     overdue: designProjects.filter(isOverdue).length,
   };
-  const weekEnd = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10); })();
-  const monthEnd = (() => { const d = new Date(); d.setMonth(d.getMonth() + 1); return d.toISOString().slice(0, 10); })();
-  const dueToday = designProjects.filter((p) => p.dueDate === todayISO && p.status !== "Completed").length;
-  const dueWeek = designProjects.filter((p) => p.dueDate && p.dueDate >= todayISO && p.dueDate <= weekEnd && p.status !== "Completed").length;
-  const dueMonth = designProjects.filter((p) => p.dueDate && p.dueDate >= todayISO && p.dueDate <= monthEnd && p.status !== "Completed").length;
 
+  const archivedIds = new Set((designArchive || []).map((a) => a.id));
+  const archivedProjects = designProjects.filter((p) => archivedIds.has(p.id));
   const filtered = designProjects.filter((p) => {
+    if (archivedIds.has(p.id)) return false;
     const q = search.trim().toLowerCase();
     if (q && !`${p.clientName} ${p.companyName} ${p.magazineName} ${p.edition} ${p.assignedDesignerName}`.toLowerCase().includes(q)) return false;
-    if (fStatus && p.status !== fStatus) return false;
-    if (fPriority && p.priority !== fPriority) return false;
-    if (fDesigner && p.assignedDesigner !== fDesigner) return false;
     return true;
+  });
+  const PRI_ORDER = { High: 0, Medium: 1, Low: 2 };
+  const sorted = [...filtered].sort((a, b) => {
+    if (sort === "due") return (a.dueDate || "9999-99-99").localeCompare(b.dueDate || "9999-99-99");
+    if (sort === "client") return (a.clientName || "").localeCompare(b.clientName || "");
+    if (sort === "priority") return (PRI_ORDER[a.priority] ?? 9) - (PRI_ORDER[b.priority] ?? 9);
+    return String(b.updatedAt || b.createdAt || "").localeCompare(String(a.updatedAt || a.createdAt || ""));
   });
 
   const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -1373,12 +2069,62 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
     if (ok !== false) setForm(null);
   };
   const changeStatus = async (p, status) => { await changeProjectStatus(p, status, "admin", "Admin"); setDetail((d) => (d && d.id === p.id ? { ...d, status } : d)); };
+  const stepMeta = (pid) => { const m = {}; (designActivity || []).filter((a) => a.projectId === pid).slice().sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).forEach((a) => { const k = a.type === "created" ? "Draft" : (a.type === "status" ? stepOf(a.meta) : null); if (k) m[k] = { actor: a.actorName, time: a.createdAt ? new Date(a.createdAt).toLocaleString() : "" }; }); return m; };
+  const advance = async (p, stage) => { releaseDesign && await releaseDesign(p.id, "admin"); await changeProjectStatus(p, stage, "admin", "Admin"); pushNotification && pushNotification(`${p.clientName}: workflow → ${stage}`); setDetail((d) => (d ? { ...d, status: stage } : d)); };
+  const sendBack = async (p, stage) => { const note = revComment.trim(); if (!note) return; await addProjectComment(p.id, "admin", "Admin", "🔄 Changes requested: " + note); await changeProjectStatus(p, stage, "admin", "Admin"); pushNotification && pushNotification(`Changes requested on ${p.clientName} — sent to the designer.`, "rejected"); setRevComment(""); setDetail((d) => (d ? { ...d, status: stage } : d)); };
   const doDelete = async () => { const id = confirmDel.id; setConfirmDel(null); setDetail(null); await deleteDesignProject(id); };
+  const doArchive = () => {
+    if (!archiveAsk) return;
+    const p = archiveAsk.project;
+    saveDesignArchive && saveDesignArchive([...(designArchive || []).filter((a) => a.id !== p.id), { id: p.id, reason: archiveReason.trim(), by: "Admin", at: new Date().toISOString() }]);
+    pushNotification && pushNotification(`Project archived: ${p.clientName}${archiveReason.trim() ? ` — ${archiveReason.trim()}` : ""}`);
+    setArchiveAsk(null); setArchiveReason(""); setDetail(null);
+  };
+  const restoreProject = (id) => saveDesignArchive && saveDesignArchive((designArchive || []).filter((a) => a.id !== id));
+  const permDelete = async (id) => { saveDesignArchive && saveDesignArchive((designArchive || []).filter((a) => a.id !== id)); await deleteDesignProject(id); };
+
+  const dMoney = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
+  /* ── Accounting model (admin-controlled) ── */
+  const WSTATUSES = ["Pending", "In Progress", "Under Review", "Completed", "Hold", "Approved"];
+  const normPay = (ps) => (ps === "Approved" ? "Ready for Payment" : (!ps || ps === "Unpaid") ? "Pending" : ps);
+  const payWorkStyle = (s) => (s === "Paid" ? { bg: "#DCFCE7", fg: "#15803D" } : s === "Ready for Payment" ? { bg: "#DBEAFE", fg: "#1D4ED8" } : s === "Rejected" ? { bg: "#FEE2E2", fg: "#B91C1C" } : { bg: "#FEF3C7", fg: "#B45309" });
+  const wStatusStyle = (s) => ({ "Completed": { bg: "#DCFCE7", fg: "#15803D" }, "Approved": { bg: "#D1FAE5", fg: "#047857" }, "In Progress": { bg: "#DBEAFE", fg: "#1D4ED8" }, "Under Review": { bg: "#EDE9FE", fg: "#6D28D9" }, "Hold": { bg: "#FEE2E2", fg: "#B91C1C" } }[s] || { bg: "#F1F5F9", fg: "#64748B" });
+  const withHist = (x, entry) => ({ ...x, history: [...(x.history || []), entry], updatedAt: new Date().toISOString() });
+  const captureWorkPaid = (w) => {
+    if (!captureExpense) return;
+    const today = new Date().toISOString().slice(0, 10);
+    captureExpense({
+      type: "salary", sourceKey: `designwork:${w.id}`,
+      title: `Designer — ${w.designerName} · ${w.name}`, category: "Designer Payment", clientName: w.clientName || w.designerName,
+      paymentStatus: "Paid", paymentDate: today, amount: w.amount || 0, currency: "INR", paymentMethod: "Designer Payment",
+      details: { designerId: w.designerId, designerName: w.designerName, client: w.clientName, magazine: w.magazine, work: w.name, notes: w.notes, finalSalary: w.amount || 0 },
+    });
+  };
+  // Admin sets the WORK status (Pending → … → Approved). Yes/No confirmed.
+  const setWorkStatus = (w, status) => ask(`Set work status of “${w.name}” to “${status}”?`, () => {
+    const now = new Date().toISOString();
+    saveDesignWork && saveDesignWork((designWork || []).map((x) => (x.id === w.id ? withHist({ ...x, workStatus: status }, { at: now, by: "Admin", action: `Work status → ${status}`, reason: payComment.trim() }) : x)));
+    pushNotification && pushNotification(`${w.designerName}: “${w.name}” work status → ${status}`);
+    setPayComment("");
+  });
+  // Payment lifecycle: Pending → Ready for Payment → Paid (or Rejected). Yes/No confirmed.
+  const payTransition = (w, to, verb) => ask(`${verb} the payment for “${w.name}” (${dMoney(w.amount)})?`, () => {
+    const now = new Date().toISOString();
+    saveDesignWork && saveDesignWork((designWork || []).map((x) => (x.id === w.id ? withHist({ ...x, payStatus: to, paidDate: to === "Paid" ? now.slice(0, 10) : x.paidDate }, { at: now, by: "Admin", action: `Payment → ${to}`, reason: payComment.trim() }) : x)));
+    pushNotification && pushNotification(`Payment ${to.toLowerCase()} — ${w.designerName}: ${w.name} (${dMoney(w.amount)})`);
+    if (to === "Paid") captureWorkPaid(w);
+    setPayComment("");
+  });
+  const sumWork = (arr, f = () => true) => arr.filter(f).reduce((a, w) => a + (w.amount || 0), 0);
+  const isDue = (w) => normPay(w.payStatus) !== "Paid" && normPay(w.payStatus) !== "Rejected";
+  const payKpi = { total: sumWork(designWork || []), pending: sumWork(designWork || [], (w) => normPay(w.payStatus) === "Pending"), ready: sumWork(designWork || [], (w) => normPay(w.payStatus) === "Ready for Payment"), paid: sumWork(designWork || [], (w) => normPay(w.payStatus) === "Paid") };
+  const payDue = (designWork || []).filter((w) => normPay(w.payStatus) === "Pending").length;
 
   const statCard = (label, value, accent) => (
-    <div className="sv-card" style={{ padding: 16 }}>
-      <div style={{ fontSize: 26, fontWeight: 800, color: accent || "#0F172A", letterSpacing: "-0.02em" }}>{value}</div>
-      <div style={{ fontSize: 12.5, fontWeight: 600, color: "#64748B", marginTop: 2 }}>{label}</div>
+    <div className="sv-kpi-card" style={{ "--kpi-accent": accent || "#64748B" }}>
+      <span className="sv-kpi-bar" />
+      <div className="sv-kpi-num">{value}</div>
+      <div className="sv-kpi-lbl">{label}</div>
     </div>
   );
   const badge = (text, st) => <span style={{ display: "inline-block", fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: st.bg, color: st.fg }}>{text}</span>;
@@ -1387,22 +2133,191 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
 
   return (
     <div className="sv-tab">
+      {!detail && (<>
       <h2 className="sv-tab-title">Designs</h2>
 
-      {/* Stats */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
-        {statCard("Total Projects", stats.total, "#2563EB")}
-        {statCard("Pending", stats.pending, "#64748B")}
-        {statCard("Draft", stats.draft, "#B91C1C")}
-        {statCard("Sample Ready", stats.sample, "#B45309")}
-        {statCard("Revision", stats.revision, "#C2410C")}
-        {statCard("Completed", stats.completed, "#15803D")}
-        {statCard("Overdue", stats.overdue, "#DC2626")}
+      <div className="sv-dsn-tabs">
+        {[["projects", "Projects", <FolderOpen size={16} />], ["payments", "Designer Payments", <Wallet size={16} />], ["final", "Final Magazines", <BookOpen size={16} />]].map(([k, l, ic]) => (
+          <button key={k} className={`sv-dsn-tab${view === k ? " is-active" : ""}`} onClick={() => setView(k)}>
+            <span className="sv-dsn-tab-ic">{ic}</span>{l}{k === "payments" && payDue > 0 && <span className="sv-dsn-tab-badge">{payDue}</span>}
+          </button>
+        ))}
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
-        {statCard("Due Today", dueToday, "#2563EB")}
-        {statCard("Due This Week", dueWeek, "#2563EB")}
-        {statCard("Due This Month", dueMonth, "#2563EB")}
+
+      {view === "payments" && (() => {
+        const q = paySearch.trim().toLowerCase();
+        const live = (designProjects || []).filter((p) => !archivedIds.has(p.id));
+        const itemsFor = (pid) => (designWork || []).filter((w) => w.projectId === pid && (!payDesigner || w.designerId === payDesigner));
+        const totalFor = (pid) => itemsFor(pid).reduce((a, w) => a + (Number(w.amount) || 0), 0);
+        const rows = live.filter((p) => (!payDesigner || p.assignedDesigner === payDesigner) && (itemsFor(p.id).length > 0) && (!q || `${p.clientName} ${p.magazineName} ${p.companyName} ${p.edition} ${p.assignedDesignerName}`.toLowerCase().includes(q)));
+        const payAgg = (pid) => {
+          const its = itemsFor(pid); if (!its.length) return { label: "No costs", bg: "#F1F5F9", fg: "#94A3B8" };
+          const ps = its.map((w) => normPay(w.payStatus));
+          if (ps.every((x) => x === "Paid")) return { label: "Paid", ...payWorkStyle("Paid") };
+          if (ps.some((x) => x === "Pending")) return { label: `${ps.filter((x) => x === "Pending").length} pending`, ...payWorkStyle("Pending") };
+          if (ps.some((x) => x === "Ready for Payment")) return { label: "Ready to pay", ...payWorkStyle("Ready for Payment") };
+          if (ps.some((x) => x === "Rejected")) return { label: "Has rejected", ...payWorkStyle("Rejected") };
+          return { label: "—", bg: "#F1F5F9", fg: "#94A3B8" };
+        };
+        const openP = live.find((p) => p.id === payOpen) || null;
+        const openItems = openP ? itemsFor(openP.id).slice().sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date))) : [];
+        const designers = [...new Set((designWork || []).map((w) => w.designerId))];
+        return (
+          <>
+            <div className="sv-sal-kpis" style={{ gridTemplateColumns: "repeat(4,1fr)" }}>
+              <div className="sv-sal-kpi"><span className="sv-sal-kpi-ic" style={{ background: "rgba(139,92,246,.12)", color: "#7C3AED" }}><Palette size={18} /></span><div><div className="sv-sal-kpi-v">{dMoney(payKpi.total)}</div><div className="sv-sal-kpi-l">Total work value</div></div></div>
+              <div className="sv-sal-kpi"><span className="sv-sal-kpi-ic" style={{ background: "rgba(245,158,11,.12)", color: "#D97706" }}><FileText size={18} /></span><div><div className="sv-sal-kpi-v">{dMoney(payKpi.pending)}</div><div className="sv-sal-kpi-l">Pending approval</div></div></div>
+              <div className="sv-sal-kpi"><span className="sv-sal-kpi-ic" style={{ background: "rgba(37,99,235,.1)", color: "#2563EB" }}><Wallet size={18} /></span><div><div className="sv-sal-kpi-v">{dMoney(payKpi.ready)}</div><div className="sv-sal-kpi-l">Ready for payment</div></div></div>
+              <div className="sv-sal-kpi"><span className="sv-sal-kpi-ic" style={{ background: "rgba(34,197,94,.1)", color: "#16A34A" }}><CheckCircle2 size={18} /></span><div><div className="sv-sal-kpi-v">{dMoney(payKpi.paid)}</div><div className="sv-sal-kpi-l">Paid to designers</div></div></div>
+            </div>
+            <div className="sv-card">
+              <div className="sv-flex sv-justify-between sv-items-center" style={{ flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+                <div><h3 style={{ margin: 0 }}>Designer Costing &amp; Payments</h3><p className="sv-text-muted" style={{ fontSize: 12.5, margin: "2px 0 0" }}>Review submitted costs, control work status, and run each payment: Pending → Ready for Payment → Paid.</p></div>
+                <div className="sv-flex sv-gap-2" style={{ flexWrap: "wrap" }}>
+                  <div className="sv-mailids-search"><SearchIcon size={14} /><input placeholder="Search client / edition / designer…" value={paySearch} onChange={(e) => setPaySearch(e.target.value)} /></div>
+                  <select className="sv-select" value={payDesigner} onChange={(e) => setPayDesigner(e.target.value)} style={{ maxWidth: 180 }}>
+                    <option value="">All designers</option>{designers.map((id) => { const nm = (designWork || []).find((w) => w.designerId === id)?.designerName || id; return <option key={id} value={id}>{nm}</option>; })}
+                  </select>
+                </div>
+              </div>
+              {rows.length === 0 ? (
+                <div className="sv-leave-empty"><FileText size={26} /><span>No costs logged yet{q ? " for this search" : ""}. Designers add costs from their “Client Work” tab.</span></div>
+              ) : (
+                <div className="sv-erp-scroll">
+                  <table className="sv-erp-table">
+                    <thead><tr>{["Client", "Edition", "Designer", "Project Status", "Total Value", "Payment", "Manage"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {rows.map((p) => { const st = designStatusStyle(p.status); const agg = payAgg(p.id); const n = itemsFor(p.id).length; return (
+                        <tr key={p.id}>
+                          <td><div className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{p.clientName}</div><div className="sv-text-muted" style={{ fontSize: 11 }}>{p.magazineName || p.companyName || "—"}</div></td>
+                          <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{p.edition || "—"}</td>
+                          <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{p.assignedDesignerName || "—"}</td>
+                          <td>{badge(stepOf(p.status), st)}</td>
+                          <td><span className="sv-text-navy sv-font-700">{dMoney(totalFor(p.id))}</span> <span className="sv-text-muted" style={{ fontSize: 11 }}>· {n} item{n !== 1 ? "s" : ""}</span></td>
+                          <td><span className="sv-erp-chip" style={{ background: agg.bg, color: agg.fg }}>{agg.label}</span></td>
+                          <td><button className="sv-btn sv-btn--sm sv-btn--primary" onClick={() => { setPayOpen(p.id); setPayComment(""); }}>Review / Manage</button></td>
+                        </tr>
+                      ); })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {openP && (
+              <div className="sv-modal-overlay" onClick={() => setPayOpen(null)}>
+                <div className="sv-modal" style={{ maxWidth: 760, maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+                  <div className="sv-modal-header" style={{ flexShrink: 0 }}>
+                    <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>{openP.clientName} · Costing</span>
+                    <button className="sv-modal-close" onClick={() => setPayOpen(null)}>×</button>
+                  </div>
+                  <div style={{ overflowY: "auto", padding: "16px 20px" }}>
+                    <p className="sv-text-muted" style={{ fontSize: 12, marginTop: 0 }}>{openP.magazineName || "—"}{openP.edition ? ` · ${openP.edition}` : ""} · {openP.assignedDesignerName || "—"} · Total {dMoney(totalFor(openP.id))}</p>
+                    <label className="sv-team-ctl" style={{ marginBottom: 12 }}><span>Comment / reason (attached to your next action)</span><input className="sv-input" value={payComment} onChange={(e) => setPayComment(e.target.value)} placeholder="Optional note for the audit trail…" /></label>
+                    {openItems.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12.5 }}>No cost items yet.</p> : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {openItems.map((w) => { const ps = normPay(w.payStatus); return (
+                          <div key={w.id} className="sv-erp-item" style={{ alignItems: "stretch", flexDirection: "column", gap: 8 }}>
+                            <div className="sv-flex sv-justify-between sv-items-center" style={{ gap: 8, flexWrap: "wrap" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div className="sv-erp-item-top"><span className="sv-erp-item-name">{w.name}</span><span className="sv-erp-item-amt">{dMoney(w.amount)}</span></div>
+                                <div className="sv-erp-item-sub">{badge(ps, payWorkStyle(ps))} {w.notes ? <span className="sv-text-muted">· {w.notes}</span> : null}</div>
+                              </div>
+                              {w.proofUrl ? <a className="sv-btn sv-btn--sm sv-btn--ghost" href={w.proofUrl} target="_blank" rel="noreferrer">Proof</a> : null}
+                            </div>
+                            <div className="sv-flex sv-gap-2" style={{ flexWrap: "wrap", alignItems: "center" }}>
+                              <span className="sv-text-muted" style={{ fontSize: 11.5 }}>Work status</span>
+                              <select className="sv-select" value={w.workStatus || "Under Review"} onChange={(e) => setWorkStatus(w, e.target.value)} style={{ maxWidth: 160, padding: "5px 8px", fontSize: 12.5 }}>
+                                {WSTATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                              </select>
+                              <span style={{ flex: 1 }} />
+                              {ps === "Pending" && <button className="sv-pay-btn sv-pay-btn--approve" onClick={() => payTransition(w, "Ready for Payment", "Approve")}>✓ Approve → Ready</button>}
+                              {ps === "Ready for Payment" && <button className="sv-pay-btn sv-pay-btn--paid" onClick={() => payTransition(w, "Paid", "Mark paid")}>₹ Mark Paid</button>}
+                              {ps === "Rejected" && <button className="sv-pay-btn sv-pay-btn--approve" onClick={() => payTransition(w, "Pending", "Re-open")}>↺ Re-open</button>}
+                              {ps !== "Paid" && ps !== "Rejected" && <button className="sv-pay-btn sv-pay-btn--reject" onClick={() => payTransition(w, "Rejected", "Reject")}>✕ Reject</button>}
+                              {ps === "Paid" && <span className="sv-erp-chip" style={{ ...payWorkStyle("Paid") }}>Paid {w.paidDate || ""}</span>}
+                            </div>
+                            {(w.history || []).length > 0 && (
+                              <details className="sv-erp-audit">
+                                <summary>Audit trail ({(w.history || []).length})</summary>
+                                <div className="sv-erp-audit-list">
+                                  {(w.history || []).slice().reverse().map((h, i) => (
+                                    <div key={i} className="sv-erp-audit-row"><span className="sv-erp-audit-dot" /><div><b>{h.action}</b> · {h.by}{h.reason ? ` — ${h.reason}` : ""}<div className="sv-text-muted" style={{ fontSize: 10.5 }}>{h.at ? new Date(h.at).toLocaleString() : ""}{h.from != null ? ` · ${dMoney(h.from)} → ${dMoney(h.to)}` : ""}</div></div></div>
+                                  ))}
+                                </div>
+                              </details>
+                            )}
+                          </div>
+                        ); })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
+
+      {view === "final" && (() => {
+        const KINDS = [["draft", "Drafts"], ["reference", "Client Attachments"], ["images", "Client Images"], ["sample", "Samples"], ["cp", "Cover Page"], ["cs", "Cover Story"], ["index", "Index Page"], ["magazine", "Magazine"], ["revised", "Revised"], ["final", "Final Files"]];
+        const toggle = (k) => setOpenKeys((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
+        const q = fmSearch.trim().toLowerCase();
+        const live = designProjects.filter((p) => !archivedIds.has(p.id));
+        const clients = [...new Set(live.map((p) => p.clientName))].filter((c) => !q || c.toLowerCase().includes(q) || live.some((p) => p.clientName === c && `${p.magazineName} ${p.companyName}`.toLowerCase().includes(q)));
+        const dl = (fr) => { const isImg = /\.(png|jpe?g|svg|gif|webp)$/i.test(fr.fileName); return (
+          <div key={fr.id} className="sv-fm-file">
+            {isImg ? <img src={fr.fileUrl} alt="" /> : <span className="sv-fm-file-ic"><FileText size={15} /></span>}
+            <div style={{ minWidth: 0, flex: 1 }}><div className="sv-fm-file-name">{fr.fileName}</div><div className="sv-fm-file-sub">v{fr.version} · {fr.uploadedByName} · {fr.createdAt ? fmtDate(fr.createdAt) : ""}</div></div>
+            <a className="sv-btn sv-btn--sm sv-btn--ghost" href={fr.fileUrl} target="_blank" rel="noreferrer">Open</a>
+            <a className="sv-btn sv-btn--sm sv-btn--ghost" href={fr.fileUrl} download={fr.fileName}><Download size={13} /></a>
+          </div>
+        ); };
+        return (
+          <div className="sv-card">
+            <div className="sv-flex sv-justify-between" style={{ alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
+              <div><h3 style={{ margin: 0 }}>Final Magazines</h3><p className="sv-text-muted" style={{ fontSize: 12.5, margin: "2px 0 0" }}>All project files organised by client → project. Everything downloadable.</p></div>
+              <div className="sv-mailids-search"><SearchIcon size={14} /><input placeholder="Search client / project…" value={fmSearch} onChange={(e) => setFmSearch(e.target.value)} /></div>
+            </div>
+            {clients.length === 0 ? <div className="sv-leave-empty"><FileText size={26} /><span>No files yet.</span></div> : clients.map((c) => {
+              const cProjects = live.filter((p) => p.clientName === c && (!q || c.toLowerCase().includes(q) || `${p.magazineName} ${p.companyName}`.toLowerCase().includes(q)));
+              const ck = `c:${c}`; const cOpen = openKeys.has(ck);
+              const cFiles = designFiles.filter((fx) => cProjects.some((p) => p.id === fx.projectId)).length;
+              return (
+                <div key={c} className="sv-fm-client">
+                  <button className="sv-fm-folder" onClick={() => toggle(ck)}><span className={`sv-fm-caret${cOpen ? " open" : ""}`}>▸</span>📁 <b>{c}</b><span className="sv-fm-count">{cProjects.length} project{cProjects.length !== 1 ? "s" : ""} · {cFiles} file{cFiles !== 1 ? "s" : ""}</span></button>
+                  {cOpen && cProjects.map((p) => {
+                    const pk = `p:${p.id}`; const pOpen = openKeys.has(pk);
+                    const pFiles = designFiles.filter((fx) => fx.projectId === p.id);
+                    return (
+                      <div key={p.id} className="sv-fm-project">
+                        <button className="sv-fm-folder sv-fm-folder--sub" onClick={() => toggle(pk)}><span className={`sv-fm-caret${pOpen ? " open" : ""}`}>▸</span>📂 {p.magazineName || "Untitled"}{p.companyName ? ` · ${p.companyName}` : ""}<span className="sv-fm-count">{pFiles.length} file{pFiles.length !== 1 ? "s" : ""}</span></button>
+                        {pOpen && (pFiles.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12, margin: "4px 0 8px 26px" }}>No files uploaded.</p> : KINDS.map(([kind, label]) => {
+                          const fs = pFiles.filter((fx) => fx.kind === kind).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                          if (!fs.length) return null;
+                          return <div key={kind} className="sv-fm-kind"><div className="sv-fm-kind-label">{label} ({fs.length})</div>{fs.map(dl)}</div>;
+                        }))}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+
+      {view === "projects" && (<>
+      {/* Stats — stage-based, auto-updating */}
+      <div className="sv-designs-kpis">
+        {statCard("Total Projects", stats.total, "#244A86")}
+        {statCard("Draft", stats.draft, "#F59E0B")}
+        {statCard("Sample Design", stats.sample, "#8B5CF6")}
+        {statCard("In Review", stats.review, "#0EA5E9")}
+        {statCard("Index Approval", stats.index, "#F97316")}
+        {statCard("Final Magazine", stats.final, "#10B981")}
+        {statCard("Completed", stats.completed, "#22C55E")}
+        {statCard("Overdue", stats.overdue, "#EF4444")}
       </div>
 
       <div className="sv-card">
@@ -1411,24 +2326,24 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
             <h3 style={{ margin: 0 }}>Client Projects</h3>
             <p className="sv-text-muted" style={{ fontSize: 12.5, margin: "2px 0 0" }}>Track every magazine design project in one place.</p>
           </div>
-          <button className="sv-btn sv-btn--primary" onClick={openAdd}><Plus size={15} /> New Project</button>
+          <div className="sv-flex sv-gap-sm">
+            {archivedProjects.length > 0 && <button className={`sv-btn sv-btn--outline${showArchived ? " sv-btn--danger" : ""}`} onClick={() => setShowArchived((v) => !v)}>{showArchived ? "← Back to Projects" : `Archived (${archivedProjects.length})`}</button>}
+            <button className="sv-btn sv-btn--primary" onClick={openAdd}><Plus size={15} /> New Project</button>
+          </div>
         </div>
 
         {/* Filters */}
         <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", marginBottom: 14 }}>
           <input className="sv-input" placeholder="Search client / company / magazine / designer…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 220, flex: 1 }} />
-          <select className="sv-select" value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={{ maxWidth: 170 }}>
-            <option value="">All statuses</option>{DESIGN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select className="sv-select" value={fPriority} onChange={(e) => setFPriority(e.target.value)} style={{ maxWidth: 140 }}>
-            <option value="">All priorities</option>{DESIGN_PRIORITIES.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select className="sv-select" value={fDesigner} onChange={(e) => setFDesigner(e.target.value)} style={{ maxWidth: 170 }}>
-            <option value="">All designers</option>{employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+          <select className="sv-select" value={sort} onChange={(e) => setSort(e.target.value)} style={{ maxWidth: 180 }}>
+            <option value="updated">Recently updated</option>
+            <option value="due">Due date</option>
+            <option value="client">Client name</option>
+            <option value="priority">Priority</option>
           </select>
         </div>
 
-        {filtered.length === 0 ? (
+        {!showArchived && (filtered.length === 0 ? (
           <div style={{ textAlign: "center", padding: "40px 16px", color: "#64748B" }}>
             <div style={{ fontSize: 38 }}><Palette size={40} /></div>
             <p style={{ fontWeight: 700, color: "#334155", margin: "8px 0 2px" }}>No design projects yet</p>
@@ -1436,132 +2351,327 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
             <button className="sv-btn sv-btn--primary" onClick={openAdd}><Plus size={15} /> New Project</button>
           </div>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table className="sv-table">
-              <thead><tr><th>Client</th><th>Magazine</th><th>Edition</th><th>Due</th><th>Priority</th><th>Designer</th><th>Status</th></tr></thead>
-              <tbody>
-                {filtered.map((p) => (
-                  <tr key={p.id} style={{ cursor: "pointer" }} onClick={() => setDetail(p)}>
-                    <td style={{ fontWeight: 600 }}>{p.clientName}{p.companyName ? <span className="sv-text-muted" style={{ fontWeight: 400 }}> · {p.companyName}</span> : null}</td>
-                    <td>{p.magazineName || "—"}</td>
-                    <td>{p.edition || "—"}</td>
-                    <td style={{ color: isOverdue(p) ? "#DC2626" : undefined, fontWeight: isOverdue(p) ? 700 : 400 }}>{p.dueDate ? fmtDate(p.dueDate) : "—"}{isOverdue(p) ? " ⚠" : ""}</td>
-                    <td>{badge(p.priority, designPriorityStyle(p.priority))}</td>
-                    <td>{p.assignedDesignerName || "—"}</td>
-                    <td>{badge(p.status, designStatusStyle(p.status))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="sv-dsn-grid">
+            {sorted.map((p) => {
+              const st = designStatusStyle(p.status);
+              const pct = designProgress(p.status);
+              const files = designFiles.filter((x) => x.projectId === p.id).length;
+              const od = isOverdue(p);
+              return (
+                <div key={p.id} className="sv-dsn-card" onClick={() => setDetail(p)} style={{ borderLeft: `4px solid ${domainColor(p.companyName).solid}` }}>
+                  <div className="sv-dsn-card-top">
+                    <div style={{ minWidth: 0 }}>
+                      <div className="sv-dsn-client">{p.clientName}</div>
+                      {p.companyName ? <span className="sv-domain-chip" style={{ background: domainColor(p.companyName).bg, color: domainColor(p.companyName).fg }}><span className="sv-domain-dot" style={{ background: domainColor(p.companyName).solid }} />{p.companyName}</span> : <div className="sv-dsn-sub">—</div>}
+                    </div>
+                    {badge(p.priority, designPriorityStyle(p.priority))}
+                  </div>
+                  <div className="sv-dsn-mag">{p.magazineName || "Untitled magazine"}{p.edition ? ` · ${p.edition}` : ""}</div>
+                  <div className="sv-dsn-stage-row">{badge(p.status, st)}<span className="sv-dsn-pct">{pct}%</span></div>
+                  <div className="sv-dsn-prog"><span style={{ width: `${pct}%`, background: st.fg }} /></div>
+                  <div className="sv-dsn-meta">
+                    <span title="Designer">👤 {p.assignedDesignerName || "Unassigned"}</span>
+                    <span className={od ? "sv-dsn-over" : ""}>📅 {p.dueDate ? fmtDate(p.dueDate) : "No due date"}{od ? " ⚠" : ""}</span>
+                    <span>📎 {files} file{files !== 1 ? "s" : ""}</span>
+                  </div>
+                  <div className="sv-dsn-actions">
+                    <button className="sv-chip-btn sv-chip-btn--violet" onClick={(e) => { e.stopPropagation(); setDetail(p); }}>Open project</button>
+                    <span className="sv-dsn-menu-wrap" onClick={(e) => e.stopPropagation()}>
+                      <button className="sv-chip-btn sv-chip-btn--gray" onClick={() => setMenuOpen(menuOpen === p.id ? null : p.id)}>•••</button>
+                      {menuOpen === p.id && (
+                        <div className="sv-dsn-menu" onMouseLeave={() => setMenuOpen(null)}>
+                          <button onClick={() => { setMenuOpen(null); openEdit(p); }}>Edit</button>
+                          <button onClick={() => { setMenuOpen(null); setArchiveReason(""); setArchiveAsk({ project: p, mode: "archive" }); }}>Archive</button>
+                          <button className="sv-dsn-menu-del" onClick={() => { setMenuOpen(null); setArchiveReason(""); setArchiveAsk({ project: p, mode: "delete" }); }}>Delete</button>
+                        </div>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+        {showArchived && (
+          <div className="sv-dsn-grid" style={{ marginTop: 14 }}>
+            {archivedProjects.map((p) => (
+              <div key={p.id} className="sv-dsn-card" style={{ opacity: .85 }}>
+                <div className="sv-dsn-card-top"><div style={{ minWidth: 0 }}><div className="sv-dsn-client">{p.clientName}</div><div className="sv-dsn-sub">{p.companyName || "—"}</div></div><span className="sv-badge sv-badge--rejected">Archived</span></div>
+                <div className="sv-dsn-mag">{p.magazineName || "Untitled"}{p.edition ? ` · ${p.edition}` : ""}</div>
+                <div className="sv-dsn-meta">{(designArchive.find((a) => a.id === p.id) || {}).reason ? <span>Reason: {(designArchive.find((a) => a.id === p.id) || {}).reason}</span> : <span className="sv-mailids-muted">No reason given</span>}</div>
+                <div className="sv-dsn-actions">
+                  <button className="sv-chip-btn sv-chip-btn--green" onClick={() => restoreProject(p.id)}>Restore</button>
+                  <button className="sv-chip-btn sv-chip-btn--red" onClick={() => setConfirmDel(p)}>Delete permanently</button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
+      </>)}
+      </>)}
 
-      {/* Detail modal */}
-      {detail && (
-        <div className="sv-modal-overlay" onClick={() => setDetail(null)}>
-          <div className="sv-modal" style={{ maxWidth: 640, maxHeight: "88vh", display: "flex", flexDirection: "column" }} onClick={(ev) => ev.stopPropagation()}>
-            <div className="sv-modal-header" style={{ flexShrink: 0 }}>
-              <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>{detail.clientName}</span>
-              <button className="sv-modal-close" onClick={() => setDetail(null)}>×</button>
-            </div>
-            <div style={{ overflowY: "auto", padding: "16px 20px" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                {metaCell("Company", detail.companyName)}
-                {metaCell("Magazine", detail.magazineName)}
-                {metaCell("Edition", detail.edition)}
-                {metaCell("Due Date", detail.dueDate ? fmtDate(detail.dueDate) : "—")}
-                {metaCell("Priority", <span>{badge(detail.priority, designPriorityStyle(detail.priority))}</span>)}
-                {metaCell("Designer", detail.assignedDesignerName)}
+      {/* ── Full-page project workspace ── */}
+      {detail && (() => {
+        const sc = designStatusStyle(detail.status);
+        const stg = stepOf(detail.status);
+        const ci = stepIndex(detail.status);
+        const lg = stepMeta(detail.id);
+        const draftSent = detail.status === "Draft Sent";
+        const isDone = stg === "Completed";
+        const pct = isDone ? 100 : Math.round(((draftSent ? 1 : ci) / (STEPS.length - 1)) * 100);
+        const pf = (designFiles || []).filter((f) => f.projectId === detail.id);
+        const has = (k) => pf.some((f) => f.kind === k);
+        const hasDraft = has("draft") || has("reference") || has("images");
+        const la = (designActivity || []).filter((a) => a.projectId === detail.id).reduce((m, a) => (a.createdAt > m ? a.createdAt : m), "");
+        const allActs = (designActivity || []).filter((a) => a.projectId === detail.id).slice().sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+        const lastAct = allActs[allActs.length - 1];
+        const changeAlert = lastAct && lastAct.type === "message" && /changes requested/i.test(lastAct.comment || "") ? lastAct : null;
+        const OWNER = {
+          "Draft": ["Admin", "Send the client draft & images to the designer"],
+          "Sample Design": ["Designer", "Designer prepares & submits the sample design"],
+          "Client Review": ["Admin", "Review the sample with the client, then approve or request changes"],
+          "Final CP/CS": ["Designer", "Designer submits the Cover Page + Cover Story"],
+          "Index Page": ["Admin", "Provide the index page so the designer can proceed"],
+          "Magazine": ["Designer", "Designer submits the full magazine layout"],
+          "Final Review": ["Admin", "Do the final review, then mark the project complete"],
+          "Completed": ["—", "Project complete — final files delivered"],
+        };
+        const own = draftSent ? ["Designer", "Designer reviews the draft & starts the sample"] : (OWNER[stg] || ["—", ""]);
+        let primary = null;
+        if (detail.status === "Draft" && hasDraft) primary = { label: "Send to Designer", tone: "ok", onClick: () => ask("Send the draft to the designer now?", () => advance(detail, "Draft Sent")) };
+        else if (stg === "Client Review" && has("sample")) primary = { label: "Approve Sample", tone: "ok", onClick: () => ask("Approve the sample and move to Final CP/CS?", () => advance(detail, "Final CP/CS")) };
+        else if (stg === "Final CP/CS" && has("cp") && has("cs")) primary = { label: "Approve CP/CS", tone: "ok", onClick: () => ask("Approve the Cover Page & Cover Story and move to Index Page?", () => advance(detail, "Index Page")) };
+        else if (stg === "Magazine" && has("magazine")) primary = { label: "Approve Magazine", tone: "ok", onClick: () => ask("Approve the magazine and move to Final Review?", () => advance(detail, "Final Review")) };
+        else if (stg === "Final Review") primary = { label: "Complete Project", tone: "ok", onClick: () => ask("Mark this project Completed?", () => advance(detail, "Completed")) };
+        const A = ({ onClick, children, tone }) => <button className={`sv-flow-btn sv-flow-btn--${tone || "next"}`} onClick={onClick}>{children}</button>;
+        const revBox = (stage, label) => (
+          <div className="sv-flow-rev">
+            <textarea className="sv-input" rows={2} value={revComment} onChange={(e) => setRevComment(e.target.value)} placeholder="What needs changing? (required)…" style={{ resize: "vertical" }} />
+            <A tone="rev" onClick={() => revComment.trim() && ask("Send this back to the designer with your notes?", () => sendBack(detail, stage))}>{label}</A>
+          </div>
+        );
+        return (
+          <div className="sv-ws">
+            <div className="sv-ws-header">
+              <div className="sv-ws-head-left">
+                <button className="sv-ws-back" onClick={() => setDetail(null)}><ArrowLeft size={15} /> Back to Projects</button>
+                <div className="sv-ws-client">{detail.clientName}</div>
+                <div className="sv-ws-mag">{detail.magazineName || "Untitled Project"}</div>
+                <div className="sv-ws-sub">{detail.companyName || "—"}{detail.edition ? ` • ${detail.edition}` : ""}</div>
               </div>
-              <div style={{ marginTop: 16 }}>
-                <div className="sv-section-label">Status</div>
-                <div className="sv-flex sv-gap-xs" style={{ flexWrap: "wrap", marginTop: 6 }}>
-                  {DESIGN_STATUSES.map((s) => {
-                    const st = designStatusStyle(s);
-                    const active = detail.status === s;
+              <div className="sv-ws-head-meta">
+                <div className="sv-ws-hm"><span>Designer</span><b>{detail.assignedDesignerName || "Unassigned"}</b></div>
+                <div className="sv-ws-hm"><span>Stage</span><b>{stg}</b></div>
+                <div className="sv-ws-hm"><span>Progress</span><b>{pct}%</b></div>
+                <div className="sv-ws-hm"><span>Priority</span><b>{badge(detail.priority, designPriorityStyle(detail.priority))}</b></div>
+              </div>
+            </div>
+            <div className="sv-ws-actionbar">
+              <button className="sv-ws-abtn sv-ws-abtn--ghost" onClick={() => setDetail(null)}><ArrowLeft size={15} /> Back to Projects</button>
+              <span className="sv-ws-ab-stage">Stage {Math.min((draftSent ? 1 : ci) + 1, STEPS.length)}/{STEPS.length} · {stg} · {pct}%</span>
+            </div>
+            <div className="sv-ws-grid">
+              <div className="sv-ws-left">
+                <div className="sv-card">
+                  <div className="sv-section-label">Workflow</div>
+                  {changeAlert && (
+                    <div className="sv-alertbar sv-alertbar--change">
+                      <AlertTriangle size={16} />
+                      <div><strong>Changes requested by {changeAlert.actorName}</strong><div className="sv-alertbar-msg">{(changeAlert.comment || "").replace(/^🔄\s*Changes requested:\s*/i, "")} · {changeAlert.createdAt ? new Date(changeAlert.createdAt).toLocaleString() : ""}</div></div>
+                    </div>
+                  )}
+                  <WorkflowTimeline
+                    steps={STEPS} currentIndex={ci} stepMeta={lg}
+                    revisionsByStage={buildRevisions(designActivity, detail.id, stepOf, detail.status)}
+                    progress={pct} stageNumber={Math.min((draftSent ? 1 : ci) + 1, STEPS.length)} stageTitle={stg}
+                    nextAction={isDone ? "" : `${own[0]} — ${own[1]}`}
+                    statusLabel={own[0] === "Admin" ? "Action needed" : "Waiting"}
+                  />
+                  <div className="sv-flow-actions">
+                    {detail.status === "Draft" && (hasDraft
+                      ? <div className="sv-draftgate"><span className="sv-draftgate-ok">✓ Draft added — not sent to the designer yet</span><A tone="ok" onClick={() => ask("Send the draft to the designer now?", () => advance(detail, "Draft Sent"))}>📤 Send Draft to Designer</A></div>
+                      : <p className="sv-flow-wait">📎 Upload the client’s Draft (pick “Draft” in the file type) before you can send it to the designer.</p>)}
+                    {detail.status === "Draft Sent" && <p className="sv-flow-wait">⏳ Designer is reviewing the draft. You can keep uploading files &amp; messages.</p>}
+                    {stg === "Sample Design" && <p className="sv-flow-wait">⏳ Waiting for the designer's sample.</p>}
+                    {stg === "Client Review" && <>{has("sample") ? <A tone="ok" onClick={() => ask("Approve the sample and move to Final CP/CS?", () => advance(detail, "Final CP/CS"))}>✓ Approve Sample → Final CP/CS</A> : <p className="sv-flow-wait">⏳ Waiting for the designer's sample upload.</p>}{revBox("Sample Design", "Request Changes")}</>}
+                    {stg === "Final CP/CS" && <>{(has("cp") || has("cs")) ? <A tone="ok" onClick={() => ask("Approve the Final CP/CS and move to Index Page?", () => advance(detail, "Index Page"))}>✓ Approve CP/CS → Index Page</A> : <p className="sv-flow-wait">⏳ Waiting for the Final CP/CS.</p>}{revBox("Final CP/CS", "Request Changes")}</>}
+                    {stg === "Index Page" && (has("index") ? <p className="sv-flow-wait">⏳ Index uploaded — waiting for the designer to confirm “Index Received”. You can keep uploading.</p> : <p className="sv-flow-wait">📎 Upload the Index Page / materials (as “Index Page”) so the designer can start.</p>)}
+                    {stg === "Magazine" && <>{has("magazine") ? <A tone="ok" onClick={() => ask("Approve the magazine and move to Final Review?", () => advance(detail, "Final Review"))}>✓ Approve Magazine → Final Review</A> : <p className="sv-flow-wait">⏳ Waiting for the designer to upload the magazine.</p>}{revBox("Magazine", "Need Changes")}</>}
+                    {stg === "Final Review" && <><A tone="ok" onClick={() => ask("Mark this project Completed?", () => advance(detail, "Completed"))}>✓ Complete Project</A><A tone="rev" onClick={() => ask("Return this project to the Magazine stage?", () => advance(detail, "Magazine"))}>Return to Magazine</A></>}
+                    {stg === "Completed" && <p className="sv-flow-done">✓ Project completed.</p>}
+                  </div>
+                </div>
+                <div className="sv-card">
+                  <div className="sv-section-label">Conversation with Designer</div>
+                  {(() => {
+                    const thread = (designActivity || []).filter((x) => x.projectId === detail.id && x.type === "message").slice().sort((x, y) => String(x.createdAt).localeCompare(String(y.createdAt)));
                     return (
-                      <button key={s} onClick={() => changeStatus(detail, s)}
-                        style={{ fontSize: 12, fontWeight: 700, padding: "5px 11px", borderRadius: 999, cursor: "pointer",
-                          background: active ? st.bg : "#fff", color: active ? st.fg : "#64748B",
-                          border: `1px solid ${active ? st.bg : "#E5E7EB"}` }}>{s}</button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div style={{ marginTop: 16 }}>
-                <div className="sv-section-label">Instructions for Designer</div>
-                <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, color: "#374151", lineHeight: 1.6, marginTop: 4, whiteSpace: "pre-wrap" }}>{detail.instructions || "—"}</div>
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <div className="sv-section-label">Internal Notes</div>
-                <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "10px 12px", fontSize: 13.5, color: "#374151", lineHeight: 1.6, marginTop: 4, whiteSpace: "pre-wrap" }}>{detail.internalNotes || "—"}</div>
-              </div>
-              <div style={{ marginTop: 16 }}>
-                <div className="sv-section-label">Files &amp; Versions</div>
-                <div className="sv-flex sv-gap-sm" style={{ margin: "8px 0 12px", flexWrap: "wrap", alignItems: "center" }}>
-                  <select className="sv-select" value={uploadKind} onChange={(e) => setUploadKind(e.target.value)} style={{ maxWidth: 150 }}>
-                    {Object.entries(KIND_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                  </select>
-                  <input ref={fileRef} type="file" onChange={onUploadFile} disabled={uploading} accept=".pdf,.ai,.psd,.png,.jpg,.jpeg,.svg,.docx,.zip,image/*" style={{ fontSize: 12.5 }} />
-                  {uploading && <span className="sv-text-muted" style={{ fontSize: 12 }}>Uploading…</span>}
-                </div>
-                {(() => {
-                  const projFiles = designFiles.filter((x) => x.projectId === detail.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-                  if (projFiles.length === 0) return <p className="sv-text-muted" style={{ fontSize: 12.5 }}>No files yet. Pick a type and upload logos, articles, PDFs, drafts, finals — every upload is versioned.</p>;
-                  return (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                      {projFiles.map((f) => {
-                        const isImg = /\.(png|jpe?g|svg|gif|webp)$/i.test(f.fileName);
-                        return (
-                          <div key={f.id} className="sv-flex sv-gap-sm" style={{ alignItems: "center", border: "1px solid #E5E7EB", borderRadius: 10, padding: "8px 10px" }}>
-                            {isImg
-                              ? <img src={f.fileUrl} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", flex: "none" }} />
-                              : <span style={{ width: 36, height: 36, borderRadius: 6, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}><FileText size={16} /></span>}
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: "#0F172A", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}</div>
-                              <div style={{ fontSize: 11, color: "#64748B", marginTop: 2 }}>{badge(`${KIND_LABELS[f.kind] || f.kind} v${f.version}`, designStatusStyle("Pending"))} · {fmtSize(f.sizeBytes)} · {f.uploadedByName} · {f.createdAt ? fmtDate(f.createdAt) : ""}</div>
-                            </div>
-                            <a className="sv-btn sv-btn--sm sv-btn--ghost" href={f.fileUrl} target="_blank" rel="noreferrer">Open</a>
-                            <a className="sv-btn sv-btn--sm sv-btn--ghost" href={f.fileUrl} download={f.fileName}>Download</a>
-                            <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => deleteDesignFile(f)}>Delete</button>
+                      <div className="sv-convo">
+                        {thread.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12.5, margin: "6px 0" }}>No messages yet. Start the conversation with the designer.</p> : (
+                          <div className="sv-convo-thread">
+                            {thread.map((m) => { const isChange = /changes requested/i.test(m.comment || ""); return (
+                              <div key={m.id} className={`sv-convo-row sv-convo-row--${m.actorRole === "admin" ? "me" : "them"}`}>
+                                <div className={`sv-convo-bubble${isChange ? " sv-convo-bubble--change" : ""}`}>{isChange && <span className="sv-convo-tag"><AlertTriangle size={12} /> Change requested</span>}<div className="sv-convo-text">{(m.comment || "").replace(/^🔄\s*Changes requested:\s*/i, "")}</div><div className="sv-convo-meta">{m.actorName} · {m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}</div></div>
+                              </div>
+                            ); })}
                           </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </div>
-              <div style={{ marginTop: 16 }}>
-                <div className="sv-section-label">Request Changes</div>
-                <textarea className="sv-input" rows={2} value={revComment} onChange={(e) => setRevComment(e.target.value)} placeholder="e.g. Increase logo size, replace image 2, font too small" style={{ resize: "vertical", marginTop: 4 }} />
-                <button className="sv-btn sv-btn--primary" style={{ marginTop: 8 }} disabled={!revComment.trim()} onClick={async () => { const ok = await requestRevision(detail.id, revComment, "Admin"); if (ok) { setRevComment(""); setDetail((d) => (d ? { ...d, status: "Revision Required" } : d)); } }}>Request Changes</button>
-              </div>
-              <div style={{ marginTop: 16 }}>
-                <div className="sv-section-label">Activity Timeline</div>
-                {(() => {
-                  const acts = designActivity.filter((a) => a.projectId === detail.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-                  if (acts.length === 0) return <p className="sv-text-muted" style={{ fontSize: 12.5, marginTop: 4 }}>No activity yet.</p>;
-                  return (
-                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-                      {acts.map((a) => (
-                        <div key={a.id} style={{ display: "flex", gap: 10 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 999, background: a.type === "revision" ? "#C2410C" : a.type === "upload" ? "#2563EB" : a.type === "status" ? "#15803D" : "#94A3B8", marginTop: 5, flex: "none" }} />
-                          <div style={{ fontSize: 12.5, color: "#334155" }}>
-                            <strong>{a.type === "created" ? "Project created" : a.type === "status" ? `Status → ${a.meta}` : a.type === "upload" ? `Uploaded ${a.meta}` : a.type === "revision" ? "Revision requested" : "Update"}</strong>
-                            {a.type === "revision" && a.comment ? <span> — {a.comment}</span> : null}
-                            <span className="sv-text-muted"> · {a.actorName} · {a.createdAt ? new Date(a.createdAt).toLocaleString() : ""}</span>
-                          </div>
+                        )}
+                        <div className="sv-convo-compose">
+                          <textarea className="sv-input" rows={2} value={convoText} onChange={(e) => setConvoText(e.target.value)} placeholder="Message the designer…" style={{ resize: "vertical" }} />
+                          <button className="sv-btn sv-btn--primary" disabled={!convoText.trim()} onClick={async () => { const ok = await addProjectComment(detail.id, "admin", "Admin", convoText); if (ok !== false) setConvoText(""); }}>Send</button>
                         </div>
-                      ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div className="sv-card">
+                  <div className="sv-section-label">Files &amp; Versions</div>
+                  <div className="sv-fileadd">
+                    <div className={`sv-dropzone${dragOver ? " is-drag" : ""}`}
+                      onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDropFiles}>
+                      <select className="sv-select" value={uploadKind} onChange={(e) => setUploadKind(e.target.value)} style={{ maxWidth: 150 }}>
+                        {Object.entries(KIND_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                      </select>
+                      <select className="sv-select" value={uploadFolder} onChange={(e) => setUploadFolder(e.target.value)} style={{ maxWidth: 150 }} title="Optional folder">
+                        <option value="">No folder</option>
+                        {((designExtra.folders || {})[detail.id] || []).map((fo) => <option key={fo.id} value={fo.id}>{fo.name}</option>)}
+                      </select>
+                      <input ref={fileRef} type="file" multiple onChange={onUploadFile} disabled={uploading} accept=".pdf,.ai,.psd,.png,.jpg,.jpeg,.svg,.docx,.zip,image/*" style={{ fontSize: 12.5 }} />
+                      <span className="sv-dropzone-hint">{uploading ? "Uploading…" : "or drag & drop — files stay private until sent"}</span>
                     </div>
-                  );
-                })()}
+                    <div className="sv-flex sv-gap-2" style={{ marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <input className="sv-input" placeholder="New folder name…" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} style={{ maxWidth: 170, fontSize: 12.5 }} />
+                      <button className="sv-btn sv-btn--sm sv-btn--ghost" disabled={!newFolder.trim()} onClick={async () => { await addDesignFolder(detail.id, newFolder, "admin"); setNewFolder(""); }}><Plus size={13} /> Folder</button>
+                      <input className="sv-input" placeholder="Link label" value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} style={{ maxWidth: 130, fontSize: 12.5 }} />
+                      <input className="sv-input" placeholder="https://… (optional)" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} style={{ maxWidth: 190, fontSize: 12.5 }} />
+                      <button className="sv-btn sv-btn--sm sv-btn--ghost" disabled={!linkUrl.trim()} onClick={async () => { await addDesignLink(detail.id, linkLabel, linkUrl, "admin"); setLinkLabel(""); setLinkUrl(""); }}><Plus size={13} /> Link</button>
+                    </div>
+                  </div>
+                  {(() => {
+                    const all = designFiles.filter((x) => x.projectId === detail.id);
+                    const visible = (f) => f.uploadedByName === "Admin" || !isDraftFile(f.id); // designer files only after they submit
+                    const ff = designExtra.fileFolders || {};
+                    const myDrafts = all.filter((f) => f.uploadedByName === "Admin" && isDraftFile(f.id));
+                    const links = ((designExtra.links || {})[detail.id] || []).filter((l) => l.side === "admin");
+                    const allFolders = ((designExtra.folders || {})[detail.id] || []); /* shared — both sides */
+                    const rowA = (f, latest) => {
+                      const isImg = /\.(png|jpe?g|svg|gif|webp)$/i.test(f.fileName);
+                      const draft = isDraftFile(f.id) && f.uploadedByName === "Admin";
+                      return (
+                        <div key={f.id} className={`sv-fileitem${latest ? " is-latest" : ""}${draft ? " is-draft" : ""}`}>
+                          {isImg ? <img src={f.fileUrl} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", flex: "none" }} /> : <span style={{ width: 36, height: 36, borderRadius: 6, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}><FileText size={16} /></span>}
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--sv-text-1,#0F172A)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}{draft ? <span className="sv-file-draft">DRAFT · not sent</span> : latest && <span className="sv-file-latest">LATEST</span>}</div>
+                            <div style={{ fontSize: 11, color: "var(--sv-text-3,#64748B)", marginTop: 2 }}>{badge(`${KIND_LABELS[f.kind] || f.kind} v${f.version}`, designStatusStyle("Pending"))} · {fmtSize(f.sizeBytes)} · {f.uploadedByName} · {f.createdAt ? new Date(f.createdAt).toLocaleString() : ""}</div>
+                          </div>
+                          <a className="sv-btn sv-btn--sm sv-btn--ghost" href={f.fileUrl} target="_blank" rel="noreferrer">Open</a>
+                          <a className="sv-btn sv-btn--sm sv-btn--ghost" href={f.fileUrl} download={f.fileName}>Download</a>
+                          <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => ask(`Delete "${f.fileName}"? This cannot be undone.`, () => deleteDesignFile(f))}>Delete</button>
+                        </div>
+                      );
+                    };
+                    const sections = [];
+                    allFolders.forEach((fo) => {
+                      const fs = all.filter((f) => visible(f) && (ff[f.id] || "") === fo.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                      const open = !!openFolders[fo.id];
+                      sections.push(
+                        <div key={"fo-" + fo.id} className={`sv-folder${open ? " is-open" : ""}`}>
+                          <div className="sv-folder-head" onClick={() => toggleFolder(fo.id)}>
+                            <span className="sv-folder-caret">{open ? "▾" : "▸"}</span>
+                            <FolderOpen size={15} className="sv-folder-ic" />
+                            <span className="sv-folder-name">{fo.name}</span>
+                            <span className="sv-folder-count">{fs.length} file{fs.length !== 1 ? "s" : ""}</span>
+                            {!fo.released && fo.side === "admin" && <span className="sv-file-draft">private</span>}
+                            <button className="sv-btn sv-btn--sm sv-btn--ghost sv-folder-del" onClick={(e) => { e.stopPropagation(); ask(`Delete folder "${fo.name}"? Files inside are kept.`, () => deleteDesignFolder(detail.id, fo.id)); }}>×</button>
+                          </div>
+                          {open && <div className="sv-folder-body">{fs.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12 }}>No files here yet.</p> : fs.map((f, fi) => rowA(f, fi === 0))}</div>}
+                        </div>
+                      );
+                    });
+                    const loose = all.filter((f) => visible(f) && !(ff[f.id])).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                    if (loose.length) sections.push(<div key="loose" style={{ display: "flex", flexDirection: "column", gap: 8 }}>{loose.map((f, fi) => rowA(f, fi === 0))}</div>);
+                    return (
+                      <>
+                        {myDrafts.length > 0 && detail.status !== "Draft" && <button className="sv-btn sv-btn--sm sv-btn--ghost" style={{ marginBottom: 10 }} onClick={() => ask(`Send ${myDrafts.length} draft file(s) to the designer now?`, () => releaseDesign(detail.id, "admin"))}>📤 Send {myDrafts.length} file(s) to designer</button>}
+                        {links.length > 0 && <div style={{ marginBottom: 10 }}><div className="sv-section-label">Links</div>{links.map((l) => (<div key={l.id} className="sv-fileitem" style={{ marginTop: 6 }}><span style={{ width: 36, height: 36, borderRadius: 6, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", flex: "none", color: "#4338CA", fontWeight: 800 }}>🔗</span><div style={{ minWidth: 0, flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{l.label}{!l.released && <span className="sv-file-draft">not sent</span>}</div><div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div></div><a className="sv-btn sv-btn--sm sv-btn--ghost" href={l.url} target="_blank" rel="noreferrer">Open</a><button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => ask("Remove this link?", () => deleteDesignLink(detail.id, l.id))}>×</button></div>))}</div>}
+                        {sections.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12.5 }}>No files yet. Pick a type and upload — every upload is versioned and stays private until sent.</p> : sections}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+              <div className="sv-ws-right">
+                <div className="sv-card sv-ws-summary">
+                  <div className="sv-section-label">Project Summary</div>
+                  {metaCell("Magazine Domain", detail.companyName)}
+                  {metaCell("Project Title", detail.magazineName)}
+                  {metaCell("Edition", detail.edition)}
+                  {metaCell("Designer", detail.assignedDesignerName)}
+                  {metaCell("Priority", <span>{badge(detail.priority, designPriorityStyle(detail.priority))}</span>)}
+                  {metaCell("Due Date", detail.dueDate ? fmtDate(detail.dueDate) : "—")}
+                  {metaCell("Current Stage", <span>{badge(stg, sc)}</span>)}
+                  {metaCell("Files", pf.length)}
+                  {metaCell("Last Updated", la ? new Date(la).toLocaleString() : "—")}
+                </div>
+                <div className="sv-card">
+                  <div className="sv-section-label">Quick Actions</div>
+                  <div className="sv-ws-quick">
+                    <button className="sv-ws-abtn sv-ws-abtn--edit" onClick={() => openEdit(detail)}><Pencil size={14} /> Edit Project</button>
+                    <button className="sv-ws-abtn sv-ws-abtn--danger" onClick={() => setConfirmDel(detail)}>Delete Project</button>
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", flexShrink: 0, alignItems: "center" }}>
-              <button className="sv-btn sv-btn--danger" onClick={() => setConfirmDel(detail)}>Delete</button>
-              <button className="sv-btn sv-btn--primary" onClick={() => openEdit(detail)}><Pencil size={14} /> Edit</button>
+            <div className="sv-card">
+              <div className="sv-section-label">Activity Timeline</div>
+              {(() => {
+                const acts = designActivity.filter((a) => a.projectId === detail.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 10);
+                if (acts.length === 0) return <p className="sv-text-muted" style={{ fontSize: 12.5, marginTop: 4 }}>No activity yet.</p>;
+                return (
+                  <div className="sv-activity-scroll" style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {acts.map((a) => (
+                      <div key={a.id} style={{ display: "flex", gap: 10 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 999, background: a.type === "revision" ? "#C2410C" : a.type === "upload" ? "#2563EB" : a.type === "status" ? "#15803D" : a.type === "message" ? "#7C3AED" : "#94A3B8", marginTop: 5, flex: "none" }} />
+                        <div style={{ fontSize: 12.5, color: "#334155" }}>
+                          <strong>{a.type === "created" ? "Project created" : a.type === "status" ? `Status → ${a.meta}` : a.type === "upload" ? `Uploaded ${a.meta}` : a.type === "revision" ? "Revision requested" : a.type === "message" ? "Message" : "Update"}</strong>
+                          {(a.type === "revision" || a.type === "message") && a.comment ? <span> — {a.comment}</span> : null}
+                          <span className="sv-text-muted"> · {a.actorName} · {a.createdAt ? new Date(a.createdAt).toLocaleString() : ""}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        );
+      })()}
+
+      {flowAsk && (
+        <div className="sv-modal-overlay" onClick={() => { flowAsk.onNo && flowAsk.onNo(); setFlowAsk(null); }}>
+          <div className="sv-modal sv-confirm" onClick={(e) => e.stopPropagation()}>
+            <p className="sv-confirm-msg">{flowAsk.message}</p>
+            <p className="sv-confirm-sub">Do you want to proceed?</p>
+            <div className="sv-confirm-actions">
+              <button className="sv-btn sv-btn--outline" onClick={() => { flowAsk.onNo && flowAsk.onNo(); setFlowAsk(null); }}>No</button>
+              <button className="sv-btn sv-btn--success" onClick={() => { const fn = flowAsk.onYes; setFlowAsk(null); fn && fn(); }}>Yes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {archiveAsk && (
+        <div className="sv-modal-overlay" onClick={() => { setArchiveAsk(null); setArchiveReason(""); }}>
+          <div className="sv-modal" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div className="sv-modal-header"><span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>{archiveAsk.mode === "delete" ? "Delete Project" : "Archive Project"}</span><button className="sv-modal-close" onClick={() => { setArchiveAsk(null); setArchiveReason(""); }}>×</button></div>
+            <div style={{ padding: "16px 20px" }}>
+              <p className="sv-text-muted" style={{ margin: "0 0 10px", fontSize: 12.5 }}>{archiveAsk.mode === "delete" ? "This moves the project to Archive (you can permanently delete it later). A reason is required." : "This moves the project to Archive. You can restore it anytime."}</p>
+              <label className="sv-team-ctl"><span>Reason{archiveAsk.mode === "delete" ? " *" : " (optional)"}</span><textarea className="sv-input" rows={3} value={archiveReason} onChange={(e) => setArchiveReason(e.target.value)} placeholder="e.g. Duplicate entry, project cancelled…" style={{ resize: "vertical" }} /></label>
+            </div>
+            <div className="sv-modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "12px 20px" }}>
+              <button className="sv-btn sv-btn--outline" onClick={() => { setArchiveAsk(null); setArchiveReason(""); }}>Cancel</button>
+              <button className="sv-btn sv-btn--danger-solid" onClick={doArchive} disabled={archiveAsk.mode === "delete" && !archiveReason.trim()}>{archiveAsk.mode === "delete" ? "Delete → Archive" : "Archive"}</button>
             </div>
           </div>
         </div>
@@ -1577,19 +2687,22 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
             </div>
             <div style={{ overflowY: "auto", padding: "16px 20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               {field("Client Name *", <input className="sv-input" value={form.clientName} onChange={(e) => upd("clientName", e.target.value)} placeholder="Client name" />)}
-              {field("Company Name", <input className="sv-input" value={form.companyName} onChange={(e) => upd("companyName", e.target.value)} placeholder="Company" />)}
-              {field("Magazine Name", <input className="sv-input" value={form.magazineName} onChange={(e) => upd("magazineName", e.target.value)} placeholder="Magazine" />)}
-              {field("Edition", <input className="sv-input" value={form.edition} onChange={(e) => upd("edition", e.target.value)} placeholder="e.g. Jan 2026" />)}
-              {field("Due Date", <input className="sv-input" type="date" value={form.dueDate || ""} onChange={(e) => upd("dueDate", e.target.value)} />)}
-              {field("Priority", <select className="sv-select" value={form.priority} onChange={(e) => upd("priority", e.target.value)}>{DESIGN_PRIORITIES.map((s) => <option key={s} value={s}>{s}</option>)}</select>)}
-              {field("Assigned Designer", (
+              {field("Project Title *", <input className="sv-input" value={form.magazineName} onChange={(e) => upd("magazineName", e.target.value)} placeholder="e.g. Top 10 Leaders" />)}
+              {field("Magazine Domain *", <input className="sv-input" value={form.companyName} onChange={(e) => upd("companyName", e.target.value)} placeholder="e.g. CIO Visionaries" />)}
+              {field("Edition *", <input className="sv-input" value={form.edition} onChange={(e) => upd("edition", e.target.value)} placeholder="e.g. Jan 2026" />)}
+              {field("Assign Designer *", (
                 <select className="sv-select" value={form.assignedDesigner} onChange={(e) => setDesigner(e.target.value)}>
-                  <option value="">Unassigned</option>{employees.map((e) => <option key={e.id} value={e.id}>{e.name}{e.department ? ` (${e.department})` : ""}</option>)}
+                  <option value="">Select designer…</option>{employees.filter((e) => (e.department || "").toLowerCase() === "design").map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  {employees.filter((e) => (e.department || "").toLowerCase() !== "design").map((e) => <option key={e.id} value={e.id}>{e.name}{e.department ? ` (${e.department})` : ""}</option>)}
                 </select>
               ))}
-              {field("Status", <select className="sv-select" value={form.status} onChange={(e) => upd("status", e.target.value)}>{DESIGN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>)}
-              <div style={{ gridColumn: "1 / -1" }}>{field("Instructions for Designer", <textarea className="sv-input" rows={3} value={form.instructions} onChange={(e) => upd("instructions", e.target.value)} placeholder="e.g. Dark blue theme, premium look, keep logo on top, use supplied images only" style={{ resize: "vertical" }} />)}</div>
-              <div style={{ gridColumn: "1 / -1" }}>{field("Internal Notes", <textarea className="sv-input" rows={2} value={form.internalNotes} onChange={(e) => upd("internalNotes", e.target.value)} placeholder="Private notes (not shown to designer)" style={{ resize: "vertical" }} />)}</div>
+              {!isNew && <>
+                {field("Due Date", <input className="sv-input" type="date" value={form.dueDate || ""} onChange={(e) => upd("dueDate", e.target.value)} />)}
+                {field("Priority", <select className="sv-select" value={form.priority} onChange={(e) => upd("priority", e.target.value)}>{["Low", "Medium", "High", "Urgent"].map((s) => <option key={s} value={s}>{s}</option>)}</select>)}
+                {field("Current Stage", <select className="sv-select" value={form.status} onChange={(e) => upd("status", e.target.value)}>{DESIGN_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>)}
+                <div style={{ gridColumn: "1 / -1" }}>{field("Instructions for Designer", <textarea className="sv-input" rows={3} value={form.instructions} onChange={(e) => upd("instructions", e.target.value)} placeholder="Theme, colours, references, brand guidelines, notes…" style={{ resize: "vertical" }} />)}</div>
+                <div style={{ gridColumn: "1 / -1" }}>{field("Internal Notes", <textarea className="sv-input" rows={2} value={form.internalNotes} onChange={(e) => upd("internalNotes", e.target.value)} placeholder="Private notes (not shown to designer)" style={{ resize: "vertical" }} />)}</div>
+              </>}
             </div>
             <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", flexShrink: 0, alignItems: "center" }}>
               <span className="sv-text-muted" style={{ fontSize: 12 }}>* Client name is required</span>

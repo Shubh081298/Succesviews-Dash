@@ -1,109 +1,196 @@
-import { useState } from "react";
-import { IdCard, Plus, X } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Mail, Plus, Pencil, Trash2, Search, X } from "lucide-react";
 import Avatar from "../ui/Avatar.jsx";
 import { normAssignedId, fmtDate } from "../../utils/helpers.js";
+import { PALETTES } from "./ManagerAssignModule.jsx";
 
 /**
- * AssignIdsModule — Admin "Assign IDs" panel.
+ * AssignIdsModule — Admin "Mail IDs Assign".
  *
- * Ownership split:
- *   • ADMIN  adds / removes the mail ID only.
- *   • EMPLOYEE fills in the Project name + Project start date from their
- *     own "Assigned IDs" tab.
- * The admin therefore sees, read-only, which project is running on which ID.
- *
- * Storage stays backward compatible: legacy entries are plain strings, new
- * entries are { id, project, startDate } objects — both via normAssignedId.
+ * UI/UX only. Ownership split unchanged:
+ *   • ADMIN adds / edits / removes the mail ID (via assignEmployeeIds).
+ *   • EMPLOYEE fills Project + Start date from their "Assigned IDs" tab.
+ * v2: one row per employee, all their mail IDs grouped underneath, coloured
+ * left border by team, Search + Add Mail ID only (no filters, no Primary tag).
  */
-function IdRows({ items, onChange }) {
-  const rows = items.map(normAssignedId);
-  const [id, setId] = useState("");
+const PER_PAGE = 6;
 
-  const add = () => {
-    const v = id.trim();
-    if (!v) return;
-    if (rows.some((r) => r.id === v)) { setId(""); return; }
-    // Admin supplies the ID only — project/date are left for the employee.
-    onChange([...rows, { id: v, project: "", startDate: "" }]);
-    setId("");
+export default function AssignIdsModule({ employees, assignEmployeeIds, teamMeta = {}, showToast }) {
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addEmp, setAddEmp] = useState("");
+  const [addId, setAddId] = useState("");
+  const [editing, setEditing] = useState(null); // { empId, oldId }
+  const [editVal, setEditVal] = useState("");
+  const [confirm, setConfirm] = useState(null); // { message, onYes }
+
+  // One entry per employee that has at least one mail ID.
+  const groups = useMemo(() => employees
+    .map((emp) => ({ emp, ids: (emp.assignedIds || []).map(normAssignedId) }))
+    .filter((g) => g.ids.length > 0), [employees]);
+
+  const teamColor = (team) => {
+    if (!team) return "#CBD5E1";
+    const c = teamMeta[team]?.color;
+    return (PALETTES[c % PALETTES.length] || {}).border || "#3B82F6";
   };
-  const remove = (target) => onChange(rows.filter((r) => r.id !== target));
+
+  const filtered = groups.filter(({ emp, ids }) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return [emp.name, emp.teamLead, ...ids.map((r) => r.id), ...ids.map((r) => r.project)]
+      .some((v) => (v || "").toLowerCase().includes(q));
+  });
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+  const safePage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE);
+
+  const addMailId = () => {
+    const v = addId.trim();
+    if (!addEmp || !v) return;
+    const emp = employees.find((e) => e.id === addEmp);
+    const list = (emp.assignedIds || []).map(normAssignedId);
+    if (list.some((r) => r.id === v)) { showToast?.("That ID is already assigned.", "error"); return; }
+    assignEmployeeIds(addEmp, [...list, { id: v, project: "", startDate: "" }]);
+    setAddEmp(""); setAddId(""); setAddOpen(false);
+    showToast?.("Mail ID assigned.");
+  };
+  const saveEdit = () => {
+    const v = editVal.trim();
+    if (!editing || !v) { setEditing(null); return; }
+    const emp = employees.find((e) => e.id === editing.empId);
+    const list = (emp.assignedIds || []).map(normAssignedId).map((r) => (r.id === editing.oldId ? { ...r, id: v } : r));
+    assignEmployeeIds(editing.empId, list);
+    setEditing(null); setEditVal("");
+    showToast?.("Mail ID updated.");
+  };
+  const doRemoveMailId = (empId, mailId) => {
+    const emp = employees.find((e) => e.id === empId);
+    const list = (emp.assignedIds || []).map(normAssignedId).filter((r) => r.id !== mailId);
+    assignEmployeeIds(empId, list);
+    showToast?.("Mail ID removed.");
+  };
+  const askRemoveMailId = (empId, mailId) => setConfirm({ message: `Remove mail ID "${mailId}"?`, onYes: () => doRemoveMailId(empId, mailId) });
 
   return (
-    <div className="sv-idrows">
-      {rows.map((r) => (
-        <div key={r.id} className="sv-idrow">
-          <span className="sv-idrow-id" title={r.id}>{r.id}</span>
-          <span className={`sv-idrow-read${r.project ? "" : " sv-idrow-read--empty"}`}>
-            {r.project || "Project not set by employee"}
-          </span>
-          <span className={`sv-idrow-read sv-idrow-read--date${r.startDate ? "" : " sv-idrow-read--empty"}`}>
-            {r.startDate ? fmtDate(r.startDate) : "No start date"}
-          </span>
-          <button type="button" onClick={() => remove(r.id)} aria-label={`Remove ${r.id}`} className="sv-idrow-x"><X size={13} /></button>
+    <div className="sv-card sv-mailids">
+      <div className="sv-mailids-top">
+        <div className="sv-flex sv-items-center sv-gap-2">
+          <span className="sv-mod-icon"><Mail size={16} /></span>
+          <div>
+            <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>Mail IDs Assign</p>
+            <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>Manage employee mail IDs and their project assignments</p>
+          </div>
         </div>
-      ))}
-      <div className="sv-idrow sv-idrow--add">
-        <input
-          className="sv-input sv-idrow-id-input"
-          placeholder="Add mail ID"
-          value={id}
-          onChange={(e) => setId(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-        />
-        <button type="button" className="sv-idrow-add" onClick={add} disabled={!id.trim()}><Plus size={13} /> Add</button>
+        <div className="sv-mailids-filters">
+          <div className="sv-mailids-search">
+            <Search size={14} />
+            <input placeholder="Search employee, mail ID, project…" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+          </div>
+          <button className="sv-btn sv-btn--primary sv-btn--sm" onClick={() => setAddOpen(true)}><Plus size={14} /> Add Mail ID</button>
+        </div>
       </div>
-    </div>
-  );
-}
 
-export default function AssignIdsModule({ employees, assignEmployeeIds }) {
-  if (!employees.length) {
-    return (
-      <div className="sv-card">
-        <p className="sv-text-muted" style={{ fontSize: 13, textAlign: "center", padding: "24px 0" }}>No employees yet. Add employees in Settings first.</p>
-      </div>
-    );
-  }
+      <div className="sv-empgroups">
+        {pageRows.length === 0 && <div className="sv-mailids-empty" style={{ padding: "30px 0" }}>No mail IDs found.</div>}
+        {pageRows.map(({ emp, ids }, i) => (
+          <div key={emp.id} className="sv-empgroup" style={{ borderLeftColor: teamColor(emp.teamLead) }}>
+            <div className="sv-empgroup-person">
+              <Avatar emp={emp} idx={i} size={38} />
+              <div style={{ minWidth: 0 }}>
+                <div className="sv-text-navy sv-font-700" style={{ fontSize: 14 }}>{emp.name}</div>
+                <div className="sv-text-muted" style={{ fontSize: 11.5 }}>{emp.department || "Sales"}</div>
+                <div className="sv-empgroup-meta">
+                  {emp.teamLead ? <span className="sv-team-pill"><span className="sv-team-pill-dot" style={{ background: teamColor(emp.teamLead) }} />{emp.teamLead}</span> : <span className="sv-mailids-muted">No team</span>}
+                  <span className={`sv-team-badge sv-team-badge--${emp.teamLead ? "active" : "pending"}`}><span className="sv-team-badge-dot" />{emp.teamLead ? "Active" : "Pending"}</span>
+                </div>
+              </div>
+            </div>
 
-  return (
-    <div className="sv-card">
-      <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 4 }}>
-        <span className="sv-mod-icon"><IdCard size={16} /></span>
-        <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>Assign Mail IDs</p>
-      </div>
-      <p className="sv-text-muted" style={{ margin: "0 0 14px", fontSize: 12 }}>
-        Assign mail IDs to each employee. The employee then adds the <b>project name</b> and <b>start date</b> from their <b>Assigned IDs</b> tab — shown here read-only so you can see which project is running on which ID.
-      </p>
-      <div style={{ overflowX: "auto" }}>
-        <table className="sv-assign-table" style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: "var(--sv-surface-2)" }}>
-              {["Employee", "Mail ID", "Project (by employee)", "Start date", ""].map((h, hi) => (
-                <th key={hi} className={hi > 0 ? "sv-assign-th-sub" : ""} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 700, color: "var(--sv-text-2)", borderBottom: "2px solid var(--sv-border)", fontSize: 12, whiteSpace: "nowrap" }}>{h}</th>
+            <div className="sv-empgroup-ids">
+              {ids.map((r) => (
+                <div key={r.id} className="sv-idline">
+                  {editing && editing.empId === emp.id && editing.oldId === r.id ? (
+                    <input className="sv-input sv-idline-edit" value={editVal} autoFocus
+                      onChange={(e) => setEditVal(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); if (e.key === "Escape") setEditing(null); }}
+                      onBlur={saveEdit} />
+                  ) : (
+                    <span className="sv-mail-chip">{r.id}</span>
+                  )}
+                  <span className="sv-idline-proj">{r.project ? r.project : <span className="sv-mailids-muted">No project set</span>}</span>
+                  <span className="sv-idline-date">{r.startDate ? fmtDate(r.startDate) : <span className="sv-mailids-muted">No start date</span>}</span>
+                  <span className="sv-idline-actions">
+                    <button className="sv-icon-btn sv-icon-btn--edit" title="Edit mail ID" onClick={() => { setEditing({ empId: emp.id, oldId: r.id }); setEditVal(r.id); }}><Pencil size={13} /></button>
+                    <button className="sv-icon-btn sv-icon-btn--del" title="Remove mail ID" onClick={() => askRemoveMailId(emp.id, r.id)}><Trash2 size={13} /></button>
+                  </span>
+                </div>
               ))}
-            </tr>
-          </thead>
-          <tbody>
-            {employees.map((emp, i) => (
-              <tr key={emp.id} style={{ background: i % 2 === 0 ? "var(--sv-surface)" : "var(--sv-surface-2)" }}>
-                <td style={{ padding: "10px 12px", whiteSpace: "nowrap", verticalAlign: "top", minWidth: 150 }}>
-                  <div className="sv-flex sv-items-center sv-gap-2">
-                    <Avatar emp={emp} idx={i} size={30} />
-                    <div>
-                      <div className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{emp.name}</div>
-                      <div className="sv-text-muted" style={{ fontSize: 11 }}>{emp.department || "Sales"}</div>
-                    </div>
-                  </div>
-                </td>
-                <td colSpan={4} style={{ padding: "10px 12px" }}>
-                  <IdRows items={emp.assignedIds || []} onChange={(ids) => assignEmployeeIds(emp.id, ids)} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            </div>
+          </div>
+        ))}
       </div>
+
+      <div className="sv-mailids-footer">
+        <span className="sv-text-muted" style={{ fontSize: 12 }}>
+          {filtered.length === 0 ? "No employees" : `Showing ${(safePage - 1) * PER_PAGE + 1}–${Math.min(safePage * PER_PAGE, filtered.length)} of ${filtered.length} employees`}
+        </span>
+        {pageCount > 1 && (
+          <div className="sv-pager">
+            <button className="sv-pager-btn" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}>‹</button>
+            {Array.from({ length: pageCount }, (_, i) => i + 1).map((n) => (
+              <button key={n} className={`sv-pager-btn${n === safePage ? " sv-pager-btn--active" : ""}`} onClick={() => setPage(n)}>{n}</button>
+            ))}
+            <button className="sv-pager-btn" disabled={safePage === pageCount} onClick={() => setPage(safePage + 1)}>›</button>
+          </div>
+        )}
+      </div>
+
+      {addOpen && (
+        <div className="sv-modal-overlay" onClick={() => setAddOpen(false)}>
+          <div className="sv-modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="sv-modal-header">
+              <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>Add Mail ID</p>
+              <button className="sv-modal-close" onClick={() => setAddOpen(false)}><X size={18} /></button>
+            </div>
+            <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+              <label className="sv-team-ctl">
+                <span>Employee</span>
+                <select className="sv-select" value={addEmp} onChange={(e) => setAddEmp(e.target.value)}>
+                  <option value="">Select employee…</option>
+                  {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                </select>
+              </label>
+              <label className="sv-team-ctl">
+                <span>Mail ID</span>
+                <input className="sv-input" placeholder="name@domain.com" value={addId}
+                  onChange={(e) => setAddId(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") addMailId(); }} />
+              </label>
+              <p className="sv-text-muted" style={{ margin: 0, fontSize: 11.5 }}>The employee adds the project name and start date from their Assigned IDs tab.</p>
+            </div>
+            <div className="sv-modal-footer" style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "12px 20px" }}>
+              <button className="sv-btn sv-btn--outline" onClick={() => setAddOpen(false)}>Cancel</button>
+              <button className="sv-btn sv-btn--primary" onClick={addMailId} disabled={!addEmp || !addId.trim()}>Add Mail ID</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirm && (
+        <div className="sv-modal-overlay" onClick={() => setConfirm(null)}>
+          <div className="sv-modal sv-confirm" onClick={(e) => e.stopPropagation()}>
+            <p className="sv-confirm-msg">{confirm.message}</p>
+            <p className="sv-confirm-sub">Do you want to proceed?</p>
+            <div className="sv-confirm-actions">
+              <button className="sv-btn sv-btn--outline" onClick={() => setConfirm(null)}>No</button>
+              <button className="sv-btn sv-btn--primary sv-btn--danger-solid" onClick={() => { const fn = confirm.onYes; setConfirm(null); fn?.(); }}>Yes</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

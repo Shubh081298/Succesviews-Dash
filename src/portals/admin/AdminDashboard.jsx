@@ -26,20 +26,26 @@ export default function AdminDashboard() {
     departments, saveDepartments,
     websites, saveWebsites,
     targets, saveTargets,
+    teamMeta, saveTeamMeta,
     customFields, saveCustomFields,
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,
     messages, saveMessages, addMessage, deleteMessage,
     leaves, saveLeaves, updateLeaveStatus,
     salaries, saveSalaries,
+    freelancers, saveFreelancers,
+    designWork, saveDesignWork,
+    designArchive, saveDesignArchive,
+    designExtra, releaseDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink,
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,
     designProjects, addDesignProject, updateDesignProject, deleteDesignProject,
     designFiles, uploadDesignFile, deleteDesignFile,
-    designActivity, changeProjectStatus, requestRevision,
+    designActivity, changeProjectStatus, requestRevision, addProjectComment,
     logo, onLogoChange, onLogoRemove,
     adminPwd, setAdminPwd,
     settingsPwd, setSettingsPwd,
     theme, toggleTheme,
-    showToast, pushNotification,
+    pipelineClients, pipelineStatuses, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes, pipelineHistory, softDeletePipelineClient, restorePipelineClient,
+    showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications,
   } = useAppData();
   const { setAdminLoggedIn } = useAdminAuth();
   const navigate = useNavigate();
@@ -50,6 +56,9 @@ export default function AdminDashboard() {
   const [viewing, setViewing] = useState(null);
   const [detailModal, setDetailModal] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const unreadNotifs = (notifications || []).filter((n) => !n.read).length;
+  const timeAgo = (ts) => { const s = Math.floor((Date.now() - ts) / 1000); if (s < 60) return "just now"; const m = Math.floor(s / 60); if (m < 60) return m + "m ago"; const h = Math.floor(m / 60); if (h < 24) return h + "h ago"; return new Date(ts).toLocaleDateString(); };
 
   const [ovPeriod, setOvPeriod] = useState("week");
   const [ovDateFrom, setOvDateFrom] = useState("");
@@ -101,8 +110,9 @@ export default function AdminDashboard() {
 
   /* ── Departments / announcements / messages ──────────────── */
   const addDept = () => {
-    if (!newDept.trim() || departments.includes(newDept.trim())) return;
-    saveDepartments([...departments, newDept.trim()]);
+    const v = newDept.trim();
+    if (!v || departments.some((d) => d.toLowerCase() === v.toLowerCase())) return;
+    saveDepartments([...departments, v]);
     setNewDept("");
   };
   const removeDept = (d) => { if (window.confirm(`Remove department "${d}"?`)) saveDepartments(departments.filter((x) => x !== d)); };
@@ -306,7 +316,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className={`sv-app-shell${theme === "dark" ? " sv-dark" : ""}`}>
+    <div className={`sv-app-shell sv-admin${theme === "dark" ? " sv-dark" : ""}`}>
       <Sidebar
         logo={logo} brandTitle="ADMIN" brandSubtitle="" hideAvatar profileVariant="admin"
         theme={theme} onToggleTheme={toggleTheme}
@@ -334,10 +344,38 @@ export default function AdminDashboard() {
             <input type="text" placeholder="Search employees, reports, orders…" aria-label="Search" />
           </div>
           <div className="sv-topbar-actions">
-            <button className="sv-topbar-iconbtn" title="Pending leave requests" onClick={() => setTab("leaveboard")}>
-              <Bell size={18} />
-              {pendingLeaveCount ? <span className="sv-topbar-badge">{pendingLeaveCount}</span> : null}
-            </button>
+            <div className="sv-topbar-notif">
+              <button className="sv-topbar-iconbtn" title="Notifications" onClick={() => setNotifOpen((v) => !v)}>
+                <Bell size={18} />
+                {unreadNotifs ? <span className="sv-topbar-badge">{unreadNotifs}</span> : null}
+              </button>
+              {notifOpen && <div className="sv-notif-overlay" onClick={() => setNotifOpen(false)} />}
+              {notifOpen && (
+                <div className="sv-notif-panel" onClick={(e) => e.stopPropagation()}>
+                  <div className="sv-notif-head">
+                    <span className="sv-notif-title">Notifications{unreadNotifs ? ` · ${unreadNotifs} new` : ""}</span>
+                    <div className="sv-flex sv-gap-2">
+                      <button className="sv-notif-act" onClick={markAllNotificationsRead} disabled={!unreadNotifs}>Mark all read</button>
+                      <button className="sv-notif-act" onClick={clearNotifications} disabled={!(notifications || []).length}>Clear</button>
+                    </div>
+                  </div>
+                  <div className="sv-notif-list">
+                    {(notifications || []).length === 0 ? (
+                      <div className="sv-notif-empty">🔔 You're all caught up.</div>
+                    ) : (notifications || []).map((n) => (
+                      <div key={n.id} className={`sv-notif-card sv-notif-card--${n.type || "info"}${n.read ? " is-read" : ""}`} onClick={() => markNotificationRead(n.id)}>
+                        <span className="sv-notif-dot" />
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div className="sv-notif-msg">{n.msg}</div>
+                          <div className="sv-notif-time">{timeAgo(n.ts)}</div>
+                        </div>
+                        {!n.read && <span className="sv-notif-unread" title="Unread" />}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <div className="sv-topbar-profile" onClick={() => setProfileOpen((v) => !v)}>
               <span className="sv-topbar-avatar">A</span>
               <span className="sv-topbar-name">Admin</span>
@@ -359,6 +397,9 @@ export default function AdminDashboard() {
             ovDateFrom={ovDateFrom} setOvDateFrom={setOvDateFrom}
             ovDateTo={ovDateTo} setOvDateTo={setOvDateTo}
             ovPieData={ovPieData} ovBarData={ovBarData} openDM={openDM}
+            pipelineClients={pipelineClients} pipelineStatuses={pipelineStatuses}
+            pipelineFollowups={pipelineFollowups} pipelineSales={pipelineSales} pipelinePayments={pipelinePayments}
+            pipelineContracts={pipelineContracts} pipelineNotes={pipelineNotes} pipelineHistory={pipelineHistory} softDeletePipelineClient={softDeletePipelineClient} restorePipelineClient={restorePipelineClient}
           />
         )}
         {tab === "reports" && (
@@ -368,6 +409,7 @@ export default function AdminDashboard() {
             reportDateFrom={reportDateFrom} setReportDateFrom={setReportDateFrom}
             reportDateTo={reportDateTo} setReportDateTo={setReportDateTo}
             rows={reportsFiltered} onView={setViewing} onExport={exportCSV}
+            pipelineClients={pipelineClients} pipelineSales={pipelineSales} pipelinePayments={pipelinePayments}
           />
         )}
         {tab === "leaderboard" && <LeaderboardTab empStats={empStats} submissions={submissions} lbPeriod={lbPeriod} setLbPeriod={setLbPeriod} />}
@@ -385,28 +427,32 @@ export default function AdminDashboard() {
           />
         )}
         {tab === "insertionorder" && <InsertionOrderForm onCapture={captureExpense} />}
-        {tab === "leaveboard" && <LeaveBoardTab leaves={leaves} setLeaveStatus={setLeaveStatus} editMode={editMode} />}
+        {tab === "leaveboard" && <LeaveBoardTab leaves={leaves} employees={employees} setLeaveStatus={setLeaveStatus} editMode={editMode} />}
         {tab === "salary" && (
           <SalaryModule employees={employees} salaries={salaries} setSalaries={saveSalaries} captureExpense={captureExpense}
             showToast={showToast} pushNotification={pushNotification}
-            addMessage={addMessage} editMode={editMode} logo={logo} />
+            addMessage={addMessage} editMode={editMode} setEditMode={setEditMode} settingsPwd={settingsPwd} logo={logo}
+            freelancers={freelancers} saveFreelancers={saveFreelancers} />
         )}
         {tab === "expense" && (
           <ExpenseTab expenses={expenses} addExpense={addExpense} updateExpense={updateExpense} deleteExpense={deleteExpense} logo={logo} />
         )}
         {tab === "designs" && (
-          <DesignsTab designProjects={designProjects} addDesignProject={addDesignProject} updateDesignProject={updateDesignProject} deleteDesignProject={deleteDesignProject} employees={employees} designFiles={designFiles} uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} designActivity={designActivity} changeProjectStatus={changeProjectStatus} requestRevision={requestRevision} />
+          <DesignsTab designProjects={designProjects} addDesignProject={addDesignProject} updateDesignProject={updateDesignProject} deleteDesignProject={deleteDesignProject} employees={employees} designFiles={designFiles} uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} designActivity={designActivity} changeProjectStatus={changeProjectStatus} requestRevision={requestRevision} designWork={designWork} saveDesignWork={saveDesignWork} pushNotification={pushNotification} captureExpense={captureExpense} designArchive={designArchive} saveDesignArchive={saveDesignArchive} addProjectComment={addProjectComment} designExtra={designExtra} releaseDesign={releaseDesign} addDesignFolder={addDesignFolder} deleteDesignFolder={deleteDesignFolder} addDesignLink={addDesignLink} deleteDesignLink={deleteDesignLink} />
         )}
         {tab === "managerassign" && (
           <div className="sv-flex-col sv-gap-4">
             <ManagerAssignModule employees={employees} setEmployees={saveEmployees}
-              showToast={showToast} editMode={editMode} />
-            <AssignIdsModule employees={employees} assignEmployeeIds={assignEmployeeIds} />
+              showToast={showToast} editMode={editMode} submissions={submissions}
+              teamMeta={teamMeta} saveTeamMeta={saveTeamMeta} targets={targets} />
+            <AssignIdsModule employees={employees} assignEmployeeIds={assignEmployeeIds}
+              teamMeta={teamMeta} showToast={showToast} />
           </div>
         )}
         {tab === "settings" && (
           <SettingsTab
             employees={employees} setEmployees={saveEmployees}
+            departments={departments} freelancers={freelancers} teamMeta={teamMeta}
             onUpdateEmp={updateEmployee} onDeleteEmp={deleteEmployee} onResetPwd={resetEmployeePassword}
             newEmp={newEmp} setNewEmp={setNewEmp} addEmployeeQuick={addEmployeeQuick}
             newEmpEmail={newEmpEmail} setNewEmpEmail={setNewEmpEmail} newEmpPwd={newEmpPwd} setNewEmpPwd={setNewEmpPwd}

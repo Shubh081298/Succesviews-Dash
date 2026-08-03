@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import FormLabel from "./FormLabel.jsx";
 import { Avatar } from "../ui/index.js";
 import { getTodayStr, fmtDate, fmtDateTime, daysDiff, normAssignedId, parsePayslipPayload, stripPayslipPayload } from "../../utils/helpers.js";
@@ -57,6 +57,7 @@ export default function EmployeeDashboard({
   customFields = [], announcements = [], onDismissAnn, myMessages = [], onDismissMsg,
   theme = "light", onToggleTheme, leaves = [], leaveForm, setLeaveForm, onApplyLeave,
   onUpdatePhoto, employees = [], logo = "", onSaveAssignedIds,
+  bankDetails = {}, onSaveBank,
 }) {
   const today = getTodayStr();
   const dark = theme === "dark";
@@ -409,6 +410,7 @@ export default function EmployeeDashboard({
             <div className="sv-meta-cell"><div className="sv-meta-label">Email</div><div className="sv-meta-value">{emp.email || "—"}</div></div>
           </div>
           <ChangePasswordSection empId={emp.id} dark={dark} />
+          <BankDetailsSection record={bankDetails[emp.id]} onSave={(b) => onSaveBank?.(emp.id, b)} dark={dark} />
         </div>
       )}
 
@@ -554,6 +556,69 @@ function ChangePasswordSection({ empId, dark }) {
           <button onClick={handleChange} disabled={saving} style={{ padding: "9px 0", background: "#16A34A", color: "#fff", border: "none", borderRadius: 8, cursor: saving ? "not-allowed" : "pointer", fontWeight: 700, fontSize: 13, opacity: saving ? 0.7 : 1 }}>
             {saving ? "Updating..." : "Update Password"}
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BankDetailsSection({ record, onSave, dark }) {
+  const has = !!(record && (record.recipientName || record.accountNumber || record.ifscCode || record.upiId));
+  const [editing, setEditing] = useState(!has);
+  const [form, setForm] = useState({
+    recipientName: record?.recipientName || "", accountNumber: record?.accountNumber || "",
+    ifscCode: record?.ifscCode || "", upiId: record?.upiId || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    setForm({ recipientName: record?.recipientName || "", accountNumber: record?.accountNumber || "", ifscCode: record?.ifscCode || "", upiId: record?.upiId || "" });
+  }, [record]);
+
+  const submit = async () => {
+    setMsg("");
+    if (!form.recipientName.trim() || !form.accountNumber.trim() || !form.ifscCode.trim()) { setMsg("Recipient name, account number and IFSC are required."); return; }
+    setSaving(true);
+    const ok = await onSave(form);
+    setSaving(false);
+    if (ok) { setMsg("✅ Bank details saved."); setEditing(false); setTimeout(() => setMsg(""), 2500); }
+    else setMsg("❌ Could not save. Try again.");
+  };
+
+  const lbl = { fontSize: 11, fontWeight: 700, color: "#64748B", marginBottom: 4, display: "block" };
+  const val = { fontSize: 13.5, fontWeight: 600, color: dark ? "#E2E8F0" : "#0F172A" };
+
+  return (
+    <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid #E2E8F0" }}>
+      <div className="sv-flex sv-justify-between sv-items-center" style={{ marginBottom: 12 }}>
+        <div>
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: dark ? "#E2E8F0" : "#0F172A" }}>🏦 Bank Details</p>
+          <p style={{ margin: 0, fontSize: 11, color: "#64748B" }}>Your admin uses this to pay your salary. Keep it accurate.</p>
+        </div>
+        {!editing && (
+          <button onClick={() => setEditing(true)} style={{ padding: "6px 14px", background: "#1D4ED8", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", fontWeight: 700, fontSize: 12 }}>Edit</button>
+        )}
+      </div>
+      {editing ? (
+        <div style={{ display: "grid", gap: 10 }}>
+          <div className="sv-grid-2" style={{ gap: 10 }}>
+            <label><span style={lbl}>Recipient Name *</span><input className="sv-input" value={form.recipientName} onChange={(e) => setForm({ ...form, recipientName: e.target.value })} placeholder="As per bank account" /></label>
+            <label><span style={lbl}>Account Number *</span><input className="sv-input" value={form.accountNumber} onChange={(e) => setForm({ ...form, accountNumber: e.target.value })} placeholder="Bank account number" /></label>
+            <label><span style={lbl}>IFSC Code *</span><input className="sv-input" value={form.ifscCode} onChange={(e) => setForm({ ...form, ifscCode: e.target.value.toUpperCase() })} placeholder="e.g. HDFC0001234" /></label>
+            <label><span style={lbl}>UPI ID <span style={{ fontWeight: 500, color: "#94A3B8" }}>(optional)</span></span><input className="sv-input" value={form.upiId} onChange={(e) => setForm({ ...form, upiId: e.target.value })} placeholder="name@bank" /></label>
+          </div>
+          {msg && <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: msg.startsWith("✅") ? "#16A34A" : "#DC2626" }}>{msg}</p>}
+          <div className="sv-flex sv-gap-2">
+            <button onClick={submit} disabled={saving} style={{ padding: "9px 20px", background: "#16A34A", color: "#fff", border: "none", borderRadius: 8, cursor: saving ? "not-allowed" : "pointer", fontWeight: 700, fontSize: 13, opacity: saving ? 0.7 : 1 }}>{saving ? "Saving…" : "Save"}</button>
+            {has && <button onClick={() => { setEditing(false); setMsg(""); setForm({ recipientName: record?.recipientName || "", accountNumber: record?.accountNumber || "", ifscCode: record?.ifscCode || "", upiId: record?.upiId || "" }); }} style={{ padding: "9px 20px", background: "#F1F5F9", color: "#64748B", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 }}>Cancel</button>}
+          </div>
+        </div>
+      ) : (
+        <div className="sv-grid-2" style={{ gap: 12 }}>
+          <div><span style={lbl}>Recipient Name</span><div style={val}>{record?.recipientName || "—"}</div></div>
+          <div><span style={lbl}>Account Number</span><div style={val}>{record?.accountNumber || "—"}</div></div>
+          <div><span style={lbl}>IFSC Code</span><div style={val}>{record?.ifscCode || "—"}</div></div>
+          <div><span style={lbl}>UPI ID</span><div style={val}>{record?.upiId || "—"}</div></div>
         </div>
       )}
     </div>

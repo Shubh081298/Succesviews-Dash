@@ -168,6 +168,7 @@ export default function Pipeline({ emp, onToast }) {
       <datalist id="pl-status-list">{NURTURE_STATUSES.map((s) => <option key={s} value={s} />)}</datalist>
       <datalist id="pl-domain-list">{domainNames.map((d) => <option key={d} value={d} />)}</datalist>
       <datalist id="pl-region-list">{REGIONS.map((r) => <option key={r} value={r} />)}</datalist>
+      <datalist id="pl-cur-list">{["USD", "AED", "INR", "EUR", "GBP", "AUD", "SGD"].map((c) => <option key={c} value={c} />)}</datalist>
 
       <div className="sv-flex sv-flex--between" style={{ flexWrap: "wrap", gap: 10 }}>
         <div><h2 className="sv-tab-title" style={{ margin: 0 }}>My Pipeline</h2><p className="sv-text-muted" style={{ fontSize: 12.5, margin: "2px 0 0" }}>From first contact to a live project — one place.</p></div>
@@ -262,9 +263,11 @@ export default function Pipeline({ emp, onToast }) {
 function LeadHub({ client, emp, domainNames, assignedEmails, onClose, toast, updatePipelineClient, addFollowup, badge, field }) {
   const t = todayStr();
   const nurturing = progressOf(client.status) <= 0;
+  const priceLocked = progressOf(client.status) >= 2; // locked once Sales Generated
   const [d, setD] = useState({
     projectName: client.projectName || "", region: client.region || "", domainName: client.domainName || "",
     assignedEmailId: client.assignedEmailId || "", status: client.status, notes: client.notes || "",
+    quote: client.expectedAmount ? String(client.expectedAmount) : "", quoteCur: client.expectedCurrency || "USD",
   });
   const [f, setF] = useState({ communicationType: "Update", notes: "", status: client.status, nextFollowUp: t, nextTime: "" });
   const [savingD, setSavingD] = useState(false);
@@ -276,7 +279,9 @@ function LeadHub({ client, emp, domainNames, assignedEmails, onClose, toast, upd
     setSavingD(true);
     const ok = await updatePipelineClient(client.id, {
       projectName: d.projectName, region: d.region, domainName: d.domainName, assignedEmailId: d.assignedEmailId,
-      notes: d.notes, ...(nurturing ? { status: d.status, ...(d.status === "Lost" ? { lostReason: d.notes } : {}) } : {}),
+      notes: d.notes,
+      ...(priceLocked ? {} : { expectedAmount: Number(d.quote) || 0, expectedCurrency: (d.quoteCur || "USD").toUpperCase() }),
+      ...(nurturing ? { status: d.status, ...(d.status === "Lost" ? { lostReason: d.notes } : {}) } : {}),
     }, emp.id);
     setSavingD(false);
     if (ok) toast("Lead details updated.", "success");
@@ -324,6 +329,11 @@ function LeadHub({ client, emp, domainNames, assignedEmails, onClose, toast, upd
               {field("Domain", <input className="sv-input" list="pl-domain-list" value={d.domainName} onChange={(e) => setD({ ...d, domainName: e.target.value })} />)}
               {field("Assigned Email", <select className="sv-select" value={d.assignedEmailId} onChange={(e) => setD({ ...d, assignedEmailId: e.target.value })}>{assignedEmails.map((a) => <option key={a}>{a}</option>)}{d.assignedEmailId && !assignedEmails.includes(d.assignedEmailId) && <option>{d.assignedEmailId}</option>}</select>)}
             </div>
+            <div className="sv-pl-2col">
+              {field(priceLocked ? "Agreed Price (locked)" : "Quoted Price", <input className="sv-input" type="number" inputMode="decimal" disabled={priceLocked} value={d.quote} onChange={(e) => setD({ ...d, quote: e.target.value })} placeholder="e.g. 3500" />)}
+              {field("Currency", <input className="sv-input" list="pl-cur-list" disabled={priceLocked} value={d.quoteCur} onChange={(e) => setD({ ...d, quoteCur: e.target.value.toUpperCase() })} placeholder="e.g. AED" />)}
+            </div>
+            {priceLocked && <p className="sv-text-muted" style={{ fontSize: 11.5, marginTop: -4 }}>🔒 Price is locked from the generated sale. Edit the sale to change it.</p>}
             {nurturing && field("Current Status", <input className="sv-input" list="pl-status-list" value={d.status} onChange={(e) => setD({ ...d, status: e.target.value })} placeholder="Select a status or type your own…" />)}
             {field(DEAD.includes(d.status) ? "Notes (reason required)" : "Notes", <textarea className="sv-input" rows={2} value={d.notes} onChange={(e) => setD({ ...d, notes: e.target.value })} />, DEAD.includes(d.status))}
             <button className="sv-btn sv-btn--outline" style={{ marginTop: 4 }} disabled={savingD} onClick={saveDetails}>{savingD ? "Saving…" : "Save Details"}</button>

@@ -94,7 +94,10 @@ export default function DesignerDashboard({
   const isDraftFile = (id) => (designExtra.drafts || []).includes(id);
   const ask = (message, onYes, onNo) => setFlowAsk({ message, onYes, onNo });
 
-  const myProjects = designProjects.filter((p) => p.assignedDesigner === emp.id);
+  // Match assigned projects by id, with a name fallback so a drifted/re-keyed
+  // designer id can't hide a designer's own projects.
+  const isMine = (p) => p.assignedDesigner === emp.id || (!!p.assignedDesignerName && !!emp.name && p.assignedDesignerName.trim().toLowerCase() === emp.name.trim().toLowerCase());
+  const myProjects = designProjects.filter(isMine);
   const unreadNotifs = (notifications || []).filter((n) => !n.read).length;
   const notifTimeAgo = (ts) => { const s2 = Math.floor((Date.now() - ts) / 1000); if (s2 < 60) return "just now"; const m2 = Math.floor(s2 / 60); if (m2 < 60) return m2 + "m ago"; const h2 = Math.floor(m2 / 60); if (h2 < 24) return h2 + "h ago"; return new Date(ts).toLocaleDateString(); };
   const project = myProjects.find((p) => p.id === openId) || null;
@@ -527,8 +530,12 @@ export default function DesignerDashboard({
             if (ps.some((x) => x === "Ready for Payment")) return { label: "Ready", ...PAY_STYLE_MAP["Ready for Payment"] };
             return { label: "Pending review", ...PAY_STYLE_MAP["Pending"] };
           };
-          const rows = myProjects.filter((p) => !q || `${p.clientName} ${p.magazineName} ${p.companyName} ${p.edition}`.toLowerCase().includes(q));
-          const openP = myProjects.find((p) => p.id === costOpen) || null;
+          // Show assigned projects PLUS any project this designer has logged work on,
+          // so their client work is never hidden by an assignment mismatch.
+          const workedPids = new Set(myWork.map((w) => w.projectId));
+          const visibleProjects = designProjects.filter((p) => isMine(p) || workedPids.has(p.id));
+          const rows = visibleProjects.filter((p) => !q || `${p.clientName} ${p.magazineName} ${p.companyName} ${p.edition}`.toLowerCase().includes(q));
+          const openP = visibleProjects.find((p) => p.id === costOpen) || null;
           const openItems = openP ? itemsFor(openP.id).slice().sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date))) : [];
           return (
             <div className="sv-tab">

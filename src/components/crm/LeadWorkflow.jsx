@@ -108,7 +108,7 @@ export default function LeadWorkflow({ client, actorId, onToast }) {
       )}
 
       {act ? (
-        <button className="sv-wf-cta" style={{ "--sc": act.colour }} onClick={() => setDlg({ w: act, date: today(), amount: act.kind === "payment" && outstanding > 0 ? String(outstanding) : "", cur: act.kind === "payment" ? dealCur : "USD" })}>
+        <button className="sv-wf-cta" style={{ "--sc": act.colour }} onClick={() => setDlg({ w: act, date: today(), amount: act.kind === "sale" && expected > 0 ? String(expected) : act.kind === "payment" && outstanding > 0 ? String(outstanding) : "", cur: (act.kind === "payment" || act.kind === "sale") ? dealCur : "USD" })}>
           {(STEP_ICON[act.to] ? (() => { const I = STEP_ICON[act.to]; return <I size={16} />; })() : null)}
           {act.kind === "payment" && paidSoFar > 0 ? "Record Another Payment" : act.label}
         </button>
@@ -128,7 +128,7 @@ export default function LeadWorkflow({ client, actorId, onToast }) {
               {(dlg.w.kind === "sale" || dlg.w.kind === "payment") && (
                 <div className="sv-flex sv-gap-2">
                   <label className="sv-pl-field" style={{ flex: 2 }}><span>{dlg.w.kind === "sale" ? "Deal amount" : `Payment amount${expected > 0 ? ` · ${money(outstanding)} due` : ""}`}</span><input className="sv-input" type="number" inputMode="decimal" placeholder="Optional" value={dlg.amount} onChange={(e) => setDlg({ ...dlg, amount: e.target.value })} /></label>
-                  <label className="sv-pl-field" style={{ flex: 1 }}><span>Currency</span><select className="sv-select" value={dlg.cur} onChange={(e) => setDlg({ ...dlg, cur: e.target.value })}>{CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
+                  <label className="sv-pl-field" style={{ flex: 1 }}><span>Currency</span><input className="sv-input" list="wf-cur-list" value={dlg.cur} onChange={(e) => setDlg({ ...dlg, cur: e.target.value.toUpperCase() })} placeholder="e.g. AED" /><datalist id="wf-cur-list">{CURRENCIES.map((c) => <option key={c} value={c} />)}</datalist></label>
                 </div>
               )}
               <div className="sv-flex sv-gap-2" style={{ marginTop: 12 }}>

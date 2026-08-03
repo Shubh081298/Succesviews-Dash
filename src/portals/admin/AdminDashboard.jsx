@@ -31,7 +31,7 @@ export default function AdminDashboard() {
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,
     messages, saveMessages, addMessage, deleteMessage,
     leaves, saveLeaves, updateLeaveStatus,
-    salaries, saveSalaries,
+    salaries, saveSalaries, bankDetails, saveBankDetails,
     freelancers, saveFreelancers,
     designWork, saveDesignWork,
     designArchive, saveDesignArchive,
@@ -44,7 +44,7 @@ export default function AdminDashboard() {
     adminPwd, setAdminPwd,
     settingsPwd, setSettingsPwd,
     theme, toggleTheme,
-    pipelineClients, pipelineStatuses, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes, pipelineHistory, softDeletePipelineClient, restorePipelineClient,
+    pipelineClients, pipelineStatuses, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes, pipelineHistory, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient,
     showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications,
   } = useAppData();
   const { setAdminLoggedIn } = useAdminAuth();
@@ -151,15 +151,24 @@ export default function AdminDashboard() {
     [submissions, todayStr]
   );
 
-  const empStats = useMemo(() => employees.map((e) => {
+  const empStats = useMemo(() => {
+    // Sales & payments are sourced from the pipeline. Derive per-employee totals
+    // straight from LIVE pipeline rows (excluding soft-deleted clients) so a deleted
+    // client's amounts drop out everywhere — the rolled-up submission totals can't
+    // self-correct because they don't retain a client reference.
+    const liveIds = new Set((pipelineClients || []).filter((c) => !c.isDeleted).map((c) => c.id));
+    const salesByEmp = {}, payByEmp = {};
+    for (const s of (pipelineSales || [])) if (liveIds.has(s.clientId)) salesByEmp[s.employeeId] = (salesByEmp[s.employeeId] || 0) + (Number(s.amount) || 0);
+    for (const p of (pipelinePayments || [])) if (liveIds.has(p.clientId)) payByEmp[p.employeeId] = (payByEmp[p.employeeId] || 0) + (Number(p.amount) || 0);
+    return employees.map((e) => {
     const mine = submissions.filter((s) => s.empId === e.id);
     return {
       ...e,
       totalEmails: sum(mine, "freshEmails") + sum(mine, "reminderEmails"),
       totalLeads: sum(mine, "newLeadsInterested"),
       totalCalls: sum(mine, "callsScheduled"),
-      totalSales: sum(mine, "salesGenerated"),
-      totalPayments: sum(mine, "paymentReceived"),
+      totalSales: salesByEmp[e.id] || 0,
+      totalPayments: payByEmp[e.id] || 0,
       totalFollowUps: sum(mine, "newFollowUps"),
       submittedToday: mine.some((s) => s.date === todayStr && s.status === "Submitted"),
       todayStatus: mine.some((s) => s.date === todayStr && s.status === "Submitted")
@@ -169,7 +178,8 @@ export default function AdminDashboard() {
         : "none",
       pendingTasks: mine.filter((s) => s.status !== "Submitted").length,
     };
-  }), [employees, submissions, todayStr]);
+  });
+  }, [employees, submissions, todayStr, pipelineClients, pipelineSales, pipelinePayments]);
 
   const reportsFiltered = useMemo(() => submissions
     .filter((s) => !reportEmpSearch || s.empName?.toLowerCase().includes(reportEmpSearch.toLowerCase()))
@@ -399,7 +409,7 @@ export default function AdminDashboard() {
             ovPieData={ovPieData} ovBarData={ovBarData} openDM={openDM}
             pipelineClients={pipelineClients} pipelineStatuses={pipelineStatuses}
             pipelineFollowups={pipelineFollowups} pipelineSales={pipelineSales} pipelinePayments={pipelinePayments}
-            pipelineContracts={pipelineContracts} pipelineNotes={pipelineNotes} pipelineHistory={pipelineHistory} softDeletePipelineClient={softDeletePipelineClient} restorePipelineClient={restorePipelineClient}
+            pipelineContracts={pipelineContracts} pipelineNotes={pipelineNotes} pipelineHistory={pipelineHistory} softDeletePipelineClient={softDeletePipelineClient} restorePipelineClient={restorePipelineClient} hardDeletePipelineClient={hardDeletePipelineClient}
           />
         )}
         {tab === "reports" && (
@@ -432,7 +442,8 @@ export default function AdminDashboard() {
           <SalaryModule employees={employees} salaries={salaries} setSalaries={saveSalaries} captureExpense={captureExpense}
             showToast={showToast} pushNotification={pushNotification}
             addMessage={addMessage} editMode={editMode} setEditMode={setEditMode} settingsPwd={settingsPwd} logo={logo}
-            freelancers={freelancers} saveFreelancers={saveFreelancers} />
+            freelancers={freelancers} saveFreelancers={saveFreelancers}
+            bankDetails={bankDetails} saveBankDetails={saveBankDetails} />
         )}
         {tab === "expense" && (
           <ExpenseTab expenses={expenses} addExpense={addExpense} updateExpense={updateExpense} deleteExpense={deleteExpense} logo={logo} />

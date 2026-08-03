@@ -33,6 +33,7 @@ export function AppDataProvider({ children }) {
   const [messages, setMessages]             = useState([]);
   const [leaves, setLeaves]                 = useState([]);
   const [salaries, setSalaries]             = useState({});
+  const [bankDetails, setBankDetails]       = useState({});
   const [expenses, setExpenses]             = useState([]);
   const [designProjects, setDesignProjects] = useState([]);
   const [designFiles, setDesignFiles]       = useState([]);
@@ -123,6 +124,7 @@ export function AppDataProvider({ children }) {
         loadMessages(),
         loadLeaves(),
         loadSalaries(),
+        loadBankDetails(),
         loadExpenses(),
         loadDesignProjects(),
         loadDesignFiles(),
@@ -225,6 +227,49 @@ export function AppDataProvider({ children }) {
       });
       setSalaries(map);
     }
+  }
+
+  // ── Bank details (per employee) — additive; own table so it stays isolated ──
+  async function loadBankDetails() {
+    try {
+      const { data, error } = await supabase.from("bank_details").select("*");
+      if (error || !data) return; // table not migrated yet — feature degrades to empty
+      const map = {};
+      data.forEach((b) => {
+        map[b.emp_id] = {
+          recipientName: b.recipient_name || "",
+          accountNumber: b.account_number || "",
+          ifscCode: b.ifsc_code || "",
+          upiId: b.upi_id || "",
+        };
+      });
+      setBankDetails(map);
+    } catch (e) { /* table missing — ignore */ }
+  }
+
+  // Single-row upsert so an employee only ever writes their OWN bank row.
+  async function saveBankDetails(empId, bank) {
+    if (!empId) return false;
+    const clean = {
+      recipientName: (bank.recipientName || "").trim(),
+      accountNumber: (bank.accountNumber || "").trim(),
+      ifscCode: (bank.ifscCode || "").trim().toUpperCase(),
+      upiId: (bank.upiId || "").trim(),
+    };
+    setBankDetails((prev) => ({ ...prev, [empId]: clean }));
+    try {
+      const { error } = await supabase.from("bank_details").upsert({
+        emp_id: empId,
+        recipient_name: clean.recipientName,
+        account_number: clean.accountNumber,
+        ifsc_code: clean.ifscCode,
+        upi_id: clean.upiId,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "emp_id" });
+      if (error) { showToast("Bank details table not set up yet — ask admin to run the migration.", "error"); return false; }
+      showToast("Bank details saved.", "success");
+      return true;
+    } catch (e) { showToast("Could not save bank details.", "error"); return false; }
   }
 
   /* ── Expenses (contract payments — additive financial tracker) ── */
@@ -1158,6 +1203,25 @@ export function AppDataProvider({ children }) {
     } catch (e) { showToast("Could not restore client.", "error"); return false; }
   }
 
+  // Permanently delete a client and all of its related pipeline rows (irreversible).
+  async function hardDeletePipelineClient(id) {
+    try {
+      // remove children first (best-effort; ignore per-table errors so one missing table can't block)
+      for (const tbl of ["pipeline_followups", "pipeline_contracts", "pipeline_sales", "pipeline_payments", "pipeline_notes", "pipeline_history"]) {
+        try { await supabase.from(tbl).delete().eq("client_id", id); } catch (e) { /* table may not exist */ }
+      }
+      const { error } = await supabase.from("pipeline_clients").delete().eq("id", id);
+      if (error) { showToast("Could not permanently delete client.", "error"); return false; }
+      setPipelineClients((prev) => prev.filter((c) => c.id !== id));
+      setPipelineFollowups((prev) => prev.filter((r) => r.clientId !== id));
+      setPipelineContracts((prev) => prev.filter((r) => r.clientId !== id));
+      setPipelineSales((prev) => prev.filter((r) => r.clientId !== id));
+      setPipelinePayments((prev) => prev.filter((r) => r.clientId !== id));
+      showToast("Client permanently deleted.", "success");
+      return true;
+    } catch (e) { showToast("Could not permanently delete client.", "error"); return false; }
+  }
+
   async function addFollowup(p) {
     try {
       const { data, error } = await supabase.from("pipeline_followups").insert({
@@ -1260,12 +1324,12 @@ export function AppDataProvider({ children }) {
     // Pipeline (Employee CRM)
     pipelineClients, pipelineFollowups, pipelineContracts, pipelineSales, pipelinePayments, pipelineNotes, pipelineHistory,
     domains, pipelineStatuses,
-    addPipelineClient, updatePipelineClient, softDeletePipelineClient, restorePipelineClient, addFollowup, addPipelineContract, addPipelineSale, addPipelinePayment, reversePipelinePayment, addPipelineNote,
+    addPipelineClient, updatePipelineClient, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, addFollowup, addPipelineContract, addPipelineSale, addPipelinePayment, reversePipelinePayment, addPipelineNote,
     customFields, saveCustomFields,
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,
     messages, saveMessages, addMessage, deleteMessage, dismissMessage,
     leaves, saveLeaves, addLeave, updateLeaveStatus,
-    salaries, saveSalaries,
+    salaries, saveSalaries, bankDetails, saveBankDetails,
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,
     designProjects, addDesignProject, updateDesignProject, deleteDesignProject,
     designFiles, uploadDesignFile, deleteDesignFile,

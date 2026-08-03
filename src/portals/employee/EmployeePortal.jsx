@@ -18,6 +18,7 @@ export default function EmployeePortal() {
   const {
     employees, saveEmployees, assignEmployeeIds,
     submissions, saveSubs, upsertSubmission,
+    bankDetails, saveBankDetails,
     leaves, saveLeaves, addLeave,
     customFields,
     announcements, saveAnnouncements,
@@ -304,6 +305,7 @@ export default function EmployeePortal() {
           leaveForm={leaveForm} setLeaveForm={setLeaveForm} onApplyLeave={onApplyLeave}
           onUpdatePhoto={updateMyPhoto}
           onSaveAssignedIds={saveMyAssignedIds}
+          bankDetails={bankDetails} onSaveBank={saveBankDetails}
           employees={employees}
           logo={logo}
         />

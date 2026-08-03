@@ -31,7 +31,7 @@ import { NURTURE_STATUSES, WORKFLOW_STEPS, stageColour, progressOf, isClosed } f
  * OverviewTab — 5 primary + 5 secondary KPI cards (period-filtered)
  * + analytics charts + today's submission grid + recent pending.
  * ──────────────────────────────────────────────────────────────*/
-export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {} }) {
+export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {}, hardDeletePipelineClient = () => {} }) {
   const [clpOpen, setClpOpen] = useState(false);
   const [clpPanel, setClpPanel] = useState(null); // inline expandable KPI panel (quick key)
   const [clpSearch, setClpSearch] = useState("");
@@ -39,6 +39,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
   const [clpDetail, setClpDetail] = useState(null);
   const [clpDelete, setClpDelete] = useState(null);
   const [clpShowDeleted, setClpShowDeleted] = useState(false);
+  const [clpHardDel, setClpHardDel] = useState(null); // client pending permanent delete
   const [trendCur, setTrendCur] = useState("");
   const freshEmails = sum(ovFiltered, "freshEmails");
   const reminderEmails = sum(ovFiltered, "reminderEmails");
@@ -205,7 +206,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
                 <tbody>
                   {filtered.slice(0, 300).map((c) => {
                     const over = isOver(c); const due = isDue(c); const col = colourOf(c.status); const la = lastActivityOf(c.id);
-                    const dot = (on, onCol) => <span className="sv-clp-dot" style={{ background: on ? onCol : "#E2E8F0", color: on ? "#fff" : "#94A3B8" }}>{on ? "✓" : "—"}</span>;
+                    const pill = (on, label, onCol, tip) => <span className="sv-clp-pill" title={tip} style={{ background: on ? onCol + "1A" : "#F1F5F9", color: on ? onCol : "#94A3B8" }}>{on ? label : "—"}</span>;
                     return (
                       <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer" }}>
                         <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{c.clientName}</td>
@@ -216,9 +217,9 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
                         <td><span className="sv-clp-badge" style={{ background: col + "1A", color: col }}>{c.status}</span></td>
                         <td className={over ? "sv-clp-over" : due ? "sv-clp-due" : "sv-text-muted"} style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{over ? "Overdue · " : due ? "Today · " : ""}{c.nextFollowUp ? fmtDate(c.nextFollowUp) : "—"}</td>
                         <td className="sv-text-muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{la ? fmtDate(String(la).slice(0, 10)) : "—"}</td>
-                        <td>{dot(hasRec(c.id, pipelineContracts), "#7C3AED")}</td>
-                        <td>{dot(hasRec(c.id, pipelineSales), "#0D9488")}</td>
-                        <td>{dot(hasRec(c.id, pipelinePayments), "#15803D")}</td>
+                        <td>{pill(hasRec(c.id, pipelineContracts), "Sent", "#7C3AED", "Contract sent")}</td>
+                        <td>{pill(hasRec(c.id, pipelineSales), "Done", "#0D9488", "Sale generated")}</td>
+                        <td>{pill(hasRec(c.id, pipelinePayments), "Paid", "#15803D", "Payment received")}</td>
                       </tr>
                     );
                   })}
@@ -317,10 +318,25 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
                         <span className="sv-text-navy sv-font-700" style={{ fontSize: 12.5 }}>{c.clientName}</span>
                         <span className="sv-text-muted" style={{ fontSize: 11.5 }}>{c.projectName || c.domainName || ""}</span>
                         <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ marginLeft: "auto" }} onClick={async () => { await restorePipelineClient(c.id, c.employeeId); }}>Restore</button>
+                        <button className="sv-btn sv-btn--sm" style={{ background: "#FEE2E2", color: "#B91C1C", border: "1px solid #FCA5A5" }} onClick={() => setClpHardDel(c)}><Trash2 size={12} /> Delete forever</button>
                       </div>
                     ))}
                   </div>
                 )}
+              </div>
+            )}
+            {clpHardDel && (
+              <div className="sv-modal-overlay" onClick={() => setClpHardDel(null)}>
+                <div className="sv-modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+                  <div className="sv-modal-header"><span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>Delete permanently?</span><button className="sv-modal-close" onClick={() => setClpHardDel(null)}>×</button></div>
+                  <div style={{ padding: "16px 20px" }}>
+                    <p className="sv-text-muted" style={{ fontSize: 13, marginTop: 0 }}><b className="sv-text-navy">{clpHardDel.clientName}</b>{clpHardDel.projectName ? ` — ${clpHardDel.projectName}` : ""} and all its follow-ups, contracts, sales and payments will be erased. This cannot be undone.</p>
+                    <div className="sv-flex sv-gap-2" style={{ marginTop: 12 }}>
+                      <button className="sv-btn sv-btn--ghost" style={{ flex: 1 }} onClick={() => setClpHardDel(null)}>Cancel</button>
+                      <button className="sv-btn" style={{ flex: 1, background: "#DC2626", color: "#fff" }} onClick={async () => { await hardDeletePipelineClient(clpHardDel.id); setClpHardDel(null); }}>Delete forever</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -434,18 +450,30 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
           // Period-aware DSR counts (respect Today / Week / Month / Custom via ovFiltered)
           const dsrSub = ovFiltered.filter((s) => s.status === "Submitted").length;
           const dsrPend = ovFiltered.filter((s) => s.status !== "Submitted").length;
+          // Two distinct pools: email activity vs DSR compliance. Percentages are
+          // shown relative to each row's own pool (otherwise the huge email counts
+          // swamp DSR and it always reads 0%).
+          const emailPool = (Number(freshEmails) || 0) + (Number(reminderEmails) || 0) || 1;
+          const dsrPool = (Number(dsrSub) || 0) + (Number(dsrPend) || 0) || 1;
           const taskData = [
-            { name: "Fresh Emails", value: freshEmails, color: "#2563EB" },
-            { name: "Reminder Emails", value: reminderEmails, color: "#7C3AED" },
-            { name: "DSR Submitted", value: dsrSub, color: "#16A34A" },
-            { name: "DSR Pending", value: dsrPend, color: "#F59E0B" },
+            { name: "Fresh Emails", value: freshEmails, color: "#2563EB", pool: emailPool },
+            { name: "Reminder Emails", value: reminderEmails, color: "#7C3AED", pool: emailPool },
+            { name: "DSR Submitted", value: dsrSub, color: "#16A34A", pool: dsrPool },
+            { name: "DSR Pending", value: dsrPend, color: "#F59E0B", pool: dsrPool },
           ];
           const taskTotal = taskData.reduce((s, d) => s + (Number(d.value) || 0), 0) || 1;
-          const pct = (v) => Math.round((v / taskTotal) * 100);
+          const pct = (d) => Math.round(((Number(d.value) || 0) / d.pool) * 100);
           // Currency-aware Sales & Payments trend — built from real pipeline records,
           // grouped by the selected currency so different currencies are never mixed.
           const CUR_SYM = { USD: "$", INR: "₹", AED: "AED ", EUR: "€", GBP: "£", AUD: "A$", SGD: "S$" };
-          const curList = [...new Set([...(pipelineSales || []), ...(pipelinePayments || [])].map((x) => x.currency).filter(Boolean))];
+          const liveIdsForCur = new Set((pipelineClients || []).filter((c) => !c.isDeleted).map((c) => c.id));
+          // total sales+payments volume per currency (live clients only) — used to
+          // order the currency list and pick a sensible default with real data.
+          const curVol = {};
+          for (const s of (pipelineSales || [])) if (s.currency && liveIdsForCur.has(s.clientId)) curVol[s.currency] = (curVol[s.currency] || 0) + (Number(s.amount) || 0);
+          for (const p of (pipelinePayments || [])) if (p.currency && liveIdsForCur.has(p.clientId)) curVol[p.currency] = (curVol[p.currency] || 0) + (Number(p.amount) || 0);
+          const curList = [...new Set([...(pipelineSales || []), ...(pipelinePayments || [])].filter((x) => liveIdsForCur.has(x.clientId)).map((x) => x.currency).filter(Boolean))]
+            .sort((a, b) => (curVol[b] || 0) - (curVol[a] || 0));
           if (!curList.length) curList.push("USD");
           const activeCur = curList.includes(trendCur) ? trendCur : curList[0];
           const curSym = CUR_SYM[activeCur] || (activeCur + " ");
@@ -479,7 +507,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
                           <span className="sv-tasksum-dot" style={{ background: d.color }} />
                           <span className="sv-tasksum-label">{d.name}</span>
                           <span className="sv-tasksum-count">{Number(d.value).toLocaleString()}</span>
-                          <span className="sv-tasksum-pct" style={{ color: d.color }}>{pct(d.value)}%</span>
+                          <span className="sv-tasksum-pct" style={{ color: d.color }}>{pct(d)}%</span>
                         </div>
                       ))}
                     </div>
@@ -489,12 +517,9 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
                   <div className="sv-anacard-head">
                     <h4>Sales &amp; Payments Trend</h4>
                     <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", alignItems: "center" }}>
-                      {curList.length > 1 && (
-                        <select className="sv-select sv-select--sm" value={activeCur} onChange={(e) => setTrendCur(e.target.value)} title="Currency">
-                          {curList.map((c) => <option key={c} value={c}>{c}</option>)}
-                        </select>
-                      )}
-                      {curList.length === 1 && <span className="sv-anacard-sub">{activeCur}</span>}
+                      <select className="sv-select sv-select--sm" value={activeCur} onChange={(e) => setTrendCur(e.target.value)} title="Currency">
+                        {curList.map((c) => <option key={c} value={c}>{c}{curVol[c] ? ` · ${curSym}${Math.round(curVol[c]).toLocaleString()}` : ""}</option>)}
+                      </select>
                       {["today", "week", "month"].map((p) => (
                         <button key={p} className={`sv-period-btn sv-period-btn--sm ${ovPeriod === p ? "sv-period-btn--active" : ""}`} onClick={() => setOvPeriod(p)}>{p === "today" ? "Today" : p === "week" ? "Week" : "Month"}</button>
                       ))}
@@ -2026,20 +2051,22 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
   const todayISO = new Date().toISOString().slice(0, 10);
   const isOverdue = (p) => p.dueDate && p.dueDate < todayISO && p.status !== "Completed";
 
-  const bucketCount = (name) => designProjects.filter((p) => canonicalStage(p.status) === name).length;
+  const archivedIds = new Set((designArchive || []).map((a) => a.id));
+  const archivedProjects = designProjects.filter((p) => archivedIds.has(p.id));
+  // KPI counts reflect only active projects — archived ones are excluded so the
+  // stat cards always agree with the project list below them.
+  const activeProjects = designProjects.filter((p) => !archivedIds.has(p.id));
+  const bucketCount = (name) => activeProjects.filter((p) => canonicalStage(p.status) === name).length;
   const stats = {
-    total: designProjects.length,
+    total: activeProjects.length,
     draft: bucketCount("Draft"),
     sample: bucketCount("Sample Design"),
     review: bucketCount("Admin Review") + bucketCount("Client Review"),
     index: bucketCount("Index Approval"),
     final: bucketCount("Final Magazine") + bucketCount("Admin Final Review"),
     completed: bucketCount("Completed"),
-    overdue: designProjects.filter(isOverdue).length,
+    overdue: activeProjects.filter(isOverdue).length,
   };
-
-  const archivedIds = new Set((designArchive || []).map((a) => a.id));
-  const archivedProjects = designProjects.filter((p) => archivedIds.has(p.id));
   const filtered = designProjects.filter((p) => {
     if (archivedIds.has(p.id)) return false;
     const q = search.trim().toLowerCase();
@@ -2117,8 +2144,12 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
   });
   const sumWork = (arr, f = () => true) => arr.filter(f).reduce((a, w) => a + (w.amount || 0), 0);
   const isDue = (w) => normPay(w.payStatus) !== "Paid" && normPay(w.payStatus) !== "Rejected";
-  const payKpi = { total: sumWork(designWork || []), pending: sumWork(designWork || [], (w) => normPay(w.payStatus) === "Pending"), ready: sumWork(designWork || [], (w) => normPay(w.payStatus) === "Ready for Payment"), paid: sumWork(designWork || [], (w) => normPay(w.payStatus) === "Paid") };
-  const payDue = (designWork || []).filter((w) => normPay(w.payStatus) === "Pending").length;
+  // Only count costing for projects that still exist and aren't archived/deleted —
+  // orphaned work from a removed project must not linger in the KPIs, badge or filters.
+  const liveProjectIds = new Set((designProjects || []).filter((p) => !archivedIds.has(p.id)).map((p) => p.id));
+  const liveWork = (designWork || []).filter((w) => liveProjectIds.has(w.projectId));
+  const payKpi = { total: sumWork(liveWork), pending: sumWork(liveWork, (w) => normPay(w.payStatus) === "Pending"), ready: sumWork(liveWork, (w) => normPay(w.payStatus) === "Ready for Payment"), paid: sumWork(liveWork, (w) => normPay(w.payStatus) === "Paid") };
+  const payDue = liveWork.filter((w) => normPay(w.payStatus) === "Pending").length;
 
   const statCard = (label, value, accent) => (
     <div className="sv-kpi-card" style={{ "--kpi-accent": accent || "#64748B" }}>
@@ -2161,7 +2192,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
         };
         const openP = live.find((p) => p.id === payOpen) || null;
         const openItems = openP ? itemsFor(openP.id).slice().sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date))) : [];
-        const designers = [...new Set((designWork || []).map((w) => w.designerId))];
+        const designers = [...new Set(liveWork.map((w) => w.designerId))];
         return (
           <>
             <div className="sv-sal-kpis" style={{ gridTemplateColumns: "repeat(4,1fr)" }}>

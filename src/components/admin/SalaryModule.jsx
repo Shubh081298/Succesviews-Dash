@@ -25,7 +25,7 @@ const money = (n) => fmtSalary(n || 0);
 const mKey = (d) => String(d || "").slice(0, 7);
 const PTYPES = ["Monthly", "Per Project", "Hourly"];
 
-export default function SalaryModule({ employees, salaries, setSalaries, showToast, pushNotification, addMessage, captureExpense, editMode = false, setEditMode, settingsPwd = "Settings@123", logo = "", freelancers = [], saveFreelancers }) {
+export default function SalaryModule({ employees, salaries, setSalaries, showToast, pushNotification, addMessage, captureExpense, editMode = false, setEditMode, settingsPwd = "Settings@123", logo = "", freelancers = [], saveFreelancers, bankDetails = {}, saveBankDetails }) {
   const [view, setView] = useState("fulltime"); // fulltime | freelancers | history
   const [search, setSearch] = useState("");
   const [unlockOpen, setUnlockOpen] = useState(false);
@@ -56,6 +56,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   const [editDedAmt, setEditDedAmt] = useState("");
   const [editDedReason, setEditDedReason] = useState("");
   const [confirmPaid, setConfirmPaid] = useState(null);
+  const [bankEdit, setBankEdit] = useState(null); // { empId, name, recipientName, accountNumber, ifscCode, upiId }
   const [preview, setPreview] = useState(null);
   const [sending, setSending] = useState(false);
 
@@ -347,7 +348,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
       <div className="sv-card">
         <div className="sv-sal-head">
           <div className="sv-seg">
-            {[["fulltime", "Full-Time"], ["freelancers", "Freelancers"], ["history", "History"]].map(([k, l]) => (
+            {[["fulltime", "Full-Time"], ["freelancers", "Freelancers"], ["history", "History"], ["bank", "Bank Details"]].map(([k, l]) => (
               <button key={k} className={`sv-seg-btn${view === k ? " sv-seg-btn--on" : ""}`} onClick={() => setView(k)}>{l}</button>
             ))}
           </div>
@@ -494,7 +495,69 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
             )}
           </div>
         )}
+
+        {/* ── Bank Details ── */}
+        {view === "bank" && (() => {
+          const q = search.trim().toLowerCase();
+          const rows = employees.filter((e) => {
+            const b = bankDetails[e.id] || {};
+            return !q || `${e.name} ${e.id} ${b.recipientName || ""} ${b.accountNumber || ""} ${b.ifscCode || ""} ${b.upiId || ""}`.toLowerCase().includes(q);
+          });
+          return (
+            <div>
+              <p className="sv-text-muted" style={{ fontSize: 12.5, margin: "0 0 12px" }}>Bank details are entered by employees under their Settings. You can add or correct them here too.</p>
+              {rows.length === 0 ? (
+                <div className="sv-leave-empty"><Users size={26} /><span>No employees to show.</span></div>
+              ) : (
+                <div className="sv-mailids-scroll">
+                  <table className="sv-mailids-table">
+                    <thead><tr>{["Employee", "Recipient Name", "Account Number", "IFSC Code", "UPI ID", ""].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                    <tbody>
+                      {rows.map((e) => {
+                        const b = bankDetails[e.id] || {};
+                        const filled = b.recipientName || b.accountNumber || b.ifscCode;
+                        return (
+                          <tr key={e.id}>
+                            <td><div className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{e.name}</div><div className="sv-text-muted" style={{ fontSize: 11 }}>{e.id} · {e.department || "—"}</div></td>
+                            <td className={filled ? "sv-text-navy" : "sv-text-muted"} style={{ fontSize: 12.5 }}>{b.recipientName || "—"}</td>
+                            <td className={filled ? "sv-text-navy" : "sv-text-muted"} style={{ fontSize: 12.5 }}>{b.accountNumber || "—"}</td>
+                            <td className={filled ? "sv-text-navy" : "sv-text-muted"} style={{ fontSize: 12.5 }}>{b.ifscCode || "—"}</td>
+                            <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{b.upiId || "—"}</td>
+                            <td><button className="sv-btn sv-btn--sm sv-btn--outline" disabled={!editMode} onClick={() => setBankEdit({ empId: e.id, name: e.name, recipientName: b.recipientName || "", accountNumber: b.accountNumber || "", ifscCode: b.ifscCode || "", upiId: b.upiId || "" })}>{filled ? "Edit" : "Add"}</button></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
+
+      {/* Bank details edit modal (admin) */}
+      {bankEdit && (
+        <div className="sv-modal-overlay" onClick={() => setBankEdit(null)}>
+          <div className="sv-modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <div className="sv-modal-header"><span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>Bank Details — {bankEdit.name}</span><button className="sv-modal-close" onClick={() => setBankEdit(null)}>×</button></div>
+            <div style={{ padding: "16px 20px", display: "grid", gap: 12 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>Recipient Name *<input className="sv-input" value={bankEdit.recipientName} onChange={(ev) => setBankEdit({ ...bankEdit, recipientName: ev.target.value })} placeholder="As per bank account" /></label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>Account Number *<input className="sv-input" value={bankEdit.accountNumber} onChange={(ev) => setBankEdit({ ...bankEdit, accountNumber: ev.target.value })} placeholder="Bank account number" /></label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>IFSC Code *<input className="sv-input" value={bankEdit.ifscCode} onChange={(ev) => setBankEdit({ ...bankEdit, ifscCode: ev.target.value.toUpperCase() })} placeholder="e.g. HDFC0001234" /></label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>UPI ID (optional)<input className="sv-input" value={bankEdit.upiId} onChange={(ev) => setBankEdit({ ...bankEdit, upiId: ev.target.value })} placeholder="name@bank" /></label>
+              <div className="sv-flex sv-gap-2" style={{ marginTop: 4 }}>
+                <button className="sv-btn sv-btn--outline" style={{ flex: 1 }} onClick={() => setBankEdit(null)}>Cancel</button>
+                <button className="sv-btn sv-btn--primary" style={{ flex: 1 }} onClick={async () => {
+                  if (!bankEdit.recipientName.trim() || !bankEdit.accountNumber.trim() || !bankEdit.ifscCode.trim()) { showToast("Recipient, account number and IFSC are required.", "err"); return; }
+                  const ok = saveBankDetails && await saveBankDetails(bankEdit.empId, bankEdit);
+                  if (ok) setBankEdit(null);
+                }}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Incentive modal (unchanged logic) */}
       {modal?.type === "incentive" && (() => {
@@ -667,10 +730,12 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
         const emp = employees.find((e) => e.id === confirmPaid);
         const sal = getSal(confirmPaid);
         const total = (sal.fixedSalary || 0) + sumAmt(sal.incentives) - sumAmt(sal.deductions);
+        const alreadyPaid = (sal.payments || []).some((p) => mKey(p.date) === cur);
         return (
           <div className="sv-modal-overlay" onClick={() => setConfirmPaid(null)}>
             <div className="sv-modal sv-confirm" onClick={(e) => e.stopPropagation()}>
               <p className="sv-confirm-msg">Mark salary as Paid for {emp?.name}?</p>
+              {alreadyPaid && <p className="sv-confirm-sub" style={{ color: "#B91C1C", fontWeight: 700 }}>⚠ This employee has already been paid this month. Confirming will record a second payment.</p>}
               <p className="sv-confirm-sub">Records a net payment of {money(total)} and clears pending incentives &amp; deductions. Do you want to proceed?</p>
               <div className="sv-confirm-actions">
                 <button className="sv-btn sv-btn--outline" onClick={() => setConfirmPaid(null)}>No</button>

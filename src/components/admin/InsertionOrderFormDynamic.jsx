@@ -25,6 +25,16 @@ const DEFAULT_PERKS = [
 
 const CIO_PERKS_HTML = `<ul>${DEFAULT_PERKS.map((p) => `<li>${p}</li>`).join('')}</ul>`;
 
+// Supported currencies for the participation cost. Free-typed too, so any custom
+// code works — the symbol is dropped and the code is spelled out when unknown.
+const IO_CURRENCIES = ['USD', 'AED', 'INR', 'EUR', 'GBP', 'AUD', 'SGD', 'CAD'];
+const IO_CUR_SYM = { USD: '$', AED: 'Dh', INR: '₹', EUR: '€', GBP: '£', AUD: 'A$', SGD: 'S$', CAD: 'C$' };
+const IO_CUR_NAME = { USD: 'US Dollars', AED: 'UAE Dirham', INR: 'Indian Rupees', EUR: 'Euros', GBP: 'British Pounds', AUD: 'Australian Dollars', SGD: 'Singapore Dollars', CAD: 'Canadian Dollars' };
+const curSym = (c) => IO_CUR_SYM[c] || '';
+const curName = (c) => IO_CUR_NAME[c] || (c || 'USD');
+// Formatted as: "<symbol> <amount> <name>" — e.g. "$ 199 US Dollars"
+const fmtCost = (amount, c) => `${curSym(c) ? curSym(c) + ' ' : ''}${amount || '0'} ${curName(c)}`;
+
 const CIO_TERMS_HTML =
   '<ol>' +
   '<li>CIO Visionaries is not liable for failure to publish or circulate any part of any issue(s) because of acts of God, strikes, work stoppages, national emergencies, or other circumstances beyond the control of the publisher.</li>' +
@@ -169,6 +179,7 @@ export default function InsertionOrderForm({ onCapture } = {}) {
     clientTitle: '',
     clientEmail: '',
     cost: '199',
+    currency: 'USD',
   });
 
   /* ── Auto-save (only the changed magazine is rewritten in the array) ── */
@@ -343,9 +354,7 @@ export default function InsertionOrderForm({ onCapture } = {}) {
       <div class="body"><strong>Feature Title</strong> &ndash; "${esc(form.featureTitle || '...')}"</div>
       <div class="body" style="margin-top:10px;"><strong>Perk with this Exclusive feature:</strong></div>
       <div class="rich">${mag.perksHtml || ''}</div>
-      <div class="body" style="margin-top:10px;"><strong>Participation Cost:</strong> $ ${esc(
-        form.cost || '0'
-      )} USD.</div>
+      <div class="body" style="margin-top:10px;"><strong>Participation Cost:</strong> ${esc(fmtCost(form.cost, form.currency))}.</div>
       <div class="signoff">
         <strong>Agreed By:</strong>
         <div class="row"><span>Name: ____________________</span><span>Title: ____________________</span></div>
@@ -380,7 +389,7 @@ export default function InsertionOrderForm({ onCapture } = {}) {
         paymentStatus: 'Pending',
         paymentDate: form.date || '',
         amount: form.cost === '' ? null : Number(form.cost),
-        currency: 'USD',
+        currency: form.currency || 'USD',
         details: {
           confirmationNo: confNo,
           contractNo: confNo,
@@ -392,7 +401,7 @@ export default function InsertionOrderForm({ onCapture } = {}) {
           magazine: mag.name || '',
           generatedAt: new Date().toISOString(),
           contractValue: form.cost || '',
-          currency: 'USD',
+          currency: form.currency || 'USD',
           orderStatus: 'Downloaded',
           paymentStatus: 'Pending',
         },
@@ -507,14 +516,28 @@ export default function InsertionOrderForm({ onCapture } = {}) {
             </div>
 
             <div className="sv-io-field">
-              <label className="sv-form-label">Participation cost (USD)</label>
-              <input
-                className="sv-input"
-                type="text"
-                placeholder="199"
-                value={form.cost}
-                onChange={(e) => updateField('cost', e.target.value)}
-              />
+              <label className="sv-form-label">Participation cost</label>
+              <div className="sv-flex sv-gap-2">
+                <input
+                  className="sv-input"
+                  type="text"
+                  placeholder="199"
+                  value={form.cost}
+                  onChange={(e) => updateField('cost', e.target.value)}
+                  style={{ flex: 2 }}
+                />
+                <input
+                  className="sv-input"
+                  list="io-cur-list"
+                  value={form.currency}
+                  onChange={(e) => updateField('currency', e.target.value.toUpperCase())}
+                  placeholder="USD"
+                  style={{ flex: 1, minWidth: 90 }}
+                />
+                <datalist id="io-cur-list">
+                  {IO_CURRENCIES.map((c) => <option key={c} value={c} />)}
+                </datalist>
+              </div>
             </div>
           </div>
 
@@ -575,7 +598,7 @@ export default function InsertionOrderForm({ onCapture } = {}) {
                     <button
                       type="button"
                       className="sv-io-perk-remove"
-                      onClick={() => updateMag({ logoDataUrl: '' })}
+                      onClick={() => { if (window.confirm('Remove this logo?')) updateMag({ logoDataUrl: '' }); }}
                       aria-label="Remove logo"
                     >
                       ×
@@ -604,7 +627,7 @@ export default function InsertionOrderForm({ onCapture } = {}) {
                     <button
                       type="button"
                       className="sv-io-perk-remove"
-                      onClick={() => updateMag({ watermarkDataUrl: '' })}
+                      onClick={() => { if (window.confirm('Remove this watermark?')) updateMag({ watermarkDataUrl: '' }); }}
                       aria-label="Remove watermark"
                     >
                       ×
@@ -779,7 +802,7 @@ export default function InsertionOrderForm({ onCapture } = {}) {
               />
 
               <p className="sv-io-preview-body" style={{ marginTop: 10 }}>
-                <strong>Participation Cost:</strong> $ {form.cost || '0'} USD.
+                <strong>Participation Cost:</strong> {fmtCost(form.cost, form.currency)}.
               </p>
 
               <div className="sv-io-preview-signoff">

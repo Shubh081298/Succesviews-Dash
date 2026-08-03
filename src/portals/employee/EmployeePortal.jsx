@@ -24,7 +24,7 @@ export default function EmployeePortal() {
     announcements, saveAnnouncements,
     messages, saveMessages, dismissMessage,
     websites,
-    designProjects, designFiles, uploadDesignFile, deleteDesignFile, updateDesignProject,
+    designProjects, designArchive, designFiles, uploadDesignFile, deleteDesignFile, updateDesignProject,
     designActivity, changeProjectStatus, addProjectComment,
     designWork, saveDesignWork,
     designExtra, releaseDesign, addDesignFolder, deleteDesignFolder,
@@ -255,7 +255,7 @@ export default function EmployeePortal() {
     return (
       <DesignerDashboard
         emp={emp} logo={logo} theme={theme} toggleTheme={toggleTheme} onLogout={handleLogout}
-        designProjects={designProjects} designFiles={designFiles}
+        designProjects={designProjects} designArchive={designArchive} designFiles={designFiles}
         uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} updateDesignProject={updateDesignProject}
         designActivity={designActivity} changeProjectStatus={changeProjectStatus} addProjectComment={addProjectComment}
         notifications={notifications} markNotificationRead={markNotificationRead} markAllNotificationsRead={markAllNotificationsRead} clearNotifications={clearNotifications}

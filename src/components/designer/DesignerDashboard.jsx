@@ -8,7 +8,7 @@
  */
 import { useState, useRef, useMemo } from "react";
 import Sidebar from "../layout/Sidebar";
-import { Palette, CreditCard, User, FileText, ArrowLeft, Wallet, Plus, Pencil, Trash2, IndianRupee, FolderOpen, Bell, AlertTriangle } from "lucide-react";
+import { Palette, CreditCard, User, FileText, ArrowLeft, Wallet, Plus, Pencil, Trash2, IndianRupee, FolderOpen, Bell, AlertTriangle, Search } from "lucide-react";
 import WorkflowTimeline, { buildRevisions } from "../design/WorkflowTimeline";
 import { fmtDate, domainColor } from "../../utils/helpers";
 
@@ -62,7 +62,7 @@ const money = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
 
 export default function DesignerDashboard({
   emp, logo, theme, toggleTheme, onLogout,
-  designProjects = [], designFiles = [], uploadDesignFile, deleteDesignFile, updateDesignProject,
+  designProjects = [], designArchive = [], designFiles = [], uploadDesignFile, deleteDesignFile, updateDesignProject,
   designActivity = [], changeProjectStatus, addProjectComment,
   designWork = [], saveDesignWork, pushNotification,
   notifications = [], markNotificationRead, markAllNotificationsRead, clearNotifications,
@@ -97,7 +97,10 @@ export default function DesignerDashboard({
   // Match assigned projects by id, with a name fallback so a drifted/re-keyed
   // designer id can't hide a designer's own projects.
   const isMine = (p) => p.assignedDesigner === emp.id || (!!p.assignedDesignerName && !!emp.name && p.assignedDesignerName.trim().toLowerCase() === emp.name.trim().toLowerCase());
-  const myProjects = designProjects.filter(isMine);
+  // Projects the admin archived/deleted must disappear from the designer side too.
+  const archivedIds = new Set((designArchive || []).map((a) => a.id));
+  const isLive = (p) => !archivedIds.has(p.id);
+  const myProjects = designProjects.filter((p) => isMine(p) && isLive(p));
   const unreadNotifs = (notifications || []).filter((n) => !n.read).length;
   const notifTimeAgo = (ts) => { const s2 = Math.floor((Date.now() - ts) / 1000); if (s2 < 60) return "just now"; const m2 = Math.floor(s2 / 60); if (m2 < 60) return m2 + "m ago"; const h2 = Math.floor(m2 / 60); if (h2 < 24) return h2 + "h ago"; return new Date(ts).toLocaleDateString(); };
   const project = myProjects.find((p) => p.id === openId) || null;
@@ -533,7 +536,7 @@ export default function DesignerDashboard({
           // Show assigned projects PLUS any project this designer has logged work on,
           // so their client work is never hidden by an assignment mismatch.
           const workedPids = new Set(myWork.map((w) => w.projectId));
-          const visibleProjects = designProjects.filter((p) => isMine(p) || workedPids.has(p.id));
+          const visibleProjects = designProjects.filter((p) => (isMine(p) || workedPids.has(p.id)) && isLive(p));
           const rows = visibleProjects.filter((p) => !q || `${p.clientName} ${p.magazineName} ${p.companyName} ${p.edition}`.toLowerCase().includes(q));
           const openP = visibleProjects.find((p) => p.id === costOpen) || null;
           const openItems = openP ? itemsFor(openP.id).slice().sort((a, b) => String(b.createdAt || b.date).localeCompare(String(a.createdAt || a.date))) : [];

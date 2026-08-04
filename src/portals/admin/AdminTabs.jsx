@@ -1261,7 +1261,7 @@ export function SettingsTab({ employees, setEmployees, departments = [], freelan
             <button className="sv-btn sv-btn--primary" onClick={addEmployeeQuick}><Plus size={14} /> Add</button>
           </div>
           {/* Compact employee list — shows 4, scrollable, View All toggle */}
-          <EmployeeListCompact employees={employees} onUpdateEmp={onUpdateEmp} onDeleteEmp={onDeleteEmp} onResetPwd={onResetPwd} />
+          <EmployeeListCompact employees={employees} onUpdateEmp={onUpdateEmp} onDeleteEmp={onDeleteEmp} onResetPwd={onResetPwd} departments={departments} />
         </div>
 
         <div className="sv-card">
@@ -1372,7 +1372,7 @@ export function SettingsTab({ employees, setEmployees, departments = [], freelan
 
 /* Single employee row in admin Settings. Holds a local draft and persists
    text edits on blur (avoids per-keystroke writes & save races). */
-function EmployeeRow({ emp, onUpdateEmp, onDeleteEmp, onResetPwd }) {
+function EmployeeRow({ emp, onUpdateEmp, onDeleteEmp, onResetPwd, departments = [] }) {
   const [draft, setDraft] = useState(emp);
   const [open, setOpen] = useState(false);
   useEffect(() => { setDraft(emp); }, [emp.id]);
@@ -1394,8 +1394,18 @@ function EmployeeRow({ emp, onUpdateEmp, onDeleteEmp, onResetPwd }) {
       <div className="sv-emp-body">
       <div className="sv-emp-grid">
         <label className="sv-field"><span>Department</span>
-          <select className="sv-select" value={draft.department} onChange={(e) => { const v = e.target.value; const next = { ...draft, department: v }; setDraft(next); onUpdateEmp(next); }}>
-            <option>Sales</option><option>Operations</option><option>Design</option>
+          <select className="sv-select" value={draft.department || ""} onChange={(e) => { const v = e.target.value; const next = { ...draft, department: v }; setDraft(next); onUpdateEmp(next); }}>
+            <option value="">— Select department —</option>
+            {(() => {
+              // Dynamic list from the Departments section; keep the employee's current
+              // value even if it isn't in the list, so editing never drops it.
+              const seen = new Set(); const opts = [];
+              [...(draft.department ? [draft.department] : []), ...departments].forEach((d) => {
+                const k = (d || "").trim().toLowerCase();
+                if (d && !seen.has(k)) { seen.add(k); opts.push(d); }
+              });
+              return opts.map((d) => <option key={d} value={d}>{d}</option>);
+            })()}
           </select>
         </label>
         <label className="sv-field"><span>Employee Code</span>
@@ -1479,14 +1489,14 @@ function ResetPasswordInline({ empId, empName, onResetPwd }) {
 
 // ── EmployeeListCompact ──────────────────────────────────────
 // Shows 4 employees by default with a scrollable "View All" expansion
-function EmployeeListCompact({ employees, onUpdateEmp, onDeleteEmp, onResetPwd }) {
+function EmployeeListCompact({ employees, onUpdateEmp, onDeleteEmp, onResetPwd, departments = [] }) {
   return (
     <div style={{ marginTop: 12 }}>
       <div className="sv-emp-count">{employees.length} employee{employees.length === 1 ? "" : "s"} — click a name to view details</div>
       <div className="sv-emp-list">
         <ul className="sv-list" style={{ margin: 0, padding: 0 }}>
           {employees.map((e) => (
-            <EmployeeRow key={e.id} emp={e} onUpdateEmp={onUpdateEmp} onDeleteEmp={onDeleteEmp} onResetPwd={onResetPwd} />
+            <EmployeeRow key={e.id} emp={e} onUpdateEmp={onUpdateEmp} onDeleteEmp={onDeleteEmp} onResetPwd={onResetPwd} departments={departments} />
           ))}
         </ul>
       </div>

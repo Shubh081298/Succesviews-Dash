@@ -4578,3 +4578,50 @@ body { font-size: 14px; line-height: 1.55; letter-spacing: -0.006em; color: #0F1
 
 /* elegant operation section headers/typography */
 .sv-op-row .sv-select,.sv-op-card .sv-select{font-size:13px}
+
+/* ══════════════════════════════════════════════════════════════
+   Sidebar hide/show toggle + Admin mobile-overflow hardening
+   (desktop design unchanged; only collapse + mobile fit added)
+   ══════════════════════════════════════════════════════════════ */
+
+/* Topbar collapse button (desktop only; mobile uses the drawer hamburger) */
+.sv-topbar-collapse{display:inline-flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:11px;border:1px solid var(--sv-border,#EEF2F7);background:var(--sv-surface-1,#fff);color:var(--sv-text-2,#475569);cursor:pointer;flex:none;transition:background .15s,color .15s}
+.sv-topbar-collapse:hover{background:var(--sv-surface-2,#F1F5F9);color:var(--sv-text-1,#0F172A)}
+.sv-dark .sv-topbar-collapse{background:#1E293B;border-color:rgba(255,255,255,.1);color:#CBD5E1}
+@media(max-width:767px){.sv-topbar-collapse{display:none}}
+
+/* Smooth desktop collapse — main auto-expands (flex:1) */
+@media(min-width:768px){
+  .sv-sidebar{transition:width .22s ease,min-width .22s ease,padding .22s ease,opacity .16s ease}
+  /* !important is required — the base rule pins .sv-sidebar to 232px !important,
+     so without this the box stays 232px wide (blank) and leaves a gap. */
+  .sv-sb-collapsed .sv-sidebar{width:0 !important;min-width:0 !important;padding-left:0 !important;padding-right:0 !important;border-right:none !important;opacity:0;pointer-events:none;overflow:hidden}
+}
+
+/* ── Global overflow guard (kills page-level horizontal scroll on Android) ── */
+html,body{overflow-x:hidden;max-width:100%}
+#root{max-width:100vw;overflow-x:hidden}
+
+@media(max-width:767px){
+  .sv-app-shell{max-width:100vw;overflow-x:hidden}
+  .sv-admin .sv-main{max-width:100vw;overflow-x:hidden;padding-left:14px;padding-right:14px}
+  /* the topbar's negative margins must match main's padding, else it overflows */
+  .sv-admin .sv-topbar{margin-left:-14px;margin-right:-14px;padding-left:14px;padding-right:14px;max-width:100vw;box-sizing:border-box}
+  .sv-admin .sv-topbar-actions{gap:6px}
+  /* every grid child may shrink below its content width */
+  .sv-admin .sv-grid-2>*,.sv-admin .sv-grid-3>*,.sv-admin .sv-grid-4>*,
+  .sv-admin .sv-kpi-grid>*,.sv-admin .sv-clp-kpigrid>*,.sv-admin .sv-op-ov-grid>*{min-width:0}
+  /* wide tables stay inside their card and scroll internally (no page overflow) */
+  .sv-admin .sv-mailids-scroll,.sv-admin .sv-erp-scroll{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .sv-admin .sv-card,.sv-admin .sv-anacard,.sv-admin .sv-op-ov-card{max-width:100%;box-sizing:border-box}
+  /* charts never exceed the card */
+  .sv-admin .recharts-responsive-container,.sv-admin .recharts-wrapper{max-width:100%!important}
+  /* pipeline expanded panel table margins tighten on phones */
+  .sv-clp-panel-inner .sv-mailids-scroll{margin:12px 10px 12px}
+}
+
+/* very small phones — single column for the dense grids */
+@media(max-width:430px){
+  .sv-admin .sv-clp-kpigrid,.sv-admin .sv-op-ov-grid{grid-template-columns:1fr}
+  .sv-admin .sv-grid-2:has(.sv-status-grid){grid-template-columns:1fr}
+}

@@ -5,7 +5,7 @@
  */
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, FileText, Trophy, BarChart3, Building2, ScrollText, CreditCard, Palmtree, Wallet, Users, Settings, Search, Bell, ChevronDown, Palette } from "lucide-react";
+import { LayoutDashboard, FileText, Trophy, BarChart3, Building2, ScrollText, CreditCard, Palmtree, Wallet, Users, Settings, Search, Bell, ChevronDown, Palette, PanelLeft } from "lucide-react";
 import { useAppData } from "../../data/AppDataContext";
 import { useAdminAuth } from "./AdminAuthContext";
 import Sidebar from "../../components/layout/Sidebar";
@@ -58,6 +58,9 @@ export default function AdminDashboard() {
   const [detailModal, setDetailModal] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  // Desktop sidebar collapse — persisted so it's remembered across navigation.
+  const [sbCollapsed, setSbCollapsed] = useState(() => { try { return localStorage.getItem("svd_admin_sb") === "1"; } catch (e) { return false; } });
+  const toggleSidebar = () => setSbCollapsed((v) => { const n = !v; try { localStorage.setItem("svd_admin_sb", n ? "1" : "0"); } catch (e) {} return n; });
   const unreadNotifs = (notifications || []).filter((n) => !n.read).length;
   const timeAgo = (ts) => { const s = Math.floor((Date.now() - ts) / 1000); if (s < 60) return "just now"; const m = Math.floor(s / 60); if (m < 60) return m + "m ago"; const h = Math.floor(m / 60); if (h < 24) return h + "h ago"; return new Date(ts).toLocaleDateString(); };
 
@@ -327,7 +330,7 @@ export default function AdminDashboard() {
   };
 
   return (
-    <div className={`sv-app-shell sv-admin${theme === "dark" ? " sv-dark" : ""}`}>
+    <div className={`sv-app-shell sv-admin${theme === "dark" ? " sv-dark" : ""}${sbCollapsed ? " sv-sb-collapsed" : ""}`}>
       <Sidebar
         logo={logo} brandTitle="ADMIN" brandSubtitle="" hideAvatar profileVariant="admin"
         theme={theme} onToggleTheme={toggleTheme}
@@ -350,6 +353,9 @@ export default function AdminDashboard() {
       />
       <main className="sv-main">
         <header className="sv-topbar">
+          <button type="button" className="sv-topbar-collapse" onClick={toggleSidebar} title={sbCollapsed ? "Show sidebar" : "Hide sidebar"} aria-label="Toggle sidebar">
+            <PanelLeft size={18} />
+          </button>
           <div className="sv-topbar-search">
             <Search size={16} />
             <input type="text" placeholder="Search employees, reports, orders…" aria-label="Search" />

@@ -588,6 +588,58 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
           </div>
         </div>
       </div>
+
+      {/* ── Operations Overview — Web/Digital Live, Social, Attendance, Team Lead Updates ── */}
+      {(() => {
+        const opSubs = (ovFiltered || []).filter((s) => (s.department || "") === "Operations");
+        let webLive = 0, digitalLive = 0, postsDone = 0;
+        const plat = { Facebook: 0, Instagram: 0, LinkedIn: 0 };
+        let present = 0, half = 0, absent = 0;
+        opSubs.forEach((s) => {
+          const op = s.customFields && s.customFields.__op;
+          if (op) {
+            (op.magazine || []).forEach((m) => { if (m.webLive === "Yes") webLive++; if (m.digitalLive === "Yes") digitalLive++; });
+            (op.social || []).forEach((x) => {
+              if (x.fb === "Yes") { postsDone++; plat.Facebook++; }
+              if (x.ig === "Yes") { postsDone++; plat.Instagram++; }
+              if (x.li === "Yes") { postsDone++; plat.LinkedIn++; }
+            });
+          }
+          const a = s.attendance; if (a === "Present") present++; else if (a === "Half Day") half++; else if (a === "Absent") absent++;
+        });
+        const opUpd = opSubs.filter((s) => s.updatesForTeamLead && String(s.updatesForTeamLead).trim()).sort((a, b) => (a.date < b.date ? 1 : -1));
+        const stat = (label, value, color) => (
+          <div className="sv-op-ov-stat"><span className="sv-op-ov-statv" style={{ color }}>{value}</span><span className="sv-op-ov-statl">{label}</span></div>
+        );
+        return (
+          <div style={{ marginTop: 20 }}>
+            <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 4, height: 18, background: "#2563EB", borderRadius: 3, display: "inline-block" }} />Operations Overview</h3>
+            <div className="sv-op-ov-grid">
+              <div className="sv-op-ov-card" style={{ "--oc": "#2563EB" }}>
+                <div className="sv-op-ov-head"><Globe2 size={16} /> Web &amp; Digital Live</div>
+                <div className="sv-op-ov-stats">{stat("Web Live", webLive, "#2563EB")}{stat("Digital Live", digitalLive, "#0891B2")}</div>
+              </div>
+              <div className="sv-op-ov-card" style={{ "--oc": "#7C3AED" }}>
+                <div className="sv-op-ov-head"><Megaphone size={16} /> Social Media Posts</div>
+                <div className="sv-op-ov-stats">{stat("Posts Done", postsDone, "#7C3AED")}</div>
+                <div className="sv-op-ov-sub">FB {plat.Facebook} · IG {plat.Instagram} · IN {plat.LinkedIn}</div>
+              </div>
+              <div className="sv-op-ov-card" style={{ "--oc": "#16A34A" }}>
+                <div className="sv-op-ov-head"><CheckCircle2 size={16} /> Attendance</div>
+                <div className="sv-op-ov-stats">{stat("Present", present, "#16A34A")}{stat("Half Day", half, "#CA8A04")}{stat("Absent", absent, "#DC2626")}</div>
+              </div>
+              <div className="sv-op-ov-card" style={{ "--oc": "#0891B2" }}>
+                <div className="sv-op-ov-head"><Megaphone size={16} /> Team Lead Updates</div>
+                <div className="sv-op-ov-stats">{stat("Updates", opUpd.length, "#0891B2")}</div>
+                <div className="sv-op-ov-updlist">
+                  {opUpd.length === 0 ? <span className="sv-text-muted" style={{ fontSize: 12 }}>No updates in this period.</span>
+                    : opUpd.slice(0, 3).map((s) => <div key={s.id || `${s.empId}-${s.date}`} className="sv-op-ov-upd"><b>{s.empName}:</b> {String(s.updatesForTeamLead).slice(0, 80)}</div>)}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1116,7 +1168,10 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
  * SettingsTab — employee management (incl. email), two-step admin
  * password, messaging, targets, branding, website list.
  * ──────────────────────────────────────────────────────────────*/
-export function SettingsTab({ employees, setEmployees, departments = [], freelancers = [], teamMeta = {}, onUpdateEmp, onDeleteEmp, onResetPwd, newEmp, setNewEmp, addEmployeeQuick, newEmpEmail, setNewEmpEmail, newEmpPwd, setNewEmpPwd, adminPwd, setAdminPwd, msgEmpId, setMsgEmpId, msgText, setMsgText, sendMessage, messages, deleteMessage, targets, setTargets, logo, onLogoChange, onLogoRemove, websites, newWebsite, setNewWebsite, addWebsite, removeWebsite, pushNotification, showToast, editMode = false, setEditMode, settingsPwd = "Settings@123", setSettingsPwd }) {
+export function SettingsTab({ employees, setEmployees, departments = [], freelancers = [], teamMeta = {}, onUpdateEmp, onDeleteEmp, onResetPwd, newEmp, setNewEmp, addEmployeeQuick, newEmpEmail, setNewEmpEmail, newEmpPwd, setNewEmpPwd, adminPwd, setAdminPwd, msgEmpId, setMsgEmpId, msgText, setMsgText, sendMessage, messages, deleteMessage, targets, setTargets, logo, onLogoChange, onLogoRemove, websites, newWebsite, setNewWebsite, addWebsite, removeWebsite, domains = [], addDomain, updateDomain, deleteDomain, pushNotification, showToast, editMode = false, setEditMode, settingsPwd = "Settings@123", setSettingsPwd }) {
+  const [newDomain, setNewDomain] = useState("");
+  const [editDomainId, setEditDomainId] = useState(null);
+  const [editDomainVal, setEditDomainVal] = useState("");
   const [curPwd, setCurPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
@@ -1268,6 +1323,43 @@ export function SettingsTab({ employees, setEmployees, departments = [], freelan
             ) : (
               <div className="sv-flex sv-gap-xs" style={{ flexWrap: "wrap", marginTop: 6 }}>
                 {websites.map((w) => <span key={w} className="sv-chip">{w} <button disabled={!editMode} onClick={() => removeWebsite(w)} style={{ border: "none", background: "transparent", cursor: editMode ? "pointer" : "not-allowed", marginLeft: 4 }}>×</button></span>)}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="sv-card">
+          <SecHead icon={<Globe2 size={16} />} color="#2563EB" bg="rgba(37,99,235,.12)" title="Websites / Domains" desc="One shared domain list — powers the Sales Pipeline and every DSR (Operation, Social, Magazine Live). Add once, appears everywhere." />
+          <div className="sv-info-note">
+            <Globe2 size={15} />
+            <span>These domains appear automatically in the <b>Sales Pipeline</b> and in the <b>Operation DSR</b> (Website Work, Social Media, Magazine Live). Add or remove one here and it updates everywhere.</span>
+          </div>
+          {lockHint()}
+          <label className="sv-label" style={{ marginTop: 12 }}>Add a domain</label>
+          <div className="sv-flex sv-gap-sm">
+            <input className="sv-input" placeholder="e.g. AWL, CIO Visionaries" disabled={!editMode} value={newDomain} onChange={(e) => setNewDomain(e.target.value)} onKeyDown={async (e) => { if (e.key === "Enter" && editMode && newDomain.trim()) { const ok = await addDomain(newDomain); if (ok) setNewDomain(""); } }} />
+            <button className="sv-btn sv-btn--primary" disabled={!editMode || !newDomain.trim()} onClick={async () => { const ok = await addDomain(newDomain); if (ok) setNewDomain(""); }}><Plus size={14} /> Add</button>
+          </div>
+          <div className="sv-website-list">
+            <span className="sv-website-list-label">{domains.length} domain{domains.length !== 1 ? "s" : ""} available across Pipeline &amp; DSR:</span>
+            {domains.length === 0 ? (
+              <span className="sv-text-muted" style={{ fontSize: 12.5 }}>None yet — add your first domain above.</span>
+            ) : (
+              <div className="sv-flex sv-gap-xs" style={{ flexWrap: "wrap", marginTop: 6 }}>
+                {domains.map((d) => (
+                  editDomainId === d.id ? (
+                    <span key={d.id} className="sv-chip" style={{ gap: 4 }}>
+                      <input className="sv-input" style={{ height: 26, padding: "2px 6px", fontSize: 12.5, width: 150 }} value={editDomainVal} autoFocus onChange={(e) => setEditDomainVal(e.target.value)} onKeyDown={async (e) => { if (e.key === "Enter" && editDomainVal.trim()) { await updateDomain(d.id, editDomainVal); setEditDomainId(null); } if (e.key === "Escape") setEditDomainId(null); }} />
+                      <button onClick={async () => { if (editDomainVal.trim()) { await updateDomain(d.id, editDomainVal); setEditDomainId(null); } }} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#16A34A", fontWeight: 700 }}>✓</button>
+                      <button onClick={() => setEditDomainId(null)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#94A3B8" }}>×</button>
+                    </span>
+                  ) : (
+                    <span key={d.id} className="sv-chip">{d.name}
+                      <button disabled={!editMode} title="Edit" onClick={() => { setEditDomainId(d.id); setEditDomainVal(d.name); }} style={{ border: "none", background: "transparent", cursor: editMode ? "pointer" : "not-allowed", marginLeft: 6, color: "#2563EB" }}><Pencil size={12} /></button>
+                      <button disabled={!editMode} title="Delete" onClick={() => { if (window.confirm(`Delete domain "${d.name}"?`)) deleteDomain(d.id); }} style={{ border: "none", background: "transparent", cursor: editMode ? "pointer" : "not-allowed", marginLeft: 2 }}>×</button>
+                    </span>
+                  )
+                ))}
               </div>
             )}
           </div>

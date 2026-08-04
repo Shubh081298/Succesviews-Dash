@@ -25,6 +25,7 @@ export default function AdminDashboard() {
     submissions, saveSubs,
     departments, saveDepartments,
     websites, saveWebsites,
+    domains, addDomain, updateDomain, deleteDomain,
     targets, saveTargets,
     teamMeta, saveTeamMeta,
     customFields, saveCustomFields,
@@ -476,6 +477,7 @@ export default function AdminDashboard() {
             websites={websites} newWebsite={newWebsite} setNewWebsite={setNewWebsite}
             addWebsite={() => { if (newWebsite.trim()) { saveWebsites([...websites, newWebsite.trim()]); setNewWebsite(""); } }}
             removeWebsite={(w) => saveWebsites(websites.filter((x) => x !== w))}
+            domains={domains} addDomain={addDomain} updateDomain={updateDomain} deleteDomain={deleteDomain}
             pushNotification={pushNotification} showToast={showToast}
           />
         )}

@@ -10,6 +10,11 @@ import {
 import { ATTENDANCE, CURRENCIES, DOMAINS, BLUE } from "../../utils/constants.js";
 import { Mail, Send, Clock, Globe2, ClipboardList, Megaphone, CheckCircle2, XCircle, Info, CalendarDays, Sparkles, CheckCheck } from "lucide-react";
 
+// Brand icons aren't in this lucide version — small inline SVGs (with brand colours).
+const FbIcon = ({ size = 16 }) => (<svg width={size} height={size} viewBox="0 0 24 24" fill="#1877F2"><path d="M24 12a12 12 0 1 0-13.87 11.85v-8.38H7.08V12h3.05V9.36c0-3 1.79-4.67 4.53-4.67 1.31 0 2.68.23 2.68.23v2.95h-1.51c-1.49 0-1.96.93-1.96 1.87V12h3.33l-.53 3.47h-2.8v8.38A12 12 0 0 0 24 12z"/></svg>);
+const IgIcon = ({ size = 16 }) => (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#E4405F" strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="5.5"/><circle cx="12" cy="12" r="4.2"/><circle cx="17.6" cy="6.4" r="1.1" fill="#E4405F" stroke="none"/></svg>);
+const LiIcon = ({ size = 16 }) => (<svg width={size} height={size} viewBox="0 0 24 24" fill="#0A66C2"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.63-1.85 3.36-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.13 2.06 2.06 0 0 1 0 4.13zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.73C24 .77 23.2 0 22.22 0z"/></svg>);
+
 const ATT_META = {
   "Present": { icon: CheckCircle2, ac: "#16A34A", bg: "#DCFCE7" },
   "Half Day": { icon: Clock, ac: "#CA8A04", bg: "#FEF9C3" },
@@ -57,7 +62,7 @@ export default function EmployeeDashboard({
   customFields = [], announcements = [], onDismissAnn, myMessages = [], onDismissMsg,
   theme = "light", onToggleTheme, leaves = [], leaveForm, setLeaveForm, onApplyLeave,
   onUpdatePhoto, employees = [], logo = "", onSaveAssignedIds,
-  bankDetails = {}, onSaveBank,
+  bankDetails = {}, onSaveBank, domains = [],
 }) {
   const today = getTodayStr();
   const dark = theme === "dark";
@@ -99,6 +104,13 @@ export default function EmployeeDashboard({
   const addWebsiteRow = () => setDsrForm({ ...dsrForm, websites: [...dsrForm.websites, { name: "", description: "" }] });
   const removeWebsiteRow = (i) => setDsrForm({ ...dsrForm, websites: dsrForm.websites.filter((_, idx) => idx !== i) });
   const setCustomVal = (id, val) => setDsrForm({ ...dsrForm, customFields: { ...dsrForm.customFields, [id]: val } });
+
+  // Operation DSR — the common admin-managed domain list (falls back to websites list).
+  const domainNames = (domains || []).filter((d) => d.status !== false).map((d) => d.name);
+  const domainOptions = domainNames.length ? domainNames : websites;
+  const opUpdate = (key, i, field, val) => setDsrForm({ ...dsrForm, [key]: (dsrForm[key] || []).map((r, idx) => (idx === i ? { ...r, [field]: val } : r)) });
+  const opAdd = (key, blank) => setDsrForm({ ...dsrForm, [key]: [...(dsrForm[key] || []), blank] });
+  const opRemove = (key, i) => setDsrForm({ ...dsrForm, [key]: (dsrForm[key] || []).filter((_, idx) => idx !== i) });
 
   const badgeClass = (status) => `sv-badge sv-badge--${String(status).toLowerCase().replace(/\s+/g, "-")}`;
   const attendance = dsrForm.attendance || "Present";
@@ -210,41 +222,119 @@ export default function EmployeeDashboard({
                 <div className="sv-dsr-sec sv-dsr-sec--blue" style={{ animationDelay: "90ms" }}>
                   <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><Sparkles size={16} /></span>Daily Activity</div>
                   <div className="sv-grid-2">
-                    <label className="sv-dsr-field">
-                      <span className="sv-dsr-flabel"><Mail size={14} /> Fresh Emails Sent <b>*</b></span>
-                      <input type="number" min="0" inputMode="numeric" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.freshEmails} onChange={(e) => setDsrForm({ ...dsrForm, freshEmails: e.target.value })} />
-                    </label>
-                    <label className="sv-dsr-field">
-                      <span className="sv-dsr-flabel"><Send size={14} /> Reminder Emails Sent <b>*</b></span>
-                      <input type="number" min="0" inputMode="numeric" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.reminderEmails} onChange={(e) => setDsrForm({ ...dsrForm, reminderEmails: e.target.value })} />
-                    </label>
+                    {!isOps && (
+                      <label className="sv-dsr-field">
+                        <span className="sv-dsr-flabel"><Mail size={14} /> Fresh Emails Sent <b>*</b></span>
+                        <input type="number" min="0" inputMode="numeric" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.freshEmails} onChange={(e) => setDsrForm({ ...dsrForm, freshEmails: e.target.value })} />
+                      </label>
+                    )}
+                    {!isOps && (
+                      <label className="sv-dsr-field">
+                        <span className="sv-dsr-flabel"><Send size={14} /> Reminder Emails Sent <b>*</b></span>
+                        <input type="number" min="0" inputMode="numeric" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.reminderEmails} onChange={(e) => setDsrForm({ ...dsrForm, reminderEmails: e.target.value })} />
+                      </label>
+                    )}
                     <label className="sv-dsr-field">
                       <span className="sv-dsr-flabel"><Clock size={14} /> Working Hours <b>*</b></span>
                       <input type="number" min="0" step="0.5" inputMode="decimal" disabled={locked} placeholder="0" className="sv-input" value={dsrForm.workingHours} onChange={(e) => setDsrForm({ ...dsrForm, workingHours: e.target.value })} />
                     </label>
-                    <div />
-                    {isOps && (
-                      <div style={{ gridColumn: "1/-1" }}>
-                        <span className="sv-dsr-flabel"><Globe2 size={14} /> Website Work</span>
-                        {dsrForm.websites.map((w, i) => (
-                          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr auto", gap: 8, margin: "8px 0", alignItems: "start" }}>
-                            <select disabled={locked} className="sv-select" value={w.name} onChange={(e) => setWebsiteRow(i, "name", e.target.value)}>
-                              <option value="">-- Select Website --</option>
-                              {websites.map((wn) => <option key={wn} value={wn}>{wn}</option>)}
-                            </select>
-                            <textarea rows={2} disabled={locked} maxLength={2000} className="sv-textarea" value={w.description} onChange={(e) => setWebsiteRow(i, "description", e.target.value)} onInput={autoGrow} placeholder="Work description…" />
-                            {dsrForm.websites.length > 1 && !locked && <button onClick={() => removeWebsiteRow(i)} className="sv-row-remove">✕</button>}
-                          </div>
-                        ))}
-                        {!locked && <button type="button" onClick={addWebsiteRow} className="sv-pill sv-pill--add" style={{ marginTop: 2 }}>+ Add Another Website</button>}
-                      </div>
-                    )}
+                    {!isOps && <div />}
                   </div>
                 </div>
 
+                {/* ── Operation DSR: Website Work / Social Media / Magazine Live ── */}
+                {isOps && (
+                  <>
+                    <div className="sv-dsr-sec sv-dsr-sec--blue" style={{ animationDelay: "110ms" }}>
+                      <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><Globe2 size={16} /></span>Website Work</div>
+                      {(dsrForm.opWebsiteWork || []).map((r, i) => (
+                        <div key={i} className="sv-op-row">
+                          <div className="sv-op-row-grid">
+                            <select disabled={locked} className="sv-select" value={r.domain} onChange={(e) => opUpdate("opWebsiteWork", i, "domain", e.target.value)}>
+                              <option value="">-- Select Domain --</option>
+                              {domainOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                            <input disabled={locked} className="sv-input" value={r.today} onChange={(e) => opUpdate("opWebsiteWork", i, "today", e.target.value)} placeholder="Today's work (short)…" />
+                            <input disabled={locked} className="sv-input" value={r.pending} onChange={(e) => opUpdate("opWebsiteWork", i, "pending", e.target.value)} placeholder="Pending work (short)…" />
+                            {(dsrForm.opWebsiteWork || []).length > 1 && !locked && <button type="button" onClick={() => opRemove("opWebsiteWork", i)} className="sv-row-remove">✕</button>}
+                          </div>
+                        </div>
+                      ))}
+                      {!locked && <button type="button" onClick={() => opAdd("opWebsiteWork", { domain: "", today: "", pending: "" })} className="sv-pill sv-pill--add" style={{ marginTop: 4 }}>+ Add Another Website</button>}
+                    </div>
+
+                    <div className="sv-dsr-sec sv-dsr-sec--purple" style={{ animationDelay: "140ms" }}>
+                      <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><Megaphone size={16} /></span>Social Media</div>
+                      {(dsrForm.opSocial || []).map((r, i) => {
+                        const PLATFORMS = [
+                          { key: "fb", desc: "fbDesc", label: "Facebook", Icon: FbIcon },
+                          { key: "ig", desc: "igDesc", label: "Instagram", Icon: IgIcon },
+                          { key: "li", desc: "liDesc", label: "LinkedIn", Icon: LiIcon },
+                        ];
+                        return (
+                          <div key={i} className="sv-op-card">
+                            <div className="sv-op-card-top">
+                              <select disabled={locked} className="sv-select" value={r.domain} onChange={(e) => opUpdate("opSocial", i, "domain", e.target.value)}>
+                                <option value="">-- Select Domain --</option>
+                                {domainOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                              </select>
+                              {(dsrForm.opSocial || []).length > 1 && !locked && <button type="button" onClick={() => opRemove("opSocial", i)} className="sv-row-remove">✕</button>}
+                            </div>
+                            {r.domain && (
+                              <div className="sv-op-plats">
+                                {PLATFORMS.map(({ key, desc, label, Icon }) => (
+                                  <div key={key} className="sv-op-plat">
+                                    <span className="sv-op-plat-name"><Icon size={16} /> {label}</span>
+                                    <div className="sv-op-plat-toggle">
+                                      {["No", "Yes"].map((v) => (
+                                        <button key={v} type="button" disabled={locked} onClick={() => opUpdate("opSocial", i, key, v)}
+                                          className={`sv-op-yn${r[key] === v ? " is-on" : ""}${v === "Yes" ? " sv-op-yn--yes" : ""}`}>{v}</button>
+                                      ))}
+                                    </div>
+                                    {r[key] === "Yes" && (
+                                      <input disabled={locked} className="sv-input sv-op-plat-desc" value={r[desc] || ""} onChange={(e) => opUpdate("opSocial", i, desc, e.target.value)} placeholder={`${label} post details…`} />
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {!locked && <button type="button" onClick={() => opAdd("opSocial", { domain: "", fb: "No", fbDesc: "", ig: "No", igDesc: "", li: "No", liDesc: "" })} className="sv-pill sv-pill--add" style={{ marginTop: 4 }}>+ Add Another Domain</button>}
+                    </div>
+
+                    <div className="sv-dsr-sec sv-dsr-sec--green" style={{ animationDelay: "170ms" }}>
+                      <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><CheckCircle2 size={16} /></span>Magazine Live</div>
+                      {(dsrForm.opMagazine || []).map((r, i) => (
+                        <div key={i} className="sv-op-row">
+                          <div className="sv-op-mag-grid">
+                            <select disabled={locked} className="sv-select" value={r.domain} onChange={(e) => opUpdate("opMagazine", i, "domain", e.target.value)}>
+                              <option value="">-- Domain --</option>
+                              {domainOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                            <select disabled={locked} className="sv-select" value={r.webLive} onChange={(e) => opUpdate("opMagazine", i, "webLive", e.target.value)}>
+                              <option value="No">Web Live? No</option>
+                              <option value="Yes">Web Live? Yes</option>
+                            </select>
+                            {r.webLive === "Yes" && <input disabled={locked} className="sv-input" value={r.webClient} onChange={(e) => opUpdate("opMagazine", i, "webClient", e.target.value)} placeholder="Web — Client name" />}
+                            <select disabled={locked} className="sv-select" value={r.digitalLive} onChange={(e) => opUpdate("opMagazine", i, "digitalLive", e.target.value)}>
+                              <option value="No">Digital Live? No</option>
+                              <option value="Yes">Digital Live? Yes</option>
+                            </select>
+                            {r.digitalLive === "Yes" && <input disabled={locked} className="sv-input" value={r.digitalClient} onChange={(e) => opUpdate("opMagazine", i, "digitalClient", e.target.value)} placeholder="Digital — Client name" />}
+                            {(dsrForm.opMagazine || []).length > 1 && !locked && <button type="button" onClick={() => opRemove("opMagazine", i)} className="sv-row-remove">✕</button>}
+                          </div>
+                        </div>
+                      ))}
+                      {!locked && <button type="button" onClick={() => opAdd("opMagazine", { domain: "", webLive: "No", webClient: "", digitalLive: "No", digitalClient: "" })} className="sv-pill sv-pill--add" style={{ marginTop: 4 }}>+ Add Another Domain</button>}
+                    </div>
+                  </>
+                )}
+
                 {/* Pending Tasks */}
                 <div className="sv-dsr-sec sv-dsr-sec--orange" style={{ animationDelay: "140ms" }}>
-                  <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><ClipboardList size={16} /></span>Pending Tasks <b style={{ color: "#EA580C" }}>*</b></div>
+                  <div className="sv-dsr-sec-head"><span className="sv-dsr-sec-ic"><ClipboardList size={16} /></span>Pending Tasks {!isOps && <b style={{ color: "#EA580C" }}>*</b>}</div>
                   <div className="sv-notecard">
                     <textarea rows={3} maxLength={1000} disabled={locked} className="sv-textarea" value={dsrForm.pendingTasks} onChange={(e) => setDsrForm({ ...dsrForm, pendingTasks: e.target.value })} onInput={autoGrow} placeholder="List anything still in progress or waiting on someone — one item per line works great." />
                     <div className="sv-notecard-foot"><span>{(dsrForm.pendingTasks || "").length}/1000</span></div>

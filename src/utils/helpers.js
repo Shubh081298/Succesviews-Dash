@@ -112,6 +112,10 @@ export function blankDsr() {
     leads: [], followups: [], calls: [], sales: [], payments: [],
     contractOrders: [],
     websites: [{ name: "", description: "" }],
+    // Operation DSR structured sections (stored under submission.customFields.__op)
+    opWebsiteWork: [{ domain: "", today: "", pending: "" }],
+    opSocial: [{ domain: "", fb: "No", fbDesc: "", ig: "No", igDesc: "", li: "No", liDesc: "" }],
+    opMagazine: [{ domain: "", webLive: "No", webClient: "", digitalLive: "No", digitalClient: "" }],
     pendingTasks: "", updatesForTeamLead: "",
     customFields: {},
   };
@@ -131,6 +135,9 @@ export function dsrFromExisting(ex) {
         payments: Array.isArray(ex.payments) ? ex.payments : [],
         contractOrders: Array.isArray(ex.contractOrders) ? ex.contractOrders : [],
         websites: ex.websitesData?.length ? ex.websitesData : [{ name: "", description: "" }],
+        opWebsiteWork: ex.customFields?.__op?.websiteWork?.length ? ex.customFields.__op.websiteWork : [{ domain: "", today: "", pending: "" }],
+        opSocial: ex.customFields?.__op?.social?.length ? ex.customFields.__op.social : [{ domain: "", fb: "No", fbDesc: "", ig: "No", igDesc: "", li: "No", liDesc: "" }],
+        opMagazine: ex.customFields?.__op?.magazine?.length ? ex.customFields.__op.magazine : [{ domain: "", webLive: "No", webClient: "", digitalLive: "No", digitalClient: "" }],
         pendingTasks: ex.pendingTasks ?? "",
         updatesForTeamLead: ex.updatesForTeamLead ?? "",
         customFields: ex.customFields || {},

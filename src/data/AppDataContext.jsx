@@ -272,6 +272,39 @@ export function AppDataProvider({ children }) {
     } catch (e) { showToast("Could not save bank details.", "error"); return false; }
   }
 
+  // ── Domains (the ONE common website/domain list — feeds Pipeline + all DSRs) ──
+  async function addDomain(name) {
+    const nm = (name || "").trim();
+    if (!nm) return false;
+    if ((domains || []).some((d) => d.name.toLowerCase() === nm.toLowerCase())) { showToast("That domain already exists.", "error"); return false; }
+    try {
+      const { data, error } = await supabase.from("domains").insert({ domain_name: nm, status: true }).select("*").single();
+      if (error || !data) { showToast("Could not add domain.", "error"); return false; }
+      setDomains((prev) => [...prev, rowToDomain(data)].sort((a, b) => a.name.localeCompare(b.name)));
+      showToast("Domain added.", "success");
+      return true;
+    } catch (e) { showToast("Could not add domain.", "error"); return false; }
+  }
+  async function updateDomain(id, name) {
+    const nm = (name || "").trim();
+    if (!nm) return false;
+    try {
+      const { error } = await supabase.from("domains").update({ domain_name: nm }).eq("id", id);
+      if (error) { showToast("Could not update domain.", "error"); return false; }
+      setDomains((prev) => prev.map((d) => (d.id === id ? { ...d, name: nm } : d)).sort((a, b) => a.name.localeCompare(b.name)));
+      return true;
+    } catch (e) { showToast("Could not update domain.", "error"); return false; }
+  }
+  async function deleteDomain(id) {
+    try {
+      const { error } = await supabase.from("domains").delete().eq("id", id);
+      if (error) { showToast("Could not delete domain.", "error"); return false; }
+      setDomains((prev) => prev.filter((d) => d.id !== id));
+      showToast("Domain deleted.", "success");
+      return true;
+    } catch (e) { showToast("Could not delete domain.", "error"); return false; }
+  }
+
   /* ── Expenses (contract payments — additive financial tracker) ── */
   const rowToExpense = (r) => ({
     id: r.id,
@@ -1323,7 +1356,7 @@ export function AppDataProvider({ children }) {
     designExtra, releaseDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink,
     // Pipeline (Employee CRM)
     pipelineClients, pipelineFollowups, pipelineContracts, pipelineSales, pipelinePayments, pipelineNotes, pipelineHistory,
-    domains, pipelineStatuses,
+    domains, addDomain, updateDomain, deleteDomain, pipelineStatuses,
     addPipelineClient, updatePipelineClient, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, addFollowup, addPipelineContract, addPipelineSale, addPipelinePayment, reversePipelinePayment, addPipelineNote,
     customFields, saveCustomFields,
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,

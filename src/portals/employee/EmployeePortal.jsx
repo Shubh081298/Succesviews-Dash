@@ -23,7 +23,7 @@ export default function EmployeePortal() {
     customFields,
     announcements, saveAnnouncements,
     messages, saveMessages, dismissMessage,
-    websites,
+    websites, domains,
     designProjects, designArchive, designFiles, uploadDesignFile, deleteDesignFile, updateDesignProject,
     designActivity, changeProjectStatus, addProjectComment,
     designWork, saveDesignWork,
@@ -198,25 +198,41 @@ export default function EmployeePortal() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [emp?.id, empTab, dsrDate, dsrForm]);
 
+  const isOpsEmp = (emp?.department || "") === "Operations";
   const handleDsrSave = async (status) => {
     if (status === "Submitted") {
       if (!dsrForm.attendance) { showToast("Please select Attendance.", "error"); return; }
       if (dsrForm.attendance !== "Absent") {
-        // Simplified DSR — end-of-day summary fields only (CRM lives in Pipeline).
-        if (!String(dsrForm.freshEmails ?? "").trim()) { showToast("Please enter Fresh Emails Sent.", "error"); return; }
-        if (!String(dsrForm.reminderEmails ?? "").trim()) { showToast("Please enter Reminder Emails Sent.", "error"); return; }
-        if (!String(dsrForm.workingHours ?? "").trim() || Number(dsrForm.workingHours) <= 0) { showToast("Please enter Working Hours.", "error"); return; }
-        if (!String(dsrForm.pendingTasks ?? "").trim()) { showToast("Please enter Pending Tasks.", "error"); return; }
-        // Updates for Team Lead is optional (recommended).
+        if (isOpsEmp) {
+          // Operation DSR — kept short: only Working Hours is required.
+          if (!String(dsrForm.workingHours ?? "").trim() || Number(dsrForm.workingHours) <= 0) { showToast("Please enter Working Hours.", "error"); return; }
+        } else {
+          // Sales / default DSR — end-of-day summary fields only (CRM lives in Pipeline).
+          if (!String(dsrForm.freshEmails ?? "").trim()) { showToast("Please enter Fresh Emails Sent.", "error"); return; }
+          if (!String(dsrForm.reminderEmails ?? "").trim()) { showToast("Please enter Reminder Emails Sent.", "error"); return; }
+          if (!String(dsrForm.workingHours ?? "").trim() || Number(dsrForm.workingHours) <= 0) { showToast("Please enter Working Hours.", "error"); return; }
+          if (!String(dsrForm.pendingTasks ?? "").trim()) { showToast("Please enter Pending Tasks.", "error"); return; }
+          // Updates for Team Lead is optional (recommended).
+        }
       }
     }
     const existing = submissions.find((s) => s.empId === emp.id && s.date === dsrDate);
     const websitesData = dsrForm.websites;
+    // Fold the Operation DSR sections into customFields.__op so they persist in the
+    // submissions JSONB without any schema change.
+    const opClean = (arr) => (dsrForm.attendance === "Absent" ? [] : (arr || []).filter((r) => r && r.domain && String(r.domain).trim()));
+    const mergedCustom = isOpsEmp
+      ? { ...(dsrForm.customFields || {}), __op: {
+          websiteWork: opClean(dsrForm.opWebsiteWork),
+          social: opClean(dsrForm.opSocial),
+          magazine: opClean(dsrForm.opMagazine),
+        } }
+      : (dsrForm.customFields || {});
     const rec = {
       id: existing ? existing.id : String(Date.now()),
       empId: emp.id, empName: emp.name, department: emp.department, date: dsrDate,
       status, ts: Date.now(),
-      ...dsrForm, websitesData,
+      ...dsrForm, websitesData, customFields: mergedCustom,
       // BACKWARD-COMPAT: the DSR no longer edits CRM sections — preserve whatever
       // the Pipeline already rolled up into today's row so Admin counters don't reset.
       leads: existing?.leads || dsrForm.leads || [],
@@ -291,7 +307,7 @@ export default function EmployeePortal() {
           emp={emp} empTab={empTab} setEmpTab={setEmpTab}
           dsrDate={dsrDate} dsrForm={dsrForm} setDsrForm={setDsrForm}
           onDateChange={onDateChange} onSave={handleDsrSave}
-          submissions={submissions} websites={websites}
+          submissions={submissions} websites={websites} domains={domains}
           onLogout={handleLogout}
           histSearch={histSearch} setHistSearch={setHistSearch}
           viewingDsr={viewingDsr} setViewingDsr={setViewingDsr}

@@ -157,8 +157,29 @@ function RichTextEditor({ initialHtml, onChange, placeholder }) {
   );
 }
 
-export default function InsertionOrderForm({ onCapture } = {}) {
+export default function InsertionOrderForm({ onCapture, sharedMagazines = null, onSaveMagazines } = {}) {
   const [magazines, setMagazines] = useState(loadMagazines);
+  const hydratedRef = useRef(false);   // becomes true once DB config is applied
+  const skipSaveRef = useRef(true);    // skip the initial mount + hydration echo when persisting to DB
+
+  // Hydrate from the shared (DB) config as soon as it arrives — this is the
+  // source of truth so PC and mobile stay in sync. Runs once.
+  useEffect(() => {
+    if (!hydratedRef.current && Array.isArray(sharedMagazines) && sharedMagazines.length) {
+      hydratedRef.current = true;
+      skipSaveRef.current = true; // don't immediately echo this back to the DB
+      setMagazines(sharedMagazines);
+    }
+  }, [sharedMagazines]);
+
+  // Persist magazine edits to the shared DB store (debounced), so every device
+  // sees the same logo/watermark. Skips the mount + hydration echo to avoid loops.
+  useEffect(() => {
+    if (skipSaveRef.current) { skipSaveRef.current = false; return; }
+    if (!onSaveMagazines) return;
+    const t = setTimeout(() => { onSaveMagazines(magazines); }, 700);
+    return () => clearTimeout(t);
+  }, [magazines]);
   const [currentId, setCurrentId] = useState(() => {
     try {
       const c = localStorage.getItem(LS_CURRENT);

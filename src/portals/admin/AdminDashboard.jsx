@@ -26,6 +26,7 @@ export default function AdminDashboard() {
     departments, saveDepartments,
     websites, saveWebsites,
     domains, addDomain, updateDomain, deleteDomain,
+    ioMagazines, saveIoMagazines,
     targets, saveTargets,
     teamMeta, saveTeamMeta,
     customFields, saveCustomFields,
@@ -46,7 +47,7 @@ export default function AdminDashboard() {
     settingsPwd, setSettingsPwd,
     theme, toggleTheme,
     pipelineClients, pipelineStatuses, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes, pipelineHistory, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient,
-    showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications,
+    showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications, logAudit,
   } = useAppData();
   const { setAdminLoggedIn } = useAdminAuth();
   const navigate = useNavigate();
@@ -86,6 +87,7 @@ export default function AdminDashboard() {
   const [msgText, setMsgText] = useState("");
 
   const handleAdminLogout = () => {
+    logAudit && logAudit("logout", "admin", "admin", { portal: "admin" });
     setAdminLoggedIn(false);
     setTab("overview");
     navigate("/admin/login", { replace: true });
@@ -181,6 +183,9 @@ export default function AdminDashboard() {
         ? "draft"
         : "none",
       pendingTasks: mine.filter((s) => s.status !== "Submitted").length,
+      // Today's attendance (Present / Half Day / Absent) from today's DSR, so admin
+      // can see who is off / on half day even without a formal leave approval.
+      todayAttendance: (mine.find((s) => s.date === todayStr) || {}).attendance || null,
     };
   });
   }, [employees, submissions, todayStr, pipelineClients, pipelineSales, pipelinePayments]);
@@ -443,8 +448,8 @@ export default function AdminDashboard() {
             todayStr={todayStr} editMode={editMode}
           />
         )}
-        {tab === "insertionorder" && <InsertionOrderForm onCapture={captureExpense} />}
-        {tab === "leaveboard" && <LeaveBoardTab leaves={leaves} employees={employees} setLeaveStatus={setLeaveStatus} editMode={editMode} />}
+        {tab === "insertionorder" && <InsertionOrderForm onCapture={captureExpense} sharedMagazines={ioMagazines} onSaveMagazines={saveIoMagazines} />}
+        {tab === "leaveboard" && <LeaveBoardTab leaves={leaves} employees={employees} setLeaveStatus={setLeaveStatus} editMode={editMode} submissions={submissions} />}
         {tab === "salary" && (
           <SalaryModule employees={employees} salaries={salaries} setSalaries={saveSalaries} captureExpense={captureExpense}
             showToast={showToast} pushNotification={pushNotification}

@@ -17,7 +17,7 @@ import { adminSendMagicLink } from "../../utils/auth";
 import logo from "../../assets/successviews-logo.png";
 
 export default function AdminLoginPage() {
-  const { adminPwd, setAdminPwd, adminEmail, showToast } = useAppData();
+  const { adminPwd, setAdminPwd, adminEmail, showToast, logAudit } = useAppData();
   const { adminLoggedIn, setAdminLoggedIn } = useAdminAuth();
   const [pwdInput, setPwdInput] = useState("");
   const navigate = useNavigate();
@@ -63,6 +63,7 @@ export default function AdminLoginPage() {
     if (okPwd) {
       setAdminLoggedIn(true);
       setPwdInput("");
+      logAudit && logAudit("login", "admin", "admin", { portal: "admin" });
       showToast("Admin access granted.", "success");
       navigate("/admin", { replace: true });
     } else {

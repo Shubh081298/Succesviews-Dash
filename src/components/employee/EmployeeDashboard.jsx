@@ -122,8 +122,22 @@ export default function EmployeeDashboard({
     return d.toISOString().split("T")[0];
   }
 
-  const payslipMessages = myMessages.filter((m) => m.text?.toLowerCase().includes("payslip"));
-  const newPayslips = payslipMessages.filter((m) => !m.dismissed);
+  // Keep one payslip per payroll month (newest wins) so an accidental re-send
+  // can't stack duplicates. The history includes dismissed ones (so exiting the
+  // banner never loses a payslip); the banner shows only non-dismissed.
+  const dedupPayslipsByMonth = (list) => {
+    const byMonth = new Map();
+    list.forEach((m) => {
+      const p = parsePayslipPayload(m.text);
+      const key = p ? (p.monthKey || `${p.month}-${p.year}`) : (m.id || m.text);
+      const prev = byMonth.get(key);
+      if (!prev || (m.ts || 0) >= (prev.ts || 0)) byMonth.set(key, m);
+    });
+    return Array.from(byMonth.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  };
+  const allPayslips = myMessages.filter((m) => m.text?.toLowerCase().includes("payslip"));
+  const payslipMessages = dedupPayslipsByMonth(allPayslips);
+  const newPayslips = dedupPayslipsByMonth(allPayslips.filter((m) => !m.dismissed));
   const adminMessages = myMessages.filter((m) => !m.text?.toLowerCase().includes("payslip") && !m.dismissed);
 
   return (
@@ -556,6 +570,33 @@ export default function EmployeeDashboard({
               <p style={{ fontSize: 13.5 }}><b>Attendance:</b> {viewingDsr.attendance} &nbsp; <b>Status:</b> {viewingDsr.status}</p>
               {viewingDsr.attendance === "Absent" ? (
                 <p className="sv-text-muted" style={{ fontSize: 13.5 }}>Marked absent — no activity recorded.</p>
+              ) : viewingDsr.department === "Operations" ? (
+                (() => {
+                  const op = (viewingDsr.customFields && viewingDsr.customFields.__op) || {};
+                  const socialLine = (r) => {
+                    const done = [];
+                    if (r.fb === "Yes") done.push(`Facebook${r.fbDesc ? ` (${r.fbDesc})` : ""}`);
+                    if (r.ig === "Yes") done.push(`Instagram${r.igDesc ? ` (${r.igDesc})` : ""}`);
+                    if (r.li === "Yes") done.push(`LinkedIn${r.liDesc ? ` (${r.liDesc})` : ""}`);
+                    return `${r.domain || "—"} — ${done.length ? done.join(", ") : "no posts"}`;
+                  };
+                  const magLine = (r) => {
+                    const parts = [];
+                    parts.push(`Web Live: ${r.webLive || "No"}${r.webLive === "Yes" && r.webClient ? ` (${r.webClient})` : ""}`);
+                    parts.push(`Digital Live: ${r.digitalLive || "No"}${r.digitalLive === "Yes" && r.digitalClient ? ` (${r.digitalClient})` : ""}`);
+                    return `${r.domain || "—"} — ${parts.join(" · ")}`;
+                  };
+                  return (
+                    <>
+                      <p style={{ fontSize: 13.5 }}><b>Working Hours:</b> {viewingDsr.workingHours || 0}</p>
+                      <DsrRows title="🌐 Website Work" rows={op.websiteWork} render={(r) => `${r.domain || "—"} — Today: ${r.today || "—"}${r.pending ? ` · Pending: ${r.pending}` : ""}`} />
+                      <DsrRows title="📣 Social Media" rows={op.social} render={socialLine} />
+                      <DsrRows title="📖 Magazine Live" rows={op.magazine} render={magLine} />
+                      <p style={{ fontSize: 13.5 }}><b>Pending Tasks:</b> {viewingDsr.pendingTasks || "—"}</p>
+                      <p style={{ fontSize: 13.5 }}><b>Updates for Team Lead:</b> {viewingDsr.updatesForTeamLead || "—"}</p>
+                    </>
+                  );
+                })()
               ) : (
                 <>
                   <p style={{ fontSize: 13.5 }}><b>Fresh Emails:</b> {viewingDsr.freshEmails || 0} &nbsp; <b>Reminder Emails:</b> {viewingDsr.reminderEmails || 0} &nbsp; <b>Hours:</b> {viewingDsr.workingHours || 0}</p>

@@ -24,6 +24,7 @@ export function AppDataProvider({ children }) {
   });
   const [teamMeta, setTeamMeta]             = useState({});   // { [leadName]: { target, status } }
   const [freelancers, setFreelancers]       = useState([]);  // manual (non-user) payees
+  const [ioMagazines, setIoMagazines]       = useState(null); // shared Insertion-Order magazine configs (null = not loaded from DB yet)
   const [designWork, setDesignWork]         = useState([]);  // designer client-wise work items
   const [designArchive, setDesignArchive]   = useState([]);  // soft-archived design projects
   const [designExtra, setDesignExtra]       = useState({ drafts: [], folders: {}, links: {}, fileFolders: {} }); // submit-gate + custom folders + links (settings-backed)
@@ -223,6 +224,7 @@ export function AppDataProvider({ children }) {
           incentives: s.incentives || [],
           deductions: s.deductions || [],
           payments: s.payments || [],
+          months: s.months || {},
         };
       });
       setSalaries(map);
@@ -453,12 +455,13 @@ export function AppDataProvider({ children }) {
     setDesignProjects((prev) => prev.map((x) => (x.id === p.id ? { ...x, ...p } : x)));
     const { error } = await supabase.from("design_projects").update(projectToRow(p)).eq("id", p.id);
     if (error) { showToast("Failed to update project.", "error"); return false; }
+    logAudit("project.update", "design_project", p.id, { client: p.clientName, status: p.status });
     return true;
   }
 
   async function deleteDesignProject(id) {
     const { error } = await supabase.from("design_projects").delete().eq("id", id);
-    if (!error) { setDesignProjects((prev) => prev.filter((x) => x.id !== id)); showToast("Project deleted.", "success"); }
+    if (!error) { setDesignProjects((prev) => prev.filter((x) => x.id !== id)); logAudit("design_project.delete", "design_project", id, {}); showToast("Project deleted.", "success"); }
     else showToast("Failed to delete project.", "error");
   }
 
@@ -571,6 +574,9 @@ export function AppDataProvider({ children }) {
         if (row.key === "freelancers") {
           try { setFreelancers(JSON.parse(row.value) || []); } catch {}
         }
+        if (row.key === "io_magazines") {
+          try { const v = JSON.parse(row.value); if (Array.isArray(v)) setIoMagazines(v); } catch {}
+        }
         if (row.key === "design_work") {
           try { setDesignWork(JSON.parse(row.value) || []); } catch {}
         }
@@ -642,6 +648,20 @@ export function AppDataProvider({ children }) {
     }
   }
 
+  // ── Audit trail (fire-and-forget) ──────────────────────────────────────────
+  // Never blocks or fails the real action; if audit_log isn't migrated yet it
+  // silently no-ops so nothing breaks.
+  async function logAudit(action, entity, entityId, details) {
+    try {
+      await supabase.from("audit_log").insert({
+        action,
+        entity: entity || null,
+        entity_id: entityId != null ? String(entityId) : null,
+        details: details || {},
+      });
+    } catch (e) { /* audit table missing / offline — ignore */ }
+  }
+
   async function addEmployee(emp) {
     const plain = emp.password || "1234";
     const password_hash = await hashPassword(plain);
@@ -656,6 +676,7 @@ export function AppDataProvider({ children }) {
       .single();
     if (!error && data) {
       setEmployees((prev) => [...prev, normalizeEmployee(data)]);
+      logAudit("employee.create", "employee", emp.id, { name: emp.name, department: emp.department });
       if (emp.email) {
         try {
           await supabase.functions.invoke("admin-users", {
@@ -670,8 +691,9 @@ export function AppDataProvider({ children }) {
   }
 
   async function deleteEmployee(id) {
+    const target = employees.find((e) => e.id === id);
     const { error } = await supabase.from("employees").delete().eq("id", id);
-    if (!error) setEmployees((prev) => prev.filter((e) => e.id !== id));
+    if (!error) { setEmployees((prev) => prev.filter((e) => e.id !== id)); logAudit("employee.delete", "employee", id, { name: target?.name }); }
     else showToast("Failed to delete employee.", "error");
   }
 
@@ -686,7 +708,8 @@ export function AppDataProvider({ children }) {
 
   // Single-row employee update (used by Settings, persisted on blur).
   async function updateEmployee(emp) {
-    setEmployees((prev) => prev.map((e) => (e.id === emp.id ? { ...e, ...emp } : e)));
+    const prev = employees.find((e) => e.id === emp.id);
+    setEmployees((p) => p.map((e) => (e.id === emp.id ? { ...e, ...emp } : e)));
     const { error } = await supabase
       .from("employees")
       .update({
@@ -694,7 +717,11 @@ export function AppDataProvider({ children }) {
         photo: emp.photo || "", team_lead: emp.teamLead || "", email: emp.email || "",
       })
       .eq("id", emp.id);
-    if (error) showToast("Failed to update employee.", "error");
+    if (error) { showToast("Failed to update employee.", "error"); return; }
+    // Audit the sensitive change (department) distinctly from a generic edit.
+    if (prev && emp.department !== undefined && prev.department !== emp.department) {
+      logAudit("employee.department_change", "employee", emp.id, { from: prev.department, to: emp.department, name: emp.name });
+    }
   }
 
   // Reset an employee's password — accepts custom password or defaults to "1234"
@@ -796,7 +823,7 @@ export function AppDataProvider({ children }) {
         .from("departments")
         .upsert({ name }, { onConflict: "name" });
     }
-    if (!delErr) setDepartments(list);
+    if (!delErr) { setDepartments(list); logAudit("department.update", "department", null, { departments: list }); }
   }
 
   /* ── Website mutations ───────────────────────────────────── */
@@ -919,15 +946,22 @@ export function AppDataProvider({ children }) {
   async function saveSalaries(map) {
     setSalaries(map);
     for (const [empId, sal] of Object.entries(map)) {
-      await supabase.from("salaries").upsert({
+      const base = {
         emp_id: empId,
         fixed_salary: sal.fixedSalary || 0,
         incentives: sal.incentives || [],
         deductions: sal.deductions || [],
         payments: sal.payments || [],
         updated_at: new Date().toISOString(),
-      }, { onConflict: "emp_id" });
+      };
+      // Persist the Payroll-Cycle month records too. If the `months` column
+      // isn't migrated yet, retry without it so salary saving never breaks.
+      let { error } = await supabase.from("salaries").upsert({ ...base, months: sal.months || {} }, { onConflict: "emp_id" });
+      if (error && /months/i.test(error.message || "")) {
+        await supabase.from("salaries").upsert(base, { onConflict: "emp_id" });
+      }
     }
+    logAudit("salary.update", "salary", null, { employees: Object.keys(map).length });
   }
 
   /* ── Settings mutations ──────────────────────────────────── */
@@ -952,6 +986,16 @@ export function AppDataProvider({ children }) {
     setFreelancers(next);
     await supabase.from("settings")
       .upsert({ key: "freelancers", value: JSON.stringify(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
+  }
+
+  // Insertion-Order magazine configs (logo, watermark, perks, terms …) — shared
+  // across devices via the settings table so PC and mobile show the same branding.
+  async function saveIoMagazines(next) {
+    setIoMagazines(next);
+    try {
+      await supabase.from("settings")
+        .upsert({ key: "io_magazines", value: JSON.stringify(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
+    } catch (e) { /* keep local copy even if the write fails */ }
   }
 
   // Designer client-wise work items (Cover Page, Layout, Ads, Revisions …) with
@@ -1221,6 +1265,7 @@ export function AppDataProvider({ children }) {
       if (error) { showToast("Could not delete client.", "error"); return false; }
       setPipelineClients((prev) => prev.map((c) => (c.id === id ? { ...c, isDeleted: true } : c)));
       await addPipelineHistory(id, employeeId, "Project Deleted", null, null);
+      logAudit("pipeline_client.soft_delete", "pipeline_client", id, { by: employeeId });
       return true;
     } catch (e) { showToast("Could not delete client.", "error"); return false; }
   }
@@ -1250,6 +1295,7 @@ export function AppDataProvider({ children }) {
       setPipelineContracts((prev) => prev.filter((r) => r.clientId !== id));
       setPipelineSales((prev) => prev.filter((r) => r.clientId !== id));
       setPipelinePayments((prev) => prev.filter((r) => r.clientId !== id));
+      logAudit("pipeline_client.hard_delete", "pipeline_client", id, {});
       showToast("Client permanently deleted.", "success");
       return true;
     } catch (e) { showToast("Could not permanently delete client.", "error"); return false; }
@@ -1344,13 +1390,13 @@ export function AppDataProvider({ children }) {
   const value = {
     loading,
     theme, toggleTheme,
-    employees, saveEmployees, addEmployee, deleteEmployee, updateEmployee, resetEmployeePassword, assignEmployeeIds,
+    employees, saveEmployees, addEmployee, deleteEmployee, updateEmployee, resetEmployeePassword, assignEmployeeIds, logAudit,
     submissions, saveSubs, upsertSubmission,
     departments, saveDepartments,
     websites, saveWebsites,
     targets, saveTargets,
     teamMeta, saveTeamMeta,
-    freelancers, saveFreelancers,
+    freelancers, saveFreelancers, ioMagazines, saveIoMagazines,
     designWork, saveDesignWork,
     designArchive, saveDesignArchive,
     designExtra, releaseDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink,

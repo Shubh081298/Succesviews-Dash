@@ -4625,3 +4625,29 @@ html,body{overflow-x:hidden;max-width:100%}
   .sv-admin .sv-clp-kpigrid,.sv-admin .sv-op-ov-grid{grid-template-columns:1fr}
   .sv-admin .sv-grid-2:has(.sv-status-grid){grid-template-columns:1fr}
 }
+
+/* Operations Overview — clickable cards + drill-down modal rows */
+.sv-op-ov-card--click{cursor:pointer;transition:transform .12s ease,box-shadow .12s ease}
+.sv-op-ov-card--click:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(16,24,40,.10)}
+.sv-op-ov-more{margin-left:auto;font-size:10.5px;font-weight:700;color:var(--oc,#2563EB);opacity:.85}
+.sv-op-dt-row{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid #F1F5F9;font-size:13px}
+.sv-op-dt-row:last-child{border-bottom:none}
+.sv-op-dt-dom{font-weight:800;color:#0F172A;flex:0 0 40%;word-break:break-word}
+.sv-op-dt-val{color:#475569;text-align:right;flex:1}
+.sv-op-dt-sub{margin-top:3px;font-size:11.5px;color:#94A3B8}
+
+/* Today's attendance badge inside submission-status pills (On Leave / Half Day) */
+.sv-status-att{margin-left:auto;margin-right:8px;font-size:9.5px;font-weight:800;letter-spacing:.02em;text-transform:uppercase;padding:2px 8px;border-radius:20px;white-space:nowrap}
+
+/* Bank Details table: non-sticky header so the first employee (row 1) can't be
+   hidden behind the sticky header when the tab loads already-scrolled. */
+.sv-bank-scroll .sv-mailids-table th,
+.sv-admin .sv-bank-scroll .sv-mailids-table th { position: static !important; top: auto !important; }
+
+/* Payroll Cycle — month summary chips */
+.sv-pc-summary{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin:4px 0 6px}
+@media(max-width:1000px){.sv-pc-summary{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:560px){.sv-pc-summary{grid-template-columns:repeat(2,1fr)}}
+.sv-pc-sum{background:#fff;border:1px solid #EAEFF5;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:3px}
+.sv-pc-sum-v{font-size:20px;font-weight:800;line-height:1}
+.sv-pc-sum-l{font-size:11px;font-weight:600;color:#64748B}

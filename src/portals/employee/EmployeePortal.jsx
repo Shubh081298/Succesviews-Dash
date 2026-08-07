@@ -30,7 +30,7 @@ export default function EmployeePortal() {
     designExtra, releaseDesign, addDesignFolder, deleteDesignFolder,
     expenses, addExpense,
     logo, theme, toggleTheme,
-    showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications,
+    showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications, logAudit,
   } = useAppData();
 
   /* ── Employee session state (local to this portal) ───────── */
@@ -97,6 +97,7 @@ export default function EmployeePortal() {
     setLoggedIn(true);
     setLoginPwd("");
     setBusy(false);
+    logAudit && logAudit("login", "employee", found.id, { name: found.name, portal: "employee" });
     showToast(`Welcome back, ${found.name}!`, "success");
   };
 
@@ -109,6 +110,7 @@ export default function EmployeePortal() {
   };
 
   const handleLogout = async () => {
+    if (emp) logAudit && logAudit("logout", "employee", emp.id, { name: emp.name, portal: "employee" });
     await employeeSignOut();
     try { localStorage.removeItem("svd_emp_session"); sessionStorage.removeItem("svd_emp_session"); } catch (e) { /* ignore */ }
     setLoggedIn(false);
@@ -314,7 +316,7 @@ export default function EmployeePortal() {
           customFields={customFields}
           announcements={announcements.filter((a) => a.departments?.includes(emp.department) && !a.dismissedBy?.includes(emp.id))}
           onDismissAnn={dismissAnnouncement}
-          myMessages={messages.filter((m) => m.empId === emp.id && !m.dismissed)}
+          myMessages={messages.filter((m) => m.empId === emp.id)}
           onDismissMsg={handleDismissMessage}
           theme={theme} onToggleTheme={toggleTheme}
           leaves={leaves.filter((l) => l.empId === emp.id)}

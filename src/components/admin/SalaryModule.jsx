@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Avatar from "../ui/Avatar.jsx";
 import { storageSet } from "../../utils/storage.js";
 import { fmtSalary, fmtDate, getTodayStr, empLabel, buildPayslipMessage } from "../../utils/helpers.js";
@@ -26,8 +26,11 @@ const mKey = (d) => String(d || "").slice(0, 7);
 const PTYPES = ["Monthly", "Per Project", "Hourly"];
 
 export default function SalaryModule({ employees, salaries, setSalaries, showToast, pushNotification, addMessage, captureExpense, editMode = false, setEditMode, settingsPwd = "Settings@123", logo = "", freelancers = [], saveFreelancers, bankDetails = {}, saveBankDetails }) {
-  const [view, setView] = useState("fulltime"); // fulltime | freelancers | history
+  const [view, setView] = useState("payroll"); // payroll | freelancers | history | bank
   const [search, setSearch] = useState("");
+  // The Full-Time / Freelancers / Bank tabs share one search box — clear it when
+  // switching tabs so a filter typed on one tab can't silently hide people on another.
+  useEffect(() => { setSearch(""); }, [view]);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [unlockPwd, setUnlockPwd] = useState("");
 
@@ -60,6 +63,14 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   const [preview, setPreview] = useState(null);
   const [sending, setSending] = useState(false);
 
+  // ── Payroll Cycle (additive month-based workflow) state ──
+  const [payMonth, setPayMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [pcEntry, setPcEntry] = useState(null);   // { empId, type: 'incentive'|'deduction' }
+  const [pcAmt, setPcAmt] = useState("");
+  const [pcReason, setPcReason] = useState("");
+  const [pcRelease, setPcRelease] = useState(null); // empId pending release confirmation
+  const [pcManage, setPcManage] = useState(null);   // { empId, type } — view/remove entries
+
   // ── freelancer state ──
   const [fModal, setFModal] = useState(null); // { mode:"add"|"edit", id? }
   const blankF = { name: "", company: "", role: "", paymentType: "Monthly", amount: "", paymentDate: getTodayStr(), status: "Active", notes: "" };
@@ -70,6 +81,85 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
 
   const getSal = (id) => salaries[id] || { fixedSalary: 0, incentives: [], deductions: [], payments: [] };
   const sumAmt = (arr) => (arr || []).reduce((a, b) => a + (b.amount || 0), 0);
+
+  /* ═══════════════════════════════════════════════════════════════════════════
+     Payroll Cycle — month-based Draft → Ready → Approved → Released workflow.
+     Fully ADDITIVE: per-month records live in salaries[emp].months[mk]; on
+     Release we push into the SAME legacy payments[] array, so the employee
+     portal, payslip history, expense capture and dashboard KPIs keep working
+     unchanged. The existing Full-Time tab / "Paid" flow are not touched.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  const PC_STATUS = {
+    Draft: { c: "#64748B", bg: "#F1F5F9", soft: "#F8FAFC", bd: "#E9EEF4" },
+    Ready: { c: "#B45309", bg: "#FEF3C7", soft: "#FFFBEB", bd: "#FDE9C8" },
+    Approved: { c: "#1D4ED8", bg: "#DBEAFE", soft: "#EFF6FF", bd: "#D3E3FF" },
+    Released: { c: "#15803D", bg: "#DCFCE7", soft: "#F0FDF4", bd: "#CBEFD5" },
+  };
+  const monthLabel = (mk) => { const [y, m] = String(mk).split("-"); return new Date(+y, +m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" }); };
+  const PC_MONTHS = useMemo(() => { const arr = []; const d = new Date(); d.setDate(1); for (let i = 0; i < 15; i++) { arr.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); d.setMonth(d.getMonth() - 1); } return arr; }, []);
+
+  // Read a month's payroll record, seeding from the employee's base fixed salary.
+  // For the current month with no record yet, carry over any pending top-level
+  // incentives/deductions so nothing already entered is lost.
+  const getMonthRec = (empId, mk) => {
+    const s = salaries[empId] || {};
+    const existing = s.months && s.months[mk];
+    if (existing) return existing;
+    const seed = { fixed: s.fixedSalary || 0, incentives: [], deductions: [], notes: "", status: "Draft", releaseDate: "", paidDate: "" };
+    if (mk === new Date().toISOString().slice(0, 7)) { seed.incentives = s.incentives || []; seed.deductions = s.deductions || []; }
+    return seed;
+  };
+  const saveMonthRec = async (empId, mk, patch) => {
+    const s = salaries[empId] || { fixedSalary: 0, incentives: [], deductions: [], payments: [] };
+    const nextMonth = { ...getMonthRec(empId, mk), ...patch };
+    const u = { ...salaries, [empId]: { ...s, months: { ...(s.months || {}), [mk]: nextMonth } } };
+    setSalaries(u); await storageSet("svd_salaries", JSON.stringify(u));
+  };
+  const pcNet = (rec) => (rec.fixed || 0) + sumAmt(rec.incentives) - sumAmt(rec.deductions);
+  const pcSetStatus = (empId, status) => saveMonthRec(empId, payMonth, { status });
+  const pcAddEntry = async () => {
+    if (!pcEntry) return; const amt = +pcAmt || 0;
+    if (amt <= 0 || !pcReason.trim()) { showToast("Enter amount and reason", "err"); return; }
+    const { empId, type } = pcEntry; const rec = getMonthRec(empId, payMonth);
+    const key = type === "incentive" ? "incentives" : "deductions";
+    const item = { id: `${type}${Date.now()}`, amount: amt, reason: pcReason.trim(), date: getTodayStr() };
+    await saveMonthRec(empId, payMonth, { [key]: [...(rec[key] || []), item] });
+    setPcEntry(null); setPcAmt(""); setPcReason(""); showToast(type === "incentive" ? "Incentive added." : "Deduction added.");
+  };
+  const pcRemoveEntry = async (empId, type, id) => {
+    const rec = getMonthRec(empId, payMonth); const key = type === "incentive" ? "incentives" : "deductions";
+    await saveMonthRec(empId, payMonth, { [key]: (rec[key] || []).filter((x) => x.id !== id) });
+  };
+  // Build a payslip payload straight from the month record (accurate before release).
+  const pcPayslip = (empId) => {
+    const emp = employees.find((x) => x.id === empId); const rec = getMonthRec(empId, payMonth);
+    const [y, m] = payMonth.split("-");
+    setPreview({ empId, payload: {
+      month: new Date(+y, +m - 1, 1).toLocaleDateString("en-IN", { month: "long" }), year: +y, monthKey: payMonth,
+      date: rec.releaseDate || getTodayStr(), empName: emp?.name || "", empId,
+      fixed: rec.fixed || 0,
+      incentives: (rec.incentives || []).map((i) => ({ reason: i.reason, amount: i.amount })), incentiveTotal: sumAmt(rec.incentives),
+      deductions: (rec.deductions || []).map((i) => ({ reason: i.reason, amount: i.amount })), deductionTotal: sumAmt(rec.deductions),
+      total: pcNet(rec),
+    } });
+  };
+  const pcReleaseNow = async (empId) => {
+    const rec = getMonthRec(empId, payMonth); const emp = employees.find((e) => e.id === empId); const s = salaries[empId] || {};
+    const already = (s.payments || []).some((p) => (p.monthKey || mKey(p.date)) === payMonth);
+    const net = pcNet(rec);
+    const date = rec.releaseDate || getTodayStr();
+    const pay = { id: `pay${Date.now()}`, amount: net, fixed: rec.fixed || 0, incentiveTotal: sumAmt(rec.incentives), deductionTotal: sumAmt(rec.deductions), incentives: rec.incentives || [], deductions: rec.deductions || [], date, monthKey: payMonth };
+    const nextMonth = { ...rec, status: "Released", paidDate: getTodayStr(), releaseDate: date };
+    const u = { ...salaries, [empId]: { ...s, months: { ...(s.months || {}), [payMonth]: nextMonth }, payments: already ? (s.payments || []) : [...(s.payments || []), pay] } };
+    setSalaries(u); await storageSet("svd_salaries", JSON.stringify(u));
+    setPcRelease(null);
+    showToast(`Salary released for ${monthLabel(payMonth)}.`, "success");
+    if (emp) { pushNotification(`Salary released to ${empLabel(emp)} (${monthLabel(payMonth)}): ${fmtSalary(net)}`); try { await addMessage(empId, buildPayslipMessage(buildPayloadFromPayment(emp, pay))); } catch (e) { /* message optional */ } }
+    if (captureExpense && emp && !already) {
+      const d = new Date(date + "T00:00:00");
+      captureExpense({ type: "salary", sourceKey: `salary:${empId}:${payMonth}`, title: `Salary — ${emp.name || empId}`, category: "Salary", clientName: emp.name || "", paymentStatus: "Paid", paymentDate: date, amount: net, currency: "INR", paymentMethod: "Salary", details: { employeeId: empId, employeeName: emp.name || "", department: emp.department || "", month: monthLabel(payMonth).split(" ")[0], year: d.getFullYear(), monthKey: payMonth, fixed: pay.fixed, incentiveTotal: pay.incentiveTotal, deductionTotal: pay.deductionTotal, incentives: pay.incentives, deductions: pay.deductions, finalSalary: net } });
+    }
+  };
 
   const setFixed = async (empId, v) => {
     const curr = getSal(empId);
@@ -187,9 +277,12 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   // Payslip for a specific historical payment (used from History).
   const buildPayloadFromPayment = (emp, p) => {
     const d = new Date((p.date || getTodayStr()) + "T00:00:00");
+    // Prefer the payroll month the payment belongs to over the release date's month.
+    const mk = p.monthKey || `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const [ly, lm] = mk.split("-"); const ld = new Date(+ly, +lm - 1, 1);
     return {
-      month: d.toLocaleDateString("en-IN", { month: "long" }), year: d.getFullYear(),
-      monthKey: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, date: p.date,
+      month: ld.toLocaleDateString("en-IN", { month: "long" }), year: +ly,
+      monthKey: mk, date: p.date,
       empName: emp?.name || "", empId: emp?.id,
       fixed: p.fixed || 0,
       incentives: (p.incentives || []).map((i) => ({ reason: i.reason, amount: i.amount })), incentiveTotal: p.incentiveTotal || 0,
@@ -252,19 +345,21 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   /* ── KPI + payroll (current month) ── */
   const cur = new Date().toISOString().slice(0, 7);
   const kpi = useMemo(() => {
+    // All top KPIs follow the SELECTED payroll month so the dashboard and the
+    // Payroll Cycle cards always agree. Only Released pay counts as paid.
     let empPaid = 0, freePaid = 0, incPaid = 0, dedPaid = 0;
     const empPaidIds = new Set(), freePaidIds = new Set();
     Object.entries(salaries || {}).forEach(([id, s]) => {
-      (s.payments || []).forEach((p) => { if (mKey(p.date) === cur) { empPaid += p.amount || 0; incPaid += p.incentiveTotal || 0; dedPaid += p.deductionTotal || 0; empPaidIds.add(id); } });
+      (s.payments || []).forEach((p) => { if ((p.monthKey || mKey(p.date)) === payMonth) { empPaid += p.amount || 0; incPaid += p.incentiveTotal || 0; dedPaid += p.deductionTotal || 0; empPaidIds.add(id); } });
     });
-    (freelancers || []).forEach((f) => (f.payments || []).forEach((p) => { if (mKey(p.date) === cur) { freePaid += p.amount || 0; freePaidIds.add(f.id); } }));
-    const pendingInc = Object.values(salaries || {}).reduce((a, s) => a + sumAmt(s.incentives), 0);
-    const pendingDed = Object.values(salaries || {}).reduce((a, s) => a + sumAmt(s.deductions), 0);
-    const netPayable = employees.reduce((a, e) => { const s = getSal(e.id); return a + (s.fixedSalary || 0) + sumAmt(s.incentives) - sumAmt(s.deductions); }, 0);
-    const withSalary = employees.filter((e) => (getSal(e.id).fixedSalary || 0) > 0).length;
+    (freelancers || []).forEach((f) => (f.payments || []).forEach((p) => { if (mKey(p.date) === payMonth) { freePaid += p.amount || 0; freePaidIds.add(f.id); } }));
+    // Pending / net payable = the selected month's records that are NOT released yet.
+    let pendingInc = 0, pendingDed = 0, netPayable = 0;
+    employees.forEach((e) => { const rec = getMonthRec(e.id, payMonth); if (rec.status !== "Released") { pendingInc += sumAmt(rec.incentives); pendingDed += sumAmt(rec.deductions); netPayable += (rec.fixed || 0) + sumAmt(rec.incentives) - sumAmt(rec.deductions); } });
+    const withSalary = employees.filter((e) => (getMonthRec(e.id, payMonth).fixed || 0) > 0).length;
     const completion = withSalary > 0 ? Math.round((empPaidIds.size / withSalary) * 100) : 0;
     return { empPaid, freePaid, total: empPaid + freePaid, incPaid, dedPaid, pendingInc, pendingDed, netPayable, empPaidCount: empPaidIds.size, freePaidCount: freePaidIds.size, pending: Math.max(0, withSalary - empPaidIds.size), completion };
-  }, [salaries, freelancers, employees, cur]);
+  }, [salaries, freelancers, employees, payMonth]);
 
   /* ── Combined history records ── */
   const historyRecords = useMemo(() => {
@@ -329,8 +424,8 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
         <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 12 }}>
           <span className="sv-mod-icon"><CalendarDays size={16} /></span>
           <div>
-            <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 15.5 }}>Payroll Summary · {new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</p>
-            <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>This month's payroll at a glance</p>
+            <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 15.5 }}>Payroll Summary · {monthLabel(payMonth)}</p>
+            <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>Selected month's payroll at a glance</p>
           </div>
         </div>
         <div className="sv-sal-payroll-grid">
@@ -348,7 +443,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
       <div className="sv-card">
         <div className="sv-sal-head">
           <div className="sv-seg">
-            {[["fulltime", "Full-Time"], ["freelancers", "Freelancers"], ["history", "History"], ["bank", "Bank Details"]].map(([k, l]) => (
+            {[["payroll", "Salary"], ["freelancers", "Freelancers"], ["history", "History"], ["bank", "Bank Details"]].map(([k, l]) => (
               <button key={k} className={`sv-seg-btn${view === k ? " sv-seg-btn--on" : ""}`} onClick={() => setView(k)}>{l}</button>
             ))}
           </div>
@@ -420,6 +515,83 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
             </div>
           )
         )}
+
+        {/* ── Payroll Cycle (month-based workflow) ── */}
+        {view === "payroll" && (() => {
+          const recs = empFiltered.map((e) => ({ e, rec: getMonthRec(e.id, payMonth) }));
+          const cnt = { Draft: 0, Ready: 0, Approved: 0, Released: 0 };
+          let releasedTotal = 0, netPayable = 0;
+          recs.forEach(({ rec }) => { cnt[rec.status] = (cnt[rec.status] || 0) + 1; const n = pcNet(rec); if (rec.status === "Released") releasedTotal += n; else netPayable += n; });
+          return (
+            <>
+              <div className="sv-flex sv-items-center sv-gap-2" style={{ flexWrap: "wrap", margin: "4px 0 14px" }}>
+                <div className="sv-flex sv-items-center sv-gap-2">
+                  <span className="sv-mod-icon" style={{ background: "rgba(37,99,235,.12)", color: "#2563EB" }}><CalendarDays size={16} /></span>
+                  <div><div className="sv-text-navy sv-font-800" style={{ fontSize: 15 }}>Payroll Cycle</div><div className="sv-text-muted" style={{ fontSize: 11.5 }}>Process each month on its own: Draft → Ready → Approved → Released. Only released pay reaches the employee & counts as paid.</div></div>
+                </div>
+                <div className="sv-flex sv-items-center sv-gap-2" style={{ marginLeft: "auto" }}>
+                  <label className="sv-text-muted" style={{ fontSize: 12, fontWeight: 700 }}>Payroll Month</label>
+                  <select className="sv-select" value={payMonth} onChange={(e) => setPayMonth(e.target.value)} style={{ minWidth: 170 }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select>
+                </div>
+              </div>
+              <div className="sv-pc-summary">
+                {[["Draft", cnt.Draft, "#64748B"], ["Ready", cnt.Ready, "#B45309"], ["Approved", cnt.Approved, "#1D4ED8"], ["Released", cnt.Released, "#15803D"], ["Released total", money(releasedTotal), "#15803D"], ["Net payable", money(netPayable), "#F59E0B"]].map(([l, v, c]) => (
+                  <div key={l} className="sv-pc-sum"><span className="sv-pc-sum-v" style={{ color: c }}>{v}</span><span className="sv-pc-sum-l">{l}</span></div>
+                ))}
+              </div>
+              {recs.length === 0 ? (
+                <div className="sv-leave-empty"><Users size={26} /><span>No employees to show.</span></div>
+              ) : (
+                <div className="sv-sal-grid" style={{ marginTop: 12 }}>
+                  {recs.map(({ e, rec }, i) => {
+                    const st = PC_STATUS[rec.status] || PC_STATUS.Draft; const net = pcNet(rec); const locked = rec.status === "Released"; const canEdit = editMode && !locked;
+                    return (
+                      <div key={e.id} className="sv-sal-card sv-pc-card" style={{ background: st.soft, borderColor: st.bd, borderTop: `3px solid ${st.c}` }}>
+                        <div className="sv-sal-card-top">
+                          <Avatar emp={e} idx={i} size={40} />
+                          <div style={{ flex: 1, minWidth: 0 }}><div className="sv-text-navy sv-font-700" style={{ fontSize: 14 }}>{e.name}</div><div className="sv-text-muted" style={{ fontSize: 11 }}>{e.id} · {e.department || "—"}</div></div>
+                          <span className="sv-team-badge" style={{ background: st.bg, color: st.c }}><span className="sv-team-badge-dot" style={{ background: st.c }} />{rec.status}</span>
+                        </div>
+                        <div className="sv-sal-figs">
+                          <div className="sv-sal-fig"><span>Fixed</span><input type="number" min="0" disabled={!canEdit} className="sv-input sv-sal-fixed" value={rec.fixed || ""} placeholder="0" onChange={(ev) => saveMonthRec(e.id, payMonth, { fixed: +ev.target.value || 0 })} /></div>
+                          <div className="sv-sal-fig" style={{ cursor: canEdit && (rec.incentives || []).length ? "pointer" : "default" }} title={canEdit && (rec.incentives || []).length ? "Click to view / remove incentives" : undefined} onClick={() => { if (canEdit && (rec.incentives || []).length) setPcManage({ empId: e.id, type: "incentive" }); }}><span>Incentives{(rec.incentives || []).length ? ` (${rec.incentives.length})` : ""}</span><b style={{ color: GREEN }}>{money(sumAmt(rec.incentives))}</b></div>
+                          <div className="sv-sal-fig" style={{ cursor: canEdit && (rec.deductions || []).length ? "pointer" : "default" }} title={canEdit && (rec.deductions || []).length ? "Click to view / remove deductions" : undefined} onClick={() => { if (canEdit && (rec.deductions || []).length) setPcManage({ empId: e.id, type: "deduction" }); }}><span>Deductions{(rec.deductions || []).length ? ` (${rec.deductions.length})` : ""}</span><b style={{ color: RED }}>{sumAmt(rec.deductions) > 0 ? money(sumAmt(rec.deductions)) : "N/A"}</b></div>
+                          <div className="sv-sal-fig sv-sal-fig--net"><span>Net Salary</span><b>{money(net)}</b></div>
+                        </div>
+                        <div className="sv-sal-meta sv-flex sv-items-center" style={{ justifyContent: "space-between", gap: 8 }}>
+                          <span>{monthLabel(payMonth)}</span>
+                          <label className="sv-flex sv-items-center" style={{ fontSize: 11, gap: 4 }}>Release
+                            <input type="date" disabled={!canEdit} className="sv-input" style={{ padding: "2px 6px", fontSize: 11, width: 130 }} value={rec.releaseDate || ""} onChange={(ev) => saveMonthRec(e.id, payMonth, { releaseDate: ev.target.value })} />
+                          </label>
+                        </div>
+                        <div className="sv-sal-actions">
+                          {!locked && (<>
+                            <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--blue" onClick={() => { setPcEntry({ empId: e.id, type: "incentive" }); setPcAmt(""); setPcReason(""); }}><Plus size={12} /> Incentive</button>
+                            <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--red" onClick={() => { setPcEntry({ empId: e.id, type: "deduction" }); setPcAmt(""); setPcReason(""); }}><TrendingDown size={12} /> Deduction</button>
+                          </>)}
+                          {rec.status === "Draft" && <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--amber" onClick={() => pcSetStatus(e.id, "Ready")}>Mark Ready →</button>}
+                          {rec.status === "Ready" && (<>
+                            <button disabled={!editMode} className="sv-chip-btn" onClick={() => pcSetStatus(e.id, "Draft")}>← Draft</button>
+                            <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--blue" onClick={() => pcSetStatus(e.id, "Approved")}>Approve →</button>
+                          </>)}
+                          {rec.status === "Approved" && (<>
+                            <button disabled={!editMode} className="sv-chip-btn" onClick={() => pcSetStatus(e.id, "Ready")}>← Ready</button>
+                            <button className="sv-chip-btn sv-chip-btn--violet" onClick={() => pcPayslip(e.id)}><FileText size={12} /> Payslip</button>
+                            <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--green" onClick={() => setPcRelease(e.id)}><CheckCircle2 size={12} /> Release Salary</button>
+                          </>)}
+                          {locked && (<>
+                            <span className="sv-text-muted" style={{ fontSize: 11 }}>Released {rec.paidDate ? fmtDate(rec.paidDate) : ""}</span>
+                            <button className="sv-chip-btn sv-chip-btn--violet" onClick={() => pcPayslip(e.id)}><FileText size={12} /> Payslip</button>
+                          </>)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* ── Freelancers ── */}
         {view === "freelancers" && (
@@ -509,7 +681,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
               {rows.length === 0 ? (
                 <div className="sv-leave-empty"><Users size={26} /><span>No employees to show.</span></div>
               ) : (
-                <div className="sv-mailids-scroll">
+                <div className="sv-mailids-scroll sv-bank-scroll">
                   <table className="sv-mailids-table">
                     <thead><tr>{["Employee", "Recipient Name", "Account Number", "IFSC Code", "UPI ID", ""].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                     <tbody>
@@ -535,6 +707,59 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
           );
         })()}
       </div>
+
+      {/* Payroll Cycle — add incentive/deduction for the selected month */}
+      {pcEntry && (
+        <div className="sv-modal-overlay" onClick={() => setPcEntry(null)}>
+          <div className="sv-modal" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <div className="sv-modal-header"><span className="sv-text-navy sv-font-800" style={{ fontSize: 15.5 }}>{pcEntry.type === "incentive" ? "Add Incentive" : "Add Deduction"} · {monthLabel(payMonth)}</span><button className="sv-modal-close" onClick={() => setPcEntry(null)}>×</button></div>
+            <div style={{ padding: "16px 20px", display: "grid", gap: 10 }}>
+              <input className="sv-input" type="number" min="0" placeholder="Amount" value={pcAmt} autoFocus onChange={(e) => setPcAmt(e.target.value)} />
+              <input className="sv-input" placeholder="Reason" value={pcReason} onChange={(e) => setPcReason(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") pcAddEntry(); }} />
+              <div className="sv-flex sv-gap-2"><button className="sv-btn sv-btn--outline" style={{ flex: 1 }} onClick={() => setPcEntry(null)}>Cancel</button><button className="sv-btn sv-btn--primary" style={{ flex: 1 }} onClick={pcAddEntry}>Add</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payroll Cycle — view / remove incentives or deductions for the month */}
+      {pcManage && (() => {
+        const rec = getMonthRec(pcManage.empId, payMonth);
+        const emp = employees.find((x) => x.id === pcManage.empId);
+        const list = pcManage.type === "incentive" ? (rec.incentives || []) : (rec.deductions || []);
+        const col = pcManage.type === "incentive" ? GREEN : RED;
+        return (
+          <div className="sv-modal-overlay" onClick={() => setPcManage(null)}>
+            <div className="sv-modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+              <div className="sv-modal-header"><span className="sv-text-navy sv-font-800" style={{ fontSize: 15 }}>{pcManage.type === "incentive" ? "Incentives" : "Deductions"} · {emp?.name} · {monthLabel(payMonth)}</span><button className="sv-modal-close" onClick={() => setPcManage(null)}>×</button></div>
+              <div style={{ padding: "14px 20px", display: "grid", gap: 8 }}>
+                {list.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13, margin: 0 }}>None yet.</p> : list.map((it) => (
+                  <div key={it.id} className="sv-flex sv-items-center sv-gap-2" style={{ padding: "7px 10px", background: "#F8FAFC", border: "1px solid #EEF2F7", borderRadius: 8 }}>
+                    <b style={{ color: col, fontSize: 13 }}>{money(it.amount)}</b>
+                    <span style={{ flex: 1, fontSize: 12.5, color: "#475569" }}>{it.reason}</span>
+                    <button onClick={() => pcRemoveEntry(pcManage.empId, pcManage.type, it.id)} title="Remove" style={{ border: "none", background: "#FEE2E2", color: "#B91C1C", borderRadius: 6, cursor: "pointer", padding: "3px 9px", fontWeight: 800, fontSize: 13 }}>×</button>
+                  </div>
+                ))}
+                <button className="sv-btn sv-btn--outline sv-btn--sm" style={{ marginTop: 2 }} onClick={() => { setPcEntry({ empId: pcManage.empId, type: pcManage.type }); setPcAmt(""); setPcReason(""); setPcManage(null); }}><Plus size={13} /> Add {pcManage.type}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Payroll Cycle — release confirmation */}
+      {pcRelease && (() => {
+        const emp = employees.find((e) => e.id === pcRelease); const rec = getMonthRec(pcRelease, payMonth);
+        return (
+          <div className="sv-modal-overlay" onClick={() => setPcRelease(null)}>
+            <div className="sv-modal sv-confirm" onClick={(e) => e.stopPropagation()}>
+              <p className="sv-confirm-msg">Release {emp?.name}'s salary for {monthLabel(payMonth)}?</p>
+              <p className="sv-confirm-sub">Net {money(pcNet(rec))} · Release date {rec.releaseDate ? fmtDate(rec.releaseDate) : "today"}. This marks it Paid, adds it to payroll totals &amp; history, and sends the payslip to the employee.</p>
+              <div className="sv-confirm-actions"><button className="sv-btn sv-btn--outline" onClick={() => setPcRelease(null)}>No</button><button className="sv-btn sv-btn--success" onClick={() => pcReleaseNow(pcRelease)}>Yes, Release</button></div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Bank details edit modal (admin) */}
       {bankEdit && (
@@ -760,8 +985,10 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
                 <PayslipView payload={preview.payload} employee={emp} logo={logo} />
               </div>
               <div className="sv-flex sv-gap-2" style={{ padding: 16, borderTop: "1px solid var(--sv-border)", flexShrink: 0 }}>
-                <button className="sv-btn sv-btn--ghost sv-btn--full" onClick={() => setPreview(null)} disabled={sending}>Cancel</button>
-                <button className="sv-btn sv-btn--primary sv-btn--full" onClick={sendPayslip} disabled={sending}>{sending ? "Sending…" : "Send to Employee"}</button>
+                {/* Preview is view-only — the payslip is delivered to the employee
+                    automatically on Release, so there's no manual "Send" here
+                    (that caused duplicate payslips). */}
+                <button className="sv-btn sv-btn--primary sv-btn--full" onClick={() => setPreview(null)}>Close</button>
               </div>
             </div>
           </div>

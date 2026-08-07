@@ -40,14 +40,20 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
   const [clpDelete, setClpDelete] = useState(null);
   const [clpShowDeleted, setClpShowDeleted] = useState(false);
   const [clpHardDel, setClpHardDel] = useState(null); // client pending permanent delete
+  const [opDetail, setOpDetail] = useState(null); // Operations Overview block drill-down: 'web'|'social'|'attendance'|'updates'
   const [trendCur, setTrendCur] = useState("");
-  const freshEmails = sum(ovFiltered, "freshEmails");
-  const reminderEmails = sum(ovFiltered, "reminderEmails");
-  const leads = sum(ovFiltered, "newLeadsInterested");
-  const followups = sum(ovFiltered, "newFollowUps");
+  // Emails/reminders/leads/calls are Sales activities — only count Sales-department
+  // submissions so Operations/Design/Manager don't dilute these metrics.
+  const salesSubs = ovFiltered.filter((s) => (s.department || "") === "Sales");
+  const freshEmails = sum(salesSubs, "freshEmails");
+  const reminderEmails = sum(salesSubs, "reminderEmails");
+  const leads = sum(salesSubs, "newLeadsInterested");
+  const followups = sum(salesSubs, "newFollowUps");
   const dsrSubmitted = ovFiltered.filter((s) => s.status === "Submitted").length;
-  const calls = sum(ovFiltered, "callsScheduled");
+  const calls = sum(salesSubs, "callsScheduled");
   const updates = ovFiltered.filter((s) => s.updatesForTeamLead).length;
+  // Operations submissions in the period (used by the Operations Overview + its drill-down modal)
+  const opSubsAll = (ovFiltered || []).filter((s) => (s.department || "") === "Operations");
   const sales = sum(ovFiltered, "salesGenerated");
   const orders = ovFiltered.reduce((a, s) => a + ((s.contractOrders || []).length), 0);
   const payments = sum(ovFiltered, "paymentReceived");
@@ -553,10 +559,14 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
           <div className="sv-status-grid">
             {empStats.map((e) => {
               const m = statusMeta[e.todayStatus] || statusMeta.none;
+              const att = e.todayAttendance;
+              const attStyle = att === "Absent" ? { bg: "#FEE2E2", fg: "#B91C1C", label: "On Leave" }
+                : att === "Half Day" ? { bg: "#FEF3C7", fg: "#B45309", label: "Half Day" } : null;
               return (
                 <div key={e.id} className={`sv-status-pill sv-status-pill--${m.cls}`}>
                   <span className="sv-status-pill-dot" />
                   <span className="sv-status-pill-name">{e.name}</span>
+                  {attStyle && <span className="sv-status-att" style={{ background: attStyle.bg, color: attStyle.fg }}>{attStyle.label}</span>}
                   <span className="sv-status-pill-tag">{m.label}</span>
                 </div>
               );
@@ -615,26 +625,61 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
           <div style={{ marginTop: 20 }}>
             <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 4, height: 18, background: "#2563EB", borderRadius: 3, display: "inline-block" }} />Operations Overview</h3>
             <div className="sv-op-ov-grid">
-              <div className="sv-op-ov-card" style={{ "--oc": "#2563EB" }}>
-                <div className="sv-op-ov-head"><Globe2 size={16} /> Web &amp; Digital Live</div>
+              <div className="sv-op-ov-card sv-op-ov-card--click" style={{ "--oc": "#2563EB" }} onClick={() => setOpDetail("web")}>
+                <div className="sv-op-ov-head"><Globe2 size={16} /> Web &amp; Digital Live <span className="sv-op-ov-more">View →</span></div>
                 <div className="sv-op-ov-stats">{stat("Web Live", webLive, "#2563EB")}{stat("Digital Live", digitalLive, "#0891B2")}</div>
               </div>
-              <div className="sv-op-ov-card" style={{ "--oc": "#7C3AED" }}>
-                <div className="sv-op-ov-head"><Megaphone size={16} /> Social Media Posts</div>
+              <div className="sv-op-ov-card sv-op-ov-card--click" style={{ "--oc": "#7C3AED" }} onClick={() => setOpDetail("social")}>
+                <div className="sv-op-ov-head"><Megaphone size={16} /> Social Media Posts <span className="sv-op-ov-more">View →</span></div>
                 <div className="sv-op-ov-stats">{stat("Posts Done", postsDone, "#7C3AED")}</div>
                 <div className="sv-op-ov-sub">FB {plat.Facebook} · IG {plat.Instagram} · IN {plat.LinkedIn}</div>
               </div>
-              <div className="sv-op-ov-card" style={{ "--oc": "#16A34A" }}>
-                <div className="sv-op-ov-head"><CheckCircle2 size={16} /> Attendance</div>
+              <div className="sv-op-ov-card sv-op-ov-card--click" style={{ "--oc": "#16A34A" }} onClick={() => setOpDetail("attendance")}>
+                <div className="sv-op-ov-head"><CheckCircle2 size={16} /> Attendance <span className="sv-op-ov-more">View →</span></div>
                 <div className="sv-op-ov-stats">{stat("Present", present, "#16A34A")}{stat("Half Day", half, "#CA8A04")}{stat("Absent", absent, "#DC2626")}</div>
               </div>
-              <div className="sv-op-ov-card" style={{ "--oc": "#0891B2" }}>
-                <div className="sv-op-ov-head"><Megaphone size={16} /> Team Lead Updates</div>
+              <div className="sv-op-ov-card sv-op-ov-card--click" style={{ "--oc": "#0891B2" }} onClick={() => setOpDetail("updates")}>
+                <div className="sv-op-ov-head"><Megaphone size={16} /> Team Lead Updates <span className="sv-op-ov-more">View →</span></div>
                 <div className="sv-op-ov-stats">{stat("Updates", opUpd.length, "#0891B2")}</div>
                 <div className="sv-op-ov-updlist">
                   {opUpd.length === 0 ? <span className="sv-text-muted" style={{ fontSize: 12 }}>No updates in this period.</span>
                     : opUpd.slice(0, 3).map((s) => <div key={s.id || `${s.empId}-${s.date}`} className="sv-op-ov-upd"><b>{s.empName}:</b> {String(s.updatesForTeamLead).slice(0, 80)}</div>)}
                 </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Operations Overview drill-down — rendered at tab root so the overlay
+          centres correctly in the viewport (not buried in the section). */}
+      {opDetail && (() => {
+        const TITLES = { web: "Web & Digital Live — by domain", social: "Social Media Posts — by domain", attendance: "Attendance — by employee", updates: "Team Lead Updates" };
+        const webMap = {}, socMap = {};
+        opSubsAll.forEach((s) => {
+          const op = (s.customFields && s.customFields.__op) || {};
+          (op.magazine || []).forEach((m) => { if (!m.domain) return; const d = webMap[m.domain] || (webMap[m.domain] = { web: 0, digital: 0, clients: [] }); if (m.webLive === "Yes") { d.web++; if (m.webClient) d.clients.push("Web: " + m.webClient); } if (m.digitalLive === "Yes") { d.digital++; if (m.digitalClient) d.clients.push("Digital: " + m.digitalClient); } });
+          (op.social || []).forEach((x) => { if (!x.domain) return; const d = socMap[x.domain] || (socMap[x.domain] = { fb: 0, ig: 0, li: 0 }); if (x.fb === "Yes") d.fb++; if (x.ig === "Yes") d.ig++; if (x.li === "Yes") d.li++; });
+        });
+        const webRows = Object.entries(webMap), socRows = Object.entries(socMap);
+        const updRows = opSubsAll.filter((s) => s.updatesForTeamLead && String(s.updatesForTeamLead).trim()).sort((a, b) => (a.date < b.date ? 1 : -1));
+        return (
+          <div className="sv-modal-overlay" onClick={() => setOpDetail(null)}>
+            <div className="sv-modal" style={{ maxWidth: 560, maxHeight: "85vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+              <div className="sv-modal-header"><span className="sv-text-navy sv-font-800" style={{ fontSize: 15.5 }}>{TITLES[opDetail]}</span><button className="sv-modal-close" onClick={() => setOpDetail(null)}>×</button></div>
+              <div style={{ padding: "14px 20px", overflowY: "auto" }}>
+                {opDetail === "web" && (webRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No Web/Digital Live reported in this period.</p> : webRows.map(([dom, d]) => (
+                  <div key={dom} className="sv-op-dt-row"><div className="sv-op-dt-dom">{dom}</div><div className="sv-op-dt-val">Web Live: <b>{d.web}</b> · Digital Live: <b>{d.digital}</b>{d.clients.length ? <div className="sv-op-dt-sub">{d.clients.join(" · ")}</div> : null}</div></div>
+                )))}
+                {opDetail === "social" && (socRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No social posts reported in this period.</p> : socRows.map(([dom, d]) => (
+                  <div key={dom} className="sv-op-dt-row"><div className="sv-op-dt-dom">{dom}</div><div className="sv-op-dt-val">Facebook: <b>{d.fb}</b> · Instagram: <b>{d.ig}</b> · LinkedIn: <b>{d.li}</b></div></div>
+                )))}
+                {opDetail === "attendance" && (opSubsAll.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No operation submissions in this period.</p> : opSubsAll.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((s) => (
+                  <div key={s.id || `${s.empId}-${s.date}`} className="sv-op-dt-row"><div className="sv-op-dt-dom">{s.empName}</div><div className="sv-op-dt-val">{s.attendance} · {fmtDate(s.date)} · {s.workingHours || 0}h</div></div>
+                )))}
+                {opDetail === "updates" && (updRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No updates in this period.</p> : updRows.map((s) => (
+                  <div key={s.id || `${s.empId}-${s.date}`} className="sv-op-dt-row"><div className="sv-op-dt-dom">{s.empName} <span className="sv-text-muted" style={{ fontWeight: 500, fontSize: 11 }}>{fmtDate(s.date)}</span></div><div className="sv-op-dt-val">{s.updatesForTeamLead}</div></div>
+                )))}
               </div>
             </div>
           </div>
@@ -982,7 +1027,7 @@ export function DepartmentsTab({ departments, employees, submissions, newDept, s
 /* ───────────────────────────────────────────────────────────────
  * LeaveBoardTab — approve/reject with mandatory remark + history.
  * ──────────────────────────────────────────────────────────────*/
-export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode = false }) {
+export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode = false, submissions = [] }) {
   const [remarks, setRemarks] = useState({});
   const [pendingRemark, setPendingRemark] = useState({}); // id -> "Approved"|"Rejected" awaiting confirm
   const [errorId, setErrorId] = useState(null);
@@ -990,6 +1035,10 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
   const [histSearch, setHistSearch] = useState("");
   const [histFilter, setHistFilter] = useState("All");
   const [histPeriod, setHistPeriod] = useState("Today"); // Today | Month | Year
+  // Self-marked attendance from the DSR (Absent / Half Day) — all departments
+  const [attSearch, setAttSearch] = useState("");
+  const [attType, setAttType] = useState("All"); // All | Absent | Half Day
+  const [attPeriod, setAttPeriod] = useState("Month"); // Month | Year | All
 
   const empById = Object.fromEntries(employees.map((e) => [e.id, e]));
   const pending = leaves.filter((l) => l.status === "Pending");
@@ -1147,6 +1196,59 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
           </div>
         )}
       </div>
+
+      {/* ── Self-Marked Attendance (from DSR) — every department ── */}
+      {(() => {
+        const attPrefix = attPeriod === "Month" ? nowIso.slice(0, 7) : attPeriod === "Year" ? nowIso.slice(0, 4) : "";
+        const attRecords = (submissions || [])
+          .filter((s) => s.attendance === "Absent" || s.attendance === "Half Day")
+          .filter((s) => attType === "All" || s.attendance === attType)
+          .filter((s) => !attPrefix || String(s.date || "").startsWith(attPrefix))
+          .filter((s) => { if (!attSearch) return true; const q = attSearch.toLowerCase(); const dep = (empById[s.empId]?.department || ""); return [s.empName, dep].some((v) => (v || "").toLowerCase().includes(q)); })
+          .sort((a, b) => (a.date < b.date ? 1 : -1));
+        return (
+          <div className="sv-card" style={{ marginTop: 16 }}>
+            <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 4 }}>
+              <span className="sv-mod-icon" style={{ background: "rgba(220,38,38,.12)", color: "#DC2626" }}><CalendarDays size={16} /></span>
+              <div>
+                <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 15.5 }}>Self-Marked Attendance <span className="sv-text-muted" style={{ fontSize: 12, fontWeight: 600 }}>(from Daily Report — all employees)</span></p>
+                <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>Everyone who marked themselves Absent or Half Day in their DSR. These are self-reported and need no approval.</p>
+              </div>
+            </div>
+            <div className="sv-flex sv-items-center sv-gap-2" style={{ flexWrap: "wrap", margin: "10px 0 12px" }}>
+              <div className="sv-mailids-search"><SearchIcon size={14} /><input placeholder="Search name / department…" value={attSearch} onChange={(e) => setAttSearch(e.target.value)} /></div>
+              <div className="sv-seg">{["Month", "Year", "All"].map((p) => <button key={p} className={`sv-seg-btn${attPeriod === p ? " sv-seg-btn--on" : ""}`} onClick={() => setAttPeriod(p)}>{p}</button>)}</div>
+              <div className="sv-seg">{["All", "Absent", "Half Day"].map((t) => <button key={t} className={`sv-seg-btn${attType === t ? " sv-seg-btn--on" : ""}`} onClick={() => setAttType(t)}>{t}</button>)}</div>
+              <span className="sv-text-muted" style={{ fontSize: 12, marginLeft: "auto" }}>{attRecords.length} record{attRecords.length !== 1 ? "s" : ""}</span>
+            </div>
+            {attRecords.length === 0 ? (
+              <div className="sv-leave-empty"><Inbox size={26} /><span>No self-marked absences for this filter.</span></div>
+            ) : (
+              <div className="sv-leave-hist-list">
+                {attRecords.map((s) => {
+                  const emp = empById[s.empId];
+                  const isAbs = s.attendance === "Absent";
+                  return (
+                    <div key={s.id || `${s.empId}-${s.date}`} className="sv-leave-hrow">
+                      <div className="sv-flex sv-items-center sv-gap-2" style={{ minWidth: 0 }}>
+                        <Avatar emp={emp} name={s.empName} idx={0} size={34} />
+                        <div style={{ minWidth: 0 }}>
+                          <div className="sv-text-navy sv-font-700" style={{ fontSize: 13.5 }}>{s.empName}</div>
+                          <div className="sv-text-muted" style={{ fontSize: 11 }}>{emp?.department || s.department || "—"}</div>
+                        </div>
+                      </div>
+                      <div className="sv-leave-hrow-mid">
+                        <span className="sv-leave-range"><CalendarDays size={13} /> {fmtDate(s.date)}</span>
+                      </div>
+                      <span className="sv-badge" style={{ background: isAbs ? "#FEE2E2" : "#FEF3C7", color: isAbs ? "#B91C1C" : "#B45309" }}>{isAbs ? "On Leave" : "Half Day"}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {confirm && (
         <div className="sv-modal-overlay" onClick={() => setConfirm(null)}>

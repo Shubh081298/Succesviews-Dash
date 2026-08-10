@@ -18,6 +18,7 @@ import { supabase } from "../../utils/supabaseClient";
 import { Mail, Send, Target, Handshake, CheckCircle2, Phone, Megaphone, IndianRupee, FileText, Banknote } from "lucide-react";
 import { Download, Plus, Pencil, KeyRound, Eye, EyeOff, X, Palette, Building2 } from "lucide-react";
 import { Palmtree, CalendarDays, Clock, XCircle, Check, Search as SearchIcon, Inbox } from "lucide-react";
+import { LayoutDashboard, Receipt, Users as UsersIcon } from "lucide-react";
 import { Layers, TrendingUp, Trash2, UserPlus, CalendarCheck, FileSignature } from "lucide-react";
 import { Users, ShieldCheck, MessageSquare, Globe2, Image as ImageIcon, Briefcase as BriefcaseIcon, UserCog } from "lucide-react";
 import { FolderOpen, BookOpen, Wallet, Bell, ArrowLeft, AlertTriangle } from "lucide-react";
@@ -82,6 +83,15 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
   };
   const salesByCur = groupByCur(pipelineSales, "salesDate");
   const payByCur = groupByCur(pipelinePayments, "paymentDate");
+  // Outstanding = Sales − Payments, computed strictly within each currency (never mixed).
+  const outstandingByCur = (() => {
+    const m = {};
+    new Set([...Object.keys(salesByCur), ...Object.keys(payByCur)]).forEach((c) => {
+      const o = (salesByCur[c] || 0) - (payByCur[c] || 0);
+      if (o > 0) m[c] = o;
+    });
+    return m;
+  })();
 
   // Team Messages — employee updates written to the team lead in their DSR
   // (existing data; no backend change). Newest first.
@@ -143,6 +153,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
         <ClickCard idx={7} label="Sales" value={fmtMoneyByCur(salesByCur)} icon={<TrendingUp size={20} />} c1="#ECFDF5" c2="#C9F7D8" accent="#059669" onClick={() => openDM("sales")} />
         <ClickCard idx={8} label="Contract Order Sent" value={orders} icon={<FileSignature size={20} />} c1="#F5F0FF" c2="#DDCCFF" accent="#6D28D9" onClick={() => openDM("orders")} />
         <ClickCard idx={9} label="Payment Received" value={fmtMoneyByCur(payByCur)} icon={<Wallet size={20} />} c1="#FFF8E6" c2="#FFE49C" accent="#CA8A04" onClick={() => openDM("payments")} />
+        <ClickCard idx={10} label="Outstanding" value={fmtMoneyByCur(outstandingByCur)} icon={<AlertTriangle size={20} />} c1="#FEF2F2" c2="#FEE2E2" accent="#DC2626" onClick={() => openDM("sales")} />
       </div>
 
       {(() => {
@@ -207,12 +218,15 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
             </div>
           ) : (
             <div className="sv-mailids-scroll">
-              <table className="sv-mailids-table" style={{ minWidth: 1120 }}>
-                <thead><tr>{["Client", "Project", "Employee", "Assigned Email", "Region", "Status", "Next Follow-up", "Last Activity", "Contract", "Sale", "Payment"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+              <table className="sv-mailids-table" style={{ minWidth: 1240 }}>
+                <thead><tr>{["Client", "Project", "Employee", "Assigned Email", "Region", "Status", "Next Follow-up", "Last Activity", "Contract", "Sale", "Payment", "Outstanding"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                 <tbody>
                   {filtered.slice(0, 300).map((c) => {
                     const over = isOver(c); const due = isDue(c); const col = colourOf(c.status); const la = lastActivityOf(c.id);
                     const pill = (on, label, onCol, tip) => <span className="sv-clp-pill" title={tip} style={{ background: on ? onCol + "1A" : "#F1F5F9", color: on ? onCol : "#94A3B8" }}>{on ? label : "—"}</span>;
+                    const _exp = Number(c.expectedAmount) || 0; const _cur = c.expectedCurrency || "USD";
+                    const _paid = (pipelinePayments || []).filter((p) => p.clientId === c.id && (p.currency || "USD") === _cur).reduce((a, b) => a + (Number(b.amount) || 0), 0);
+                    const _out = _exp > 0 ? Math.max(0, _exp - _paid) : 0;
                     return (
                       <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer" }}>
                         <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{c.clientName}</td>
@@ -226,6 +240,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
                         <td>{pill(hasRec(c.id, pipelineContracts), "Sent", "#7C3AED", "Contract sent")}</td>
                         <td>{pill(hasRec(c.id, pipelineSales), "Done", "#0D9488", "Sale generated")}</td>
                         <td>{pill(hasRec(c.id, pipelinePayments), "Paid", "#15803D", "Payment received")}</td>
+                        <td style={{ fontSize: 12.5, whiteSpace: "nowrap", fontWeight: 700, color: _out > 0 ? "#B91C1C" : "#15803D" }}>{_exp > 0 ? (_out > 0 ? `${CUR_SYM[_cur] || _cur + " "}${_out.toLocaleString()}` : "Paid") : "—"}</td>
                       </tr>
                     );
                   })}
@@ -851,8 +866,10 @@ export function AnalyticsTab({ empStats, statusPie, chartData, monthlySalary = [
               <BarChart data={monthlySalary}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="label" tick={TICK} /><YAxis tick={TICK} />
-                <Tooltip {...TT} formatter={(v) => [fmtSalary(v), "Total Paid"]} />
-                <Bar dataKey="total" fill={GREEN} cursor="pointer" radius={[6, 6, 0, 0]} onClick={(d) => setSelMonth(d && d.monthKey)} />
+                <Tooltip {...TT} formatter={(v, n) => [fmtSalary(v), n]} />
+                <Legend {...LEG} />
+                <Bar dataKey="empTotal" stackId="sal" name="Employees" fill={GREEN} cursor="pointer" radius={[0, 0, 0, 0]} onClick={(d) => setSelMonth(d && d.monthKey)} />
+                <Bar dataKey="freeTotal" stackId="sal" name="Freelancers" fill={AMBER} cursor="pointer" radius={[6, 6, 0, 0]} onClick={(d) => setSelMonth(d && d.monthKey)} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -892,12 +909,16 @@ export function AnalyticsTab({ empStats, statusPie, chartData, monthlySalary = [
               <button onClick={() => setSelMonth(null)} style={{ border: "none", background: "transparent", color: "#64748B", cursor: "pointer", fontWeight: 700, fontSize: 13 }}><X size={14} /> Close</button>
             </div>
             <table className="sv-table">
-              <thead><tr><th>Employee</th><th style={{ textAlign: "right" }}>Salary Paid</th></tr></thead>
+              <thead><tr><th>Name</th><th>Type</th><th style={{ textAlign: "right" }}>Salary Paid</th></tr></thead>
               <tbody>
                 {mo.breakdown.map((r, i) => (
-                  <tr key={i}><td>{r.name}</td><td style={{ textAlign: "right", fontWeight: 700 }}>{fmtSalary(r.amount)}</td></tr>
+                  <tr key={i}>
+                    <td>{r.name}</td>
+                    <td><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: r.kind === "Freelancer" ? "#B45309" : "#15803D", background: r.kind === "Freelancer" ? "#FEF3C7" : "#DCFCE7" }}>{r.kind}</span></td>
+                    <td style={{ textAlign: "right", fontWeight: 700 }}>{fmtSalary(r.amount)}</td>
+                  </tr>
                 ))}
-                <tr><td style={{ fontWeight: 800 }}>Total</td><td style={{ textAlign: "right", fontWeight: 800, color: GREEN }}>{fmtSalary(mo.total)}</td></tr>
+                <tr><td style={{ fontWeight: 800 }}>Total</td><td /><td style={{ textAlign: "right", fontWeight: 800, color: GREEN }}>{fmtSalary(mo.total)}</td></tr>
               </tbody>
             </table>
           </div>
@@ -1776,7 +1797,9 @@ function expFmtBag(bag) {
 }
 function expEsc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 
-export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExpense, logo = "" }) {
+export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExpense, logo = "", domains = [] }) {
+  const domainOptions = (domains || []).filter((d) => d && d.status !== false).map((d) => d.name);
+  const todayStr = (() => { const d = new Date(); const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; })();
   const [section, setSection] = useState("dashboard");
   const [search, setSearch] = useState("");
   const [fMonth, setFMonth] = useState("");
@@ -1784,14 +1807,23 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
   const [fCur, setFCur] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [fCat, setFCat] = useState("");
+  const [dashCur, setDashCur] = useState(""); // dashboard currency scope (charts never mix currencies)
   const [detail, setDetail] = useState(null);
   const [detailEdit, setDetailEdit] = useState(null); // { paymentStatus, notes } while editing a captured record
   const [form, setForm] = useState(null);             // company add/edit form
   const [isNew, setIsNew] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [catMode, setCatMode] = useState("list"); // "list" | "custom" — company expense category
+  const [ioForm, setIoForm] = useState(null);     // Payment Received form (income)
+  const [ioSaving, setIoSaving] = useState(false);
+  const [ioUploading, setIoUploading] = useState(false);
+  const [insForm, setInsForm] = useState(null);   // Insertion Order form (Name + mandatory file)
+  const [insSaving, setInsSaving] = useState(false);
+  const [insUploading, setInsUploading] = useState(false);
 
   const io = expenses.filter((e) => e.type === "insertion_order");
+  const pay = expenses.filter((e) => e.type === "payment_received");
   const sal = expenses.filter((e) => e.type === "salary");
   const co = expenses.filter((e) => e.type === "company");
 
@@ -1817,8 +1849,8 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
   expenses.forEach((e) => { const k = expMonthKey(e); if (!k) return; (monthMap[k] = monthMap[k] || []).push(e); });
   const monthKeys = Object.keys(monthMap).sort().reverse();
 
-  const openAddCompany = () => { setForm({ ...CO_BLANK, details: { vendor: "" } }); setIsNew(true); };
-  const openEditCompany = (e) => { setForm({ ...e, details: { ...(e.details || {}) } }); setIsNew(false); setDetail(null); };
+  const openAddCompany = () => { setForm({ ...CO_BLANK, paymentDate: todayStr, details: { vendor: "" } }); setIsNew(true); setCatMode("list"); };
+  const openEditCompany = (e) => { setForm({ ...e, details: { ...(e.details || {}) } }); setIsNew(false); setDetail(null); setCatMode(!e.category || CO_CATEGORIES.includes(e.category) ? "list" : "custom"); };
   const updF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const updFDetail = (k, v) => setForm((f) => ({ ...f, details: { ...(f.details || {}), [k]: v } }));
   const saveCompany = async () => {
@@ -1830,26 +1862,110 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
     if (ok !== false) setForm(null);
   };
 
-  const openDetail = (rec) => { setDetail(rec); setDetailEdit({ paymentStatus: rec.paymentStatus || "", notes: rec.notes || "" }); };
+  // Shared file uploader → returns { url, name } or null
+  const uploadFile = async (file) => {
+    if (!file) return null;
+    if (file.size > 10 * 1024 * 1024) { alert("File is larger than 10 MB — please choose a smaller file."); return null; }
+    const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const path = `invoices/${Date.now()}_${safe}`;
+    const { error } = await supabase.storage.from("design-files").upload(path, file, { upsert: false });
+    if (error) throw error;
+    const { data: pub } = supabase.storage.from("design-files").getPublicUrl(path);
+    return { url: pub.publicUrl, name: file.name };
+  };
+
+  // ── Payment Received (income) ──
+  const openAddIO = () => setIoForm({
+    id: "", clientName: "", invoice: "", invoiceUrl: "", invoiceName: "",
+    amount: "", currency: "USD", paymentDate: todayStr, paymentStatus: "Received", notes: "",
+  });
+  const updIO = (k, v) => setIoForm((f) => ({ ...f, [k]: v }));
+  const uploadInvoiceFile = async (file) => {
+    if (!file) return;
+    setIoUploading(true);
+    try { const r = await uploadFile(file); if (r) setIoForm((f) => ({ ...f, invoiceUrl: r.url, invoiceName: r.name })); }
+    catch (e) { alert("Could not upload the file: " + (e.message || "unknown error")); }
+    finally { setIoUploading(false); }
+  };
+  const saveIO = async () => {
+    if (!ioForm.clientName.trim() || !ioForm.id.trim() || !(+ioForm.amount > 0)) return;
+    setIoSaving(true);
+    const rec = {
+      type: "payment_received",
+      title: `Payment — ${ioForm.clientName.trim()}`,
+      clientName: ioForm.clientName.trim(),
+      contractOrder: ioForm.id.trim(),
+      amount: +ioForm.amount,
+      currency: ioForm.currency,
+      paymentDate: ioForm.paymentDate || new Date().toISOString().slice(0, 10),
+      paymentStatus: ioForm.paymentStatus,
+      notes: ioForm.notes || "",
+      details: {
+        confirmationNo: ioForm.id.trim(),
+        invoice: ioForm.invoice.trim(),
+        invoiceUrl: ioForm.invoiceUrl || "",
+        invoiceName: ioForm.invoiceName || "",
+        manual: true,
+      },
+    };
+    const ok = await addExpense(rec);
+    setIoSaving(false);
+    if (ok !== false) { setIoForm(null); setSection("payment"); }
+  };
+
+  // ── Insertion Order (name + mandatory file) ──
+  const openAddInsertion = () => setInsForm({ clientName: "", paymentDate: todayStr, fileUrl: "", fileName: "", notes: "" });
+  const updIns = (k, v) => setInsForm((f) => ({ ...f, [k]: v }));
+  const uploadInsertionFile = async (file) => {
+    if (!file) return;
+    setInsUploading(true);
+    try { const r = await uploadFile(file); if (r) setInsForm((f) => ({ ...f, fileUrl: r.url, fileName: r.name })); }
+    catch (e) { alert("Could not upload the file: " + (e.message || "unknown error")); }
+    finally { setInsUploading(false); }
+  };
+  const saveInsertion = async () => {
+    if (!insForm.clientName.trim() || !insForm.fileUrl) return; // file is mandatory
+    setInsSaving(true);
+    const rec = {
+      type: "insertion_order",
+      title: insForm.clientName.trim(),
+      clientName: insForm.clientName.trim(),
+      paymentDate: insForm.paymentDate || new Date().toISOString().slice(0, 10),
+      notes: insForm.notes || "",
+      details: { invoiceUrl: insForm.fileUrl, invoiceName: insForm.fileName, manual: true },
+    };
+    const ok = await addExpense(rec);
+    setInsSaving(false);
+    if (ok !== false) { setInsForm(null); setSection("insertion"); }
+  };
+
+  const openDetail = (rec) => { setDetail(rec); setDetailEdit({ paymentStatus: rec.paymentStatus || "", notes: rec.notes || "", paymentDate: rec.paymentDate || "" }); };
   const saveDetailEdit = async () => {
     setSaving(true);
-    await updateExpense({ ...detail, paymentStatus: detailEdit.paymentStatus, notes: detailEdit.notes });
+    await updateExpense({ ...detail, paymentStatus: detailEdit.paymentStatus, notes: detailEdit.notes, paymentDate: detailEdit.paymentDate || detail.paymentDate });
     setSaving(false);
     setDetail(null);
   };
   const doDelete = async () => { const id = confirmDel.id; setConfirmDel(null); setDetail(null); await deleteExpense(id); };
 
-  const currentList = section === "insertion" ? applyFilters(io) : section === "salary" ? applyFilters(sal) : section === "company" ? applyFilters(co) : [];
+  const currentList = (section === "insertion" ? applyFilters(io) : section === "payment" ? applyFilters(pay) : section === "salary" ? applyFilters(sal) : section === "company" ? applyFilters(co) : [])
+    .slice()
+    .sort((a, b) => { const av = a.paymentDate || a.createdAt || "", bv = b.paymentDate || b.createdAt || ""; return av < bv ? 1 : av > bv ? -1 : 0; });
 
   const exportRows = () => {
     if (section === "insertion") {
-      const rows = [["Confirmation No", "Client", "Company", "Feature", "Magazine", "Date", "Contract Value", "Currency", "Payment Status", "Order Status"]];
-      applyFilters(io).forEach((e) => { const d = e.details || {}; rows.push([d.confirmationNo || e.contractOrder, e.clientName, d.companyName, d.featureTitle, d.magazine, e.paymentDate, e.amount ?? "", e.currency, e.paymentStatus, d.orderStatus]); });
+      const rows = [["Name", "Date", "File"]];
+      applyFilters(io).forEach((e) => { const d = e.details || {}; rows.push([e.clientName || e.title, e.paymentDate, d.invoiceUrl || ""]); });
+      return rows;
+    }
+    if (section === "payment") {
+      const rows = [["Client", "ID / Conf. No", "Amount", "Currency", "Date", "Status", "Invoice", "Notes"]];
+      applyFilters(pay).forEach((e) => { const d = e.details || {}; rows.push([e.clientName, d.confirmationNo || e.contractOrder, e.amount ?? "", e.currency, e.paymentDate, e.paymentStatus, d.invoiceUrl || d.invoice || "", e.notes]); });
       return rows;
     }
     if (section === "salary") {
-      const rows = [["Employee", "Employee ID", "Department", "Month", "Year", "Fixed", "Incentives", "Deductions", "Final Salary", "Payment Date", "Status"]];
-      applyFilters(sal).forEach((e) => { const d = e.details || {}; rows.push([d.employeeName || e.clientName, d.employeeId, d.department, d.month, d.year, d.fixed ?? "", d.incentiveTotal ?? "", d.deductionTotal ?? "", e.amount ?? "", e.paymentDate, e.paymentStatus]); });
+      const rows = [["Name", "Type", "Employee ID", "Department", "Month", "Year", "Fixed", "Incentives", "Deductions", "Final Salary", "Payment Date", "Status"]];
+      applyFilters(sal).forEach((e) => { const d = e.details || {}; rows.push([d.employeeName || d.freelancerName || e.clientName, e.category === "Freelancer" ? "Freelancer" : "Employee", d.employeeId, d.department || d.company, d.month, d.year, d.fixed ?? "", d.incentiveTotal ?? "", d.deductionTotal ?? "", e.amount ?? "", e.paymentDate, e.paymentStatus]); });
       return rows;
     }
     const rows = [["Title", "Category", "Vendor", "Amount", "Currency", "Payment Date", "Method", "Status", "Notes"]];
@@ -1863,6 +1979,40 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([html], { type: "application/vnd.ms-excel" }));
     a.download = `successviews-${section}-${new Date().toISOString().slice(0, 10)}.xls`;
+    a.click();
+  };
+
+  // Unified accountant-friendly ledger — every record, one sheet, one row each.
+  const ledgerKind = (e) =>
+    e.type === "payment_received" ? "Payment Received (Income)"
+      : e.type === "insertion_order" ? "Insertion Order (Doc)"
+        : e.type === "salary" && e.category === "Freelancer" ? "Freelancer Payment"
+          : e.type === "salary" ? "Employee Salary"
+            : "Company Expense";
+  const ledgerFlow = (e) => (e.type === "payment_received" ? "IN" : e.type === "insertion_order" ? "" : "OUT");
+  const fullLedgerRows = (list) => {
+    const rows = [["Date", "Month", "Flow", "Type", "Category", "Name / Title", "Reference", "Amount", "Currency", "Method", "Status", "Notes"]];
+    [...list]
+      .sort((a, b) => (expMonthKey(b) + (b.paymentDate || "")).localeCompare(expMonthKey(a) + (a.paymentDate || "")))
+      .forEach((e) => {
+        const d = e.details || {};
+        rows.push([
+          e.paymentDate || "", expMonthLabel(expMonthKey(e)), ledgerFlow(e), ledgerKind(e),
+          e.category || "", d.employeeName || d.freelancerName || d.companyName || e.title || e.clientName || "",
+          d.confirmationNo || e.contractOrder || d.employeeId || "", e.amount ?? "", e.currency || "INR",
+          e.paymentMethod || "", e.paymentStatus || "", (e.notes || "").replace(/\n/g, " "),
+        ]);
+      });
+    return rows;
+  };
+  const doExportLedger = (fmt) => {
+    const rows = fullLedgerRows(applyFilters(expenses));
+    const stamp = new Date().toISOString().slice(0, 10);
+    if (fmt === "csv") { downloadCSV(`successviews-full-ledger-${stamp}.csv`, rows); return; }
+    const html = `<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body><table border="1">${rows.map((r, i) => `<tr>${r.map((c) => `<${i === 0 ? "th" : "td"}>${expEsc(c)}</${i === 0 ? "th" : "td"}>`).join("")}</tr>`).join("")}</table></body></html>`;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([html], { type: "application/vnd.ms-excel" }));
+    a.download = `successviews-full-ledger-${stamp}.xls`;
     a.click();
   };
 
@@ -1903,64 +2053,187 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
     <div className="sv-tab">
       <h2 className="sv-tab-title">Expense</h2>
 
-      <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap" }}>
-        {sectionBtn("dashboard", "Monthly Dashboard")}
-        {sectionBtn("insertion", `Insertion Orders (${io.length})`)}
-        {sectionBtn("salary", `Salary (${sal.length})`)}
-        {sectionBtn("company", `SuccessViews Expenses (${co.length})`)}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", background: "#F1F5F9", border: "1px solid #E9EEF4", borderRadius: 12, padding: 5, marginBottom: 4 }}>
+        {[
+          { key: "dashboard", label: "Dashboard", icon: <LayoutDashboard size={16} />, count: null, color: "#2563EB" },
+          { key: "insertion", label: "Insertion Orders", icon: <Receipt size={16} />, count: io.length, color: "#0EA5E9" },
+          { key: "payment", label: "Payment Received", icon: <CheckCircle2 size={16} />, count: pay.length, color: "#16A34A" },
+          { key: "salary", label: "Salary & Freelancer", icon: <UsersIcon size={16} />, count: sal.length, color: "#F59E0B" },
+          { key: "company", label: "Company Expenses", icon: <Building2 size={16} />, count: co.length, color: "#8B5CF6" },
+        ].map((t) => {
+          const active = section === t.key;
+          return (
+            <button key={t.key} onClick={() => setSection(t.key)}
+              style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 16px", borderRadius: 9, border: "none", cursor: "pointer",
+                background: active ? "#fff" : "transparent", color: active ? "#162B55" : "#64748B", fontWeight: active ? 800 : 600, fontSize: 13.5,
+                boxShadow: active ? `0 1px 3px rgba(15,23,42,0.10)` : "none", borderBottom: active ? `2px solid ${t.color}` : "2px solid transparent", transition: "all .15s" }}>
+              <span style={{ color: t.color, display: "inline-flex" }}>{t.icon}</span>{t.label}
+              {t.count != null && <span style={{ fontSize: 11, fontWeight: 800, minWidth: 20, textAlign: "center", padding: "1px 7px", borderRadius: 999,
+                background: active ? `${t.color}1A` : "#E2E8F0", color: active ? t.color : "#64748B" }}>{t.count}</span>}
+            </button>
+          );
+        })}
       </div>
 
-      {/* ── Monthly dashboard ── */}
-      {section === "dashboard" && (
+      {/* ── Monthly dashboard (CA review) ── */}
+      {section === "dashboard" && (() => {
+        const dashKeys = fYear ? monthKeys.filter((k) => k.slice(0, 4) === fYear) : monthKeys;
+        const curOK = (e) => !dashCur || (e.currency || "INR") === dashCur;
+        const scope = dashKeys.flatMap((k) => monthMap[k]).filter(curOK);
+        const isFree = (e) => e.type === "salary" && e.category === "Freelancer";
+        const ordersBag = expBag(scope.filter((e) => e.type === "payment_received"));
+        const empSalBag = expBag(scope.filter((e) => e.type === "salary" && !isFree(e)));
+        const freeBag = expBag(scope.filter(isFree));
+        const coBag = expBag(scope.filter((e) => e.type === "company"));
+        const outBag = {}; [empSalBag, freeBag, coBag].forEach((b) => Object.entries(b).forEach(([c, v]) => outBag[c] = (outBag[c] || 0) + v));
+        const bagSum = (bag) => Object.values(bag).reduce((a, b) => a + b, 0);
+        const barData = dashKeys.slice().reverse().map((k) => {
+          const list = monthMap[k].filter(curOK);
+          const n = (f) => list.filter(f).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+          const cur = (f) => [...new Set(list.filter(f).map((e) => e.currency).filter(Boolean))].join(" / ");
+          const fPay = (e) => e.type === "payment_received", fEmp = (e) => e.type === "salary" && !isFree(e), fCo = (e) => e.type === "company";
+          return {
+            label: (EXP_MONTHS[(+k.slice(5, 7)) - 1] || "").slice(0, 3) + " " + k.slice(2, 4),
+            Orders: n(fPay), OrdersCur: cur(fPay),
+            Salary: n(fEmp), SalaryCur: cur(fEmp),
+            Freelancer: n(isFree), FreelancerCur: cur(isFree),
+            Company: n(fCo), CompanyCur: cur(fCo),
+          };
+        });
+        const donutData = [
+          { name: "Employee Salary", value: bagSum(empSalBag), color: "#16A34A" },
+          { name: "Freelancer", value: bagSum(freeBag), color: "#F59E0B" },
+          { name: "Company", value: bagSum(coBag), color: "#8B5CF6" },
+        ].filter((d) => d.value > 0);
+        const card = (label, bag, color, sub) => (
+          <div style={{ flex: "1 1 160px", minWidth: 160, background: "#fff", border: "1px solid #E9EEF4", borderTop: `3px solid ${color}`, borderRadius: 12, padding: "14px 16px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{expFmtBag(bag)}</div>
+            {sub && <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{sub}</div>}
+          </div>
+        );
+        return (
         <div className="sv-card">
-          <h3>Monthly Financial Summary</h3>
+          <div className="sv-flex sv-justify-between" style={{ alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <h3 style={{ margin: 0 }}>Financial Summary{fYear ? ` · ${fYear}` : ""}{dashCur ? ` · ${dashCur}` : ""}</h3>
+            <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", alignItems: "center" }}>
+              <select className="sv-select" value={fYear} onChange={(e) => setFYear(e.target.value)} style={{ maxWidth: 130 }}>
+                <option value="">All years</option>
+                {years.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <select className="sv-select" value={dashCur} onChange={(e) => setDashCur(e.target.value)} style={{ maxWidth: 150 }} title="Charts calculate only the selected currency">
+                <option value="">All currencies</option>
+                {[...new Set(expenses.map((e) => e.currency).filter(Boolean))].sort().map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <button className="sv-btn sv-btn--ghost" onClick={() => doExportLedger("csv")} disabled={expenses.length === 0}><Download size={15} /> Full Ledger CSV</button>
+              <button className="sv-btn sv-btn--ghost" onClick={() => doExportLedger("excel")} disabled={expenses.length === 0}><Download size={15} /> Full Ledger Excel</button>
+            </div>
+          </div>
+
           {monthKeys.length === 0 ? (
-            <p className="sv-text-muted" style={{ padding: "24px 0", textAlign: "center" }}>No financial records yet. Download a Confirmation Order or mark a salary as Paid — records appear here automatically.</p>
-          ) : (
+            <p className="sv-text-muted" style={{ padding: "24px 0", textAlign: "center" }}>No financial records yet. Records are created automatically when a Confirmation Order is downloaded, a salary is released, or a freelancer is paid — and you can add company expenses manually. If this stays empty after those actions, run <b>supabase/expenses-fix.sql</b> once in Supabase.</p>
+          ) : (<>
+            <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", margin: "14px 0 4px" }}>
+              {card("Payments Received (Income)", ordersBag, "#3B82F6", "Client payments")}
+              {card("Employee Salary", empSalBag, "#16A34A", "Released payroll")}
+              {card("Freelancer Payments", freeBag, "#F59E0B", "Contractors")}
+              {card("Company Expenses", coBag, "#8B5CF6", "Operating costs")}
+              {card("Total Outflow", outBag, "#DC2626", "Salary + Freelancer + Company")}
+            </div>
+
+            {/* Charts */}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)", gap: 16, marginTop: 18, alignItems: "stretch" }}>
+              <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", minHeight: 320 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 8 }}>Income vs Outflow by Month</div>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={barData} barGap={2} barCategoryGap="22%">
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="label" tick={TICK} /><YAxis tick={TICK} width={64} tickFormatter={(v) => v >= 1000 ? (v / 1000) + "k" : v} />
+                    <Tooltip {...TT} formatter={(v, n, item) => [`${Number(v).toLocaleString("en-IN")} ${(item && item.payload && item.payload[(item.dataKey || "") + "Cur"]) || ""}`.trim(), n]} />
+                    <Legend {...LEG} />
+                    <Bar dataKey="Orders" name="Payments Received" stackId="in" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="Salary" stackId="out" fill="#16A34A" />
+                    <Bar dataKey="Freelancer" stackId="out" fill="#F59E0B" />
+                    <Bar dataKey="Company" stackId="out" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", minHeight: 320 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 8 }}>Outflow Composition</div>
+                {donutData.length === 0 ? (
+                  <p className="sv-text-muted" style={{ fontSize: 12, textAlign: "center", margin: "auto" }}>No outflow yet.</p>
+                ) : (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <PieChart>
+                      <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={52} outerRadius={84} paddingAngle={2}>
+                        {donutData.map((d, i) => <Cell key={i} fill={d.color} />)}
+                      </Pie>
+                      <Tooltip {...TT} formatter={(v, n) => [Number(v).toLocaleString("en-IN"), n]} />
+                      <Legend {...LEG} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
             <div style={{ overflowX: "auto", marginTop: 12 }}>
               <table className="sv-table">
                 <thead>
-                  <tr><th>Month</th><th>Revenue (Orders)</th><th>Salary Expense</th><th>Other Expenses</th><th>Total Expense</th><th>Transactions</th></tr>
+                  <tr><th>Month</th><th>Payments Received</th><th>Employee Salary</th><th>Freelancer</th><th>Company Exp.</th><th>Total Outflow</th><th>Txns</th></tr>
                 </thead>
                 <tbody>
-                  {monthKeys.map((k) => {
-                    const list = monthMap[k];
-                    const rev = expBag(list.filter((e) => e.type === "insertion_order"));
-                    const salB = expBag(list.filter((e) => e.type === "salary"));
-                    const othB = expBag(list.filter((e) => e.type === "company"));
-                    const totB = {}; [salB, othB].forEach((b) => Object.entries(b).forEach(([c, v]) => totB[c] = (totB[c] || 0) + v));
+                  {dashKeys.map((k) => {
+                    const list = monthMap[k].filter(curOK);
+                    const rev = expBag(list.filter((e) => e.type === "payment_received"));
+                    const emp = expBag(list.filter((e) => e.type === "salary" && !isFree(e)));
+                    const fre = expBag(list.filter(isFree));
+                    const co = expBag(list.filter((e) => e.type === "company"));
+                    const tot = {}; [emp, fre, co].forEach((b) => Object.entries(b).forEach(([c, v]) => tot[c] = (tot[c] || 0) + v));
                     return (
                       <tr key={k}>
                         <td style={{ fontWeight: 700 }}>{expMonthLabel(k)}</td>
-                        <td>{expFmtBag(rev)}</td>
-                        <td>{expFmtBag(salB)}</td>
-                        <td>{expFmtBag(othB)}</td>
-                        <td style={{ fontWeight: 600 }}>{expFmtBag(totB)}</td>
+                        <td style={{ color: "#2563EB", fontWeight: 600 }}>{expFmtBag(rev)}</td>
+                        <td style={{ color: "#16A34A", fontWeight: 600 }}>{expFmtBag(emp)}</td>
+                        <td style={{ color: "#B45309", fontWeight: 600 }}>{expFmtBag(fre)}</td>
+                        <td style={{ color: "#7C3AED", fontWeight: 600 }}>{expFmtBag(co)}</td>
+                        <td style={{ fontWeight: 700, color: "#DC2626" }}>{expFmtBag(tot)}</td>
                         <td>{list.length}</td>
                       </tr>
                     );
                   })}
+                  <tr style={{ borderTop: "2px solid #E2E8F0", background: "#F8FAFC" }}>
+                    <td style={{ fontWeight: 800 }}>Grand Total</td>
+                    <td style={{ fontWeight: 800 }}>{expFmtBag(ordersBag)}</td>
+                    <td style={{ fontWeight: 800 }}>{expFmtBag(empSalBag)}</td>
+                    <td style={{ fontWeight: 800 }}>{expFmtBag(freeBag)}</td>
+                    <td style={{ fontWeight: 800 }}>{expFmtBag(coBag)}</td>
+                    <td style={{ fontWeight: 800, color: "#DC2626" }}>{expFmtBag(outBag)}</td>
+                    <td style={{ fontWeight: 800 }}>{scope.length}</td>
+                  </tr>
                 </tbody>
               </table>
-              <p className="sv-text-muted" style={{ fontSize: 11, marginTop: 8 }}>Amounts are grouped by their own currency (orders are often USD, salary/company INR) — no automatic conversion is applied.</p>
+              <p className="sv-text-muted" style={{ fontSize: 11, marginTop: 8 }}>Amounts are grouped by their own currency (orders are often USD, salary/company INR) — no automatic conversion is applied. "Total Outflow" = Employee Salary + Freelancer + Company Expenses.</p>
             </div>
-          )}
+          </>)}
         </div>
-      )}
+        );
+      })()}
 
       {/* ── List sections ── */}
       {section !== "dashboard" && (
         <div className="sv-card">
           <div className="sv-flex sv-justify-between" style={{ alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
             <div>
-              <h3 style={{ margin: 0 }}>{section === "insertion" ? "Insertion Orders" : section === "salary" ? "Salary Expenses" : "SuccessViews Expenses"}</h3>
+              <h3 style={{ margin: 0 }}>{section === "insertion" ? "Insertion Orders" : section === "payment" ? "Payments Received" : section === "salary" ? "Salary & Freelancer Payments" : "SuccessViews Expenses"}</h3>
               <p className="sv-text-muted" style={{ fontSize: 12.5, margin: "2px 0 0" }}>
-                {section === "insertion" ? "Auto-created when a Confirmation Order is downloaded." : section === "salary" ? "Auto-created when a salary is marked Paid." : "Company operating expenses (manually added)."}
+                {section === "insertion" ? "Insertion order documents — add a name and attach the order file." : section === "payment" ? "Client payments received (income) — reflected in the dashboard and charts." : section === "salary" ? "Auto-created when a salary is released or a freelancer is paid." : "Company operating expenses (manually added)."}
               </p>
             </div>
             <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap" }}>
               <button className="sv-btn sv-btn--ghost" onClick={doExportCSV} disabled={currentList.length === 0}><Download size={15} /> CSV</button>
               <button className="sv-btn sv-btn--ghost" onClick={doExportExcel} disabled={currentList.length === 0}><Download size={15} /> Excel</button>
+              {section === "insertion" && <button className="sv-btn sv-btn--primary" onClick={openAddInsertion}><Plus size={15} /> Add Insertion Order</button>}
+              {section === "payment" && <button className="sv-btn" style={{ background: "#16A34A", color: "#fff", border: "none" }} onClick={() => openAddIO("Received")}><CheckCircle2 size={15} /> Add Payment Received</button>}
               {section === "company" && <button className="sv-btn sv-btn--primary" onClick={openAddCompany}><Plus size={15} /> Add Expense</button>}
             </div>
           </div>
@@ -1992,17 +2265,32 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
             )}
           </div>
 
+          {/* Payments Received — total-received summary (currency-aware, like the Overview card) */}
+          {section === "payment" && (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+              <div style={{ flex: "1 1 220px", minWidth: 200, borderRadius: 12, padding: "16px 18px", background: "linear-gradient(135deg,#ECFDF5,#D1FAE5)", border: "1px solid #C9F7D8" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#047857", fontWeight: 700, fontSize: 12.5, textTransform: "uppercase", letterSpacing: 0.3 }}><Wallet size={16} /> Total Received</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#065F46", marginTop: 6 }}>{expFmtBag(expBag(currentList))}</div>
+              </div>
+              <div style={{ flex: "1 1 160px", minWidth: 150, borderRadius: 12, padding: "16px 18px", background: "#fff", border: "1px solid #E9EEF4" }}>
+                <div style={{ color: "#64748B", fontWeight: 700, fontSize: 12.5, textTransform: "uppercase", letterSpacing: 0.3 }}>Payments</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 6 }}>{currentList.length}</div>
+              </div>
+            </div>
+          )}
+
           {currentList.length === 0 ? (
             <div style={{ textAlign: "center", padding: "38px 16px", color: "#64748B" }}>
-              <div style={{ fontSize: 38 }}>{section === "insertion" ? "🧾" : section === "salary" ? "👥" : "🏢"}</div>
+              <div style={{ fontSize: 38 }}>{section === "insertion" ? "🧾" : section === "payment" ? "💰" : section === "salary" ? "👥" : "🏢"}</div>
               <p style={{ fontWeight: 700, color: "#334155", margin: "8px 0 2px" }}>No records</p>
-              <p style={{ fontSize: 13, margin: 0 }}>{section === "company" ? "Add your first company expense." : "Records appear here automatically."}</p>
+              <p style={{ fontSize: 13, margin: 0 }}>{section === "insertion" ? "Add an insertion order (name + file)." : section === "payment" ? "Record your first payment received." : section === "company" ? "Add your first company expense." : "Records appear here automatically."}</p>
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
-              <table className="sv-table">
-                {section === "insertion" && <thead><tr><th>Confirmation No</th><th>Client</th><th>Company</th><th>Date</th><th>Value</th><th>Payment</th></tr></thead>}
-                {section === "salary" && <thead><tr><th>Employee</th><th>Dept</th><th>Month</th><th>Final Salary</th><th>Paid On</th><th>Status</th></tr></thead>}
+              <table className="sv-table sv-exp-table">
+                {section === "insertion" && <thead><tr><th>Name</th><th>Date</th><th>File</th><th></th></tr></thead>}
+                {section === "payment" && <thead><tr><th>Client</th><th>ID</th><th>Amount</th><th>Date</th><th>Invoice</th><th>Status</th><th></th></tr></thead>}
+                {section === "salary" && <thead><tr><th>Name</th><th>Type</th><th>Dept</th><th>Month</th><th>Final Salary</th><th>Paid On</th><th>Status</th></tr></thead>}
                 {section === "company" && <thead><tr><th>Title</th><th>Category</th><th>Vendor</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead>}
                 <tbody>
                   {currentList.map((e) => {
@@ -2010,19 +2298,28 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                     return (
                       <tr key={e.id} style={{ cursor: "pointer" }} onClick={() => openDetail(e)}>
                         {section === "insertion" && <>
-                          <td style={{ fontWeight: 600 }}>{d.confirmationNo || e.contractOrder || "—"}</td>
-                          <td>{e.clientName || "—"}</td><td>{d.companyName || "—"}</td>
+                          <td style={{ fontWeight: 600 }}>{e.clientName || e.title || "—"}</td>
                           <td>{e.paymentDate ? fmtDate(e.paymentDate) : "—"}</td>
-                          <td>{expMoney(e.amount, e.currency)}</td>
-                          <td><span className={`sv-badge sv-badge--${(e.paymentStatus || "pending").toLowerCase()}`}>{e.paymentStatus || "Pending"}</span></td>
+                          <td>{d.invoiceUrl ? <a href={d.invoiceUrl} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {d.invoiceName || "View file"}</a> : "—"}</td>
+                          <td><button className="sv-icon-btn" title="Delete" style={{ color: "#DC2626" }} onClick={(ev) => { ev.stopPropagation(); setConfirmDel(e); }}><Trash2 size={15} /></button></td>
                         </>}
-                        {section === "salary" && <>
-                          <td style={{ fontWeight: 600 }}>{d.employeeName || e.clientName || "—"}</td>
-                          <td>{d.department || "—"}</td><td>{d.month} {d.year}</td>
+                        {section === "payment" && <>
+                          <td style={{ fontWeight: 600 }}>{e.clientName || "—"}</td>
+                          <td>{d.confirmationNo || e.contractOrder || "—"}</td>
+                          <td style={{ fontWeight: 600, color: "#15803D" }}>{expMoney(e.amount, e.currency)}</td>
+                          <td>{e.paymentDate ? fmtDate(e.paymentDate) : "—"}</td>
+                          <td>{d.invoiceUrl ? <a href={d.invoiceUrl} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ color: "#2563EB" }}>File</a> : (d.invoice || "—")}</td>
+                          <td><span className={`sv-badge sv-badge--${(e.paymentStatus === "Received" ? "paid" : (e.paymentStatus || "pending")).toLowerCase()}`}>{e.paymentStatus || "Received"}</span></td>
+                          <td><button className="sv-icon-btn" title="Delete" style={{ color: "#DC2626" }} onClick={(ev) => { ev.stopPropagation(); setConfirmDel(e); }}><Trash2 size={15} /></button></td>
+                        </>}
+                        {section === "salary" && (() => { const isFree = e.category === "Freelancer"; return <>
+                          <td style={{ fontWeight: 600 }}>{d.employeeName || d.freelancerName || e.clientName || "—"}</td>
+                          <td><span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 999, color: isFree ? "#B45309" : "#15803D", background: isFree ? "#FEF3C7" : "#DCFCE7" }}>{isFree ? "Freelancer" : "Employee"}</span></td>
+                          <td>{d.department || (isFree ? d.company : "") || "—"}</td><td>{d.month || "—"} {d.year || ""}</td>
                           <td>{expMoney(e.amount, e.currency)}</td>
                           <td>{e.paymentDate ? fmtDate(e.paymentDate) : "—"}</td>
                           <td><span className="sv-badge sv-badge--completed">{e.paymentStatus || "Paid"}</span></td>
-                        </>}
+                        </>; })()}
                         {section === "company" && <>
                           <td style={{ fontWeight: 600 }}>{e.title || e.clientName || "—"}</td>
                           <td>{e.category || "—"}</td><td>{d.vendor || "—"}</td>
@@ -2051,11 +2348,15 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
             <div style={{ overflowY: "auto", padding: "16px 20px" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 {detail.type === "insertion_order" && (() => { const d = detail.details || {}; return [
-                  ["Confirmation No", d.confirmationNo || detail.contractOrder], ["Contract No", d.contractNo || "—"],
-                  ["Client", detail.clientName], ["Company", d.companyName || "—"],
-                  ["Feature", d.featureTitle || "—"], ["Magazine", d.magazine || "—"],
-                  ["Contract Value", expMoney(detail.amount, detail.currency)], ["Generated", d.generatedAt ? new Date(d.generatedAt).toLocaleString() : "—"],
-                  ["Order Status", d.orderStatus || "—"], ["Payment Status", detail.paymentStatus || "—"],
+                  ["Name", detail.clientName || detail.title || "—"], ["Date", detail.paymentDate ? fmtDate(detail.paymentDate) : "—"],
+                  ["File", d.invoiceUrl ? <a href={d.invoiceUrl} target="_blank" rel="noreferrer" style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {d.invoiceName || "View file"}</a> : "—"],
+                  ["Notes", detail.notes || "—"],
+                ].map(([l, v]) => metaCell(l, v)); })()}
+                {detail.type === "payment_received" && (() => { const d = detail.details || {}; return [
+                  ["Client", detail.clientName || "—"], ["ID / Confirmation No", d.confirmationNo || detail.contractOrder || "—"],
+                  ["Price", expMoney(detail.amount, detail.currency)], ["Currency", detail.currency || "—"],
+                  ["Payment Date", detail.paymentDate ? fmtDate(detail.paymentDate) : "—"], ["Status", detail.paymentStatus || "—"],
+                  ["Invoice", d.invoiceUrl ? <a href={d.invoiceUrl} target="_blank" rel="noreferrer" style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {d.invoiceName || "View file"}</a> : (d.invoice || "—")],
                 ].map(([l, v]) => metaCell(l, v)); })()}
                 {detail.type === "salary" && (() => { const d = detail.details || {}; return [
                   ["Employee", d.employeeName || detail.clientName], ["Employee ID", d.employeeId || "—"],
@@ -2072,23 +2373,25 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                 ].map(([l, v]) => metaCell(l, v)); })()}
               </div>
 
-              {/* Editable status + notes for captured records */}
+              {/* Editable date + status + notes */}
               {detailEdit && (
                 <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>Payment Status
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>Month / Date
+                    <input className="sv-input" type="date" value={detailEdit.paymentDate || ""} onChange={(e) => setDetailEdit((s) => ({ ...s, paymentDate: e.target.value }))} />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>Status
                     <select className="sv-select" value={detailEdit.paymentStatus} onChange={(e) => setDetailEdit((s) => ({ ...s, paymentStatus: e.target.value }))}>
-                      {["", "Paid", "Pending", "Partial", "Overdue"].map((s) => <option key={s} value={s}>{s || "—"}</option>)}
+                      {["", "Received", "Paid", "Pending", "Partial", "Overdue"].map((s) => <option key={s} value={s}>{s || "—"}</option>)}
                     </select>
                   </label>
-                  <div />
                   <div style={{ gridColumn: "1 / -1" }}>
                     <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>Notes / Remarks
                       <textarea className="sv-input" rows={3} value={detailEdit.notes} onChange={(e) => setDetailEdit((s) => ({ ...s, notes: e.target.value }))} style={{ resize: "vertical" }} />
                     </label>
                   </div>
+                  <p className="sv-text-muted" style={{ fontSize: 11, gridColumn: "1 / -1", margin: 0 }}>Changing the date moves this record to that month across the dashboard and charts.</p>
                 </div>
               )}
-              <p className="sv-text-muted" style={{ fontSize: 11, marginTop: 14 }}>📎 File attachments are coming in a follow-up update.</p>
             </div>
             <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", flexShrink: 0, alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <button className="sv-btn sv-btn--danger" onClick={() => setConfirmDel(detail)}>Delete</button>
@@ -2113,7 +2416,12 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
             <div style={{ overflowY: "auto", padding: "16px 20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               <label style={lblS}>Expense Title *<input className="sv-input" value={form.title} onChange={(e) => updF("title", e.target.value)} placeholder="e.g. Office Rent — July" /></label>
               <label style={lblS}>Category
-                <select className="sv-select" value={form.category} onChange={(e) => updF("category", e.target.value)}>{CO_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+                <select className="sv-select" value={catMode === "custom" ? "__custom__" : form.category}
+                  onChange={(e) => { if (e.target.value === "__custom__") { setCatMode("custom"); updF("category", ""); } else { setCatMode("list"); updF("category", e.target.value); } }}>
+                  {CO_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <option value="__custom__">➕ Custom / type your own…</option>
+                </select>
+                {catMode === "custom" && <input className="sv-input" style={{ marginTop: 8 }} autoFocus value={form.category} onChange={(e) => updF("category", e.target.value)} placeholder="Type a custom category" />}
               </label>
               <label style={lblS}>Amount<input className="sv-input" type="number" value={form.amount} onChange={(e) => updF("amount", e.target.value)} placeholder="0.00" /></label>
               <label style={lblS}>Currency
@@ -2136,6 +2444,88 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
               <div className="sv-flex sv-gap-sm">
                 <button className="sv-btn sv-btn--ghost" onClick={() => setForm(null)}>Cancel</button>
                 <button className="sv-btn sv-btn--primary" onClick={saveCompany} disabled={saving || !form.title.trim()}>{saving ? "Saving…" : isNew ? "Add" : "Save"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Insertion Order (name + mandatory file) modal ── */}
+      {insForm && (
+        <div className="sv-modal-overlay" onClick={() => setInsForm(null)}>
+          <div className="sv-modal" style={{ maxWidth: 520 }} onClick={(ev) => ev.stopPropagation()}>
+            <div className="sv-modal-header">
+              <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>Add Insertion Order</span>
+              <button className="sv-modal-close" onClick={() => setInsForm(null)}>×</button>
+            </div>
+            <div style={{ padding: "16px 20px", display: "grid", gap: 14 }}>
+              <label style={lblS}>Name *<input className="sv-input" value={insForm.clientName} onChange={(e) => updIns("clientName", e.target.value)} placeholder="Client / order name" /></label>
+              <label style={lblS}>Date<input className="sv-input" type="date" value={insForm.paymentDate} onChange={(e) => updIns("paymentDate", e.target.value)} /></label>
+              <label style={lblS}>Attach File *
+                <div className="sv-flex sv-gap-sm" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                  <label className="sv-btn sv-btn--ghost" style={{ cursor: "pointer", margin: 0 }}>
+                    <Plus size={14} /> {insUploading ? "Uploading…" : insForm.fileUrl ? "Replace file" : "Choose file"}
+                    <input type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} disabled={insUploading} onChange={(e) => uploadInsertionFile(e.target.files && e.target.files[0])} />
+                  </label>
+                  {insForm.fileUrl && <a href={insForm.fileUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {insForm.fileName || "View file"}</a>}
+                  {insForm.fileUrl && <button type="button" className="sv-chip-btn sv-chip-btn--red" onClick={() => setInsForm((f) => ({ ...f, fileUrl: "", fileName: "" }))}><X size={12} /> Remove</button>}
+                </div>
+              </label>
+              <label style={lblS}>Notes / Remarks<textarea className="sv-input" rows={2} value={insForm.notes} onChange={(e) => updIns("notes", e.target.value)} style={{ resize: "vertical" }} /></label>
+            </div>
+            <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", alignItems: "center" }}>
+              <span className="sv-text-muted" style={{ fontSize: 12 }}>* Name and an attached file are required</span>
+              <div className="sv-flex sv-gap-sm">
+                <button className="sv-btn sv-btn--ghost" onClick={() => setInsForm(null)}>Cancel</button>
+                <button className="sv-btn sv-btn--primary" onClick={saveInsertion} disabled={insSaving || insUploading || !insForm.clientName.trim() || !insForm.fileUrl}>{insSaving ? "Saving…" : "Save"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Payment Received (income) modal ── */}
+      {ioForm && (
+        <div className="sv-modal-overlay" onClick={() => setIoForm(null)}>
+          <div className="sv-modal" style={{ maxWidth: 640, maxHeight: "88vh", display: "flex", flexDirection: "column" }} onClick={(ev) => ev.stopPropagation()}>
+            <div className="sv-modal-header" style={{ flexShrink: 0 }}>
+              <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>Record Payment Received</span>
+              <button className="sv-modal-close" onClick={() => setIoForm(null)}>×</button>
+            </div>
+            <div style={{ overflowY: "auto", padding: "16px 20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <label style={lblS}>Client Name *<input className="sv-input" value={ioForm.clientName} onChange={(e) => updIO("clientName", e.target.value)} placeholder="Client / company" /></label>
+              <label style={lblS}>ID *<input className="sv-input" value={ioForm.id} onChange={(e) => updIO("id", e.target.value)} placeholder="ID / confirmation no" /></label>
+              <label style={lblS}>Price *<input className="sv-input" type="number" value={ioForm.amount} onChange={(e) => updIO("amount", e.target.value)} placeholder="0.00" /></label>
+              <label style={lblS}>Currency
+                <select className="sv-select" value={ioForm.currency} onChange={(e) => updIO("currency", e.target.value)}>{EXP_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+              </label>
+              <label style={lblS}>Month / Date<input className="sv-input" type="date" value={ioForm.paymentDate} onChange={(e) => updIO("paymentDate", e.target.value)} /></label>
+              <label style={lblS}>Status
+                <select className="sv-select" value={ioForm.paymentStatus} onChange={(e) => updIO("paymentStatus", e.target.value)}>{["Received", "Pending", "Partial", "Overdue"].map((s) => <option key={s} value={s}>{s}</option>)}</select>
+              </label>
+              <label style={lblS}>Invoice No. / Link (optional)<input className="sv-input" value={ioForm.invoice} onChange={(e) => updIO("invoice", e.target.value)} placeholder="Invoice number or URL" /></label>
+              <div />
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={lblS}>Attach Invoice / File (optional)
+                  <div className="sv-flex sv-gap-sm" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                    <label className="sv-btn sv-btn--ghost" style={{ cursor: "pointer", margin: 0 }}>
+                      <Plus size={14} /> {ioUploading ? "Uploading…" : "Choose file"}
+                      <input type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} disabled={ioUploading} onChange={(e) => uploadInvoiceFile(e.target.files && e.target.files[0])} />
+                    </label>
+                    {ioForm.invoiceUrl && <a href={ioForm.invoiceUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {ioForm.invoiceName || "View file"}</a>}
+                    {ioForm.invoiceUrl && <button type="button" className="sv-chip-btn sv-chip-btn--red" onClick={() => setIoForm((f) => ({ ...f, invoiceUrl: "", invoiceName: "" }))}><X size={12} /> Remove</button>}
+                  </div>
+                </label>
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={lblS}>Notes / Remarks<textarea className="sv-input" rows={2} value={ioForm.notes} onChange={(e) => updIO("notes", e.target.value)} style={{ resize: "vertical" }} /></label>
+              </div>
+            </div>
+            <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", flexShrink: 0, alignItems: "center" }}>
+              <span className="sv-text-muted" style={{ fontSize: 12 }}>* Client name, ID and price required · any currency</span>
+              <div className="sv-flex sv-gap-sm">
+                <button className="sv-btn sv-btn--ghost" onClick={() => setIoForm(null)}>Cancel</button>
+                <button className="sv-btn" style={{ background: "#16A34A", color: "#fff", border: "none" }} onClick={saveIO} disabled={ioSaving || ioUploading || !ioForm.clientName.trim() || !ioForm.id.trim() || !(+ioForm.amount > 0)}>{ioSaving ? "Saving…" : "Save"}</button>
               </div>
             </div>
           </div>

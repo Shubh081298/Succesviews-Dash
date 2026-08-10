@@ -6,7 +6,7 @@ import { GREEN, BLUE, NAVY, RED } from "../../utils/constants.js";
 import PayslipView from "../PayslipView.jsx";
 import {
   Wallet, Users, Briefcase, IndianRupee, TrendingUp, TrendingDown,
-  Plus, Pencil, Trash2, Eye, CheckCircle2, FileText, Search, X, CalendarDays,
+  Plus, Pencil, Trash2, Eye, CheckCircle2, FileText, Search, X, CalendarDays, Lock,
 } from "lucide-react";
 
 /**
@@ -25,7 +25,7 @@ const money = (n) => fmtSalary(n || 0);
 const mKey = (d) => String(d || "").slice(0, 7);
 const PTYPES = ["Monthly", "Per Project", "Hourly"];
 
-export default function SalaryModule({ employees, salaries, setSalaries, showToast, pushNotification, addMessage, captureExpense, editMode = false, setEditMode, settingsPwd = "Settings@123", logo = "", freelancers = [], saveFreelancers, bankDetails = {}, saveBankDetails }) {
+export default function SalaryModule({ employees, salaries, setSalaries, showToast, pushNotification, addMessage, captureExpense, editMode = false, setEditMode, settingsPwd = "Settings@123", logo = "", freelancers = [], saveFreelancers, bankDetails = {}, saveBankDetails, deleteEmployee }) {
   const [view, setView] = useState("payroll"); // payroll | freelancers | history | bank
   const [search, setSearch] = useState("");
   // The Full-Time / Freelancers / Bank tabs share one search box — clear it when
@@ -70,6 +70,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   const [pcReason, setPcReason] = useState("");
   const [pcRelease, setPcRelease] = useState(null); // empId pending release confirmation
   const [pcManage, setPcManage] = useState(null);   // { empId, type } — view/remove entries
+  const [delEmp, setDelEmp] = useState(null);       // employee pending offboard/delete
 
   // ── freelancer state ──
   const [fModal, setFModal] = useState(null); // { mode:"add"|"edit", id? }
@@ -90,11 +91,14 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
      unchanged. The existing Full-Time tab / "Paid" flow are not touched.
      ═══════════════════════════════════════════════════════════════════════════ */
   const PC_STATUS = {
-    Draft: { c: "#64748B", bg: "#F1F5F9", soft: "#F8FAFC", bd: "#E9EEF4" },
-    Ready: { c: "#B45309", bg: "#FEF3C7", soft: "#FFFBEB", bd: "#FDE9C8" },
-    Approved: { c: "#1D4ED8", bg: "#DBEAFE", soft: "#EFF6FF", bd: "#D3E3FF" },
-    Released: { c: "#15803D", bg: "#DCFCE7", soft: "#F0FDF4", bd: "#CBEFD5" },
+    Draft: { c: "#64748B", bg: "#F1F5F9", soft: "#F8FAFC", bd: "#E9EEF4", label: "Draft" },
+    Ready: { c: "#B45309", bg: "#FEF3C7", soft: "#FFFBEB", bd: "#FDE9C8", label: "Ready" },
+    Approved: { c: "#1D4ED8", bg: "#DBEAFE", soft: "#EFF6FF", bd: "#D3E3FF", label: "Approved" },
+    Released: { c: "#15803D", bg: "#DCFCE7", soft: "#F0FDF4", bd: "#CBEFD5", label: "Released" },
+    NA: { c: "#94A3B8", bg: "#F1F5F9", soft: "#F8FAFC", bd: "#E2E8F0", label: "Not Applicable" },
   };
+  // A month is "resolved" (locked, month done) when Released or marked N/A.
+  const pcResolved = (status) => status === "Released" || status === "NA";
   const monthLabel = (mk) => { const [y, m] = String(mk).split("-"); return new Date(+y, +m - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" }); };
   const PC_MONTHS = useMemo(() => { const arr = []; const d = new Date(); d.setDate(1); for (let i = 0; i < 15; i++) { arr.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`); d.setMonth(d.getMonth() - 1); } return arr; }, []);
 
@@ -105,9 +109,10 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
     const s = salaries[empId] || {};
     const existing = s.months && s.months[mk];
     if (existing) return existing;
-    const seed = { fixed: s.fixedSalary || 0, incentives: [], deductions: [], notes: "", status: "Draft", releaseDate: "", paidDate: "" };
-    if (mk === new Date().toISOString().slice(0, 7)) { seed.incentives = s.incentives || []; seed.deductions = s.deductions || []; }
-    return seed;
+    // Fresh month: fixed salary carries over from the employee's base; incentives
+    // and deductions always start empty (added per-month), so nothing phantom
+    // shows up as "pending".
+    return { fixed: s.fixedSalary || 0, incentives: [], deductions: [], notes: "", status: "Draft", releaseDate: "", paidDate: "" };
   };
   const saveMonthRec = async (empId, mk, patch) => {
     const s = salaries[empId] || { fixedSalary: 0, incentives: [], deductions: [], payments: [] };
@@ -322,12 +327,18 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   const doDeleteF = (id) => { persistF((freelancers || []).filter((f) => f.id !== id)); showToast("Freelancer removed"); };
   const askDeleteF = (fr) => setConfirm({ message: `Remove freelancer "${fr.name}"? Their payment history will be deleted.`, onYes: () => doDeleteF(fr.id) });
 
-  const openPayF = (fr) => { setFPayForm({ amount: fr.amount || "", date: getTodayStr(), note: "" }); setFPay(fr.id); };
+  // Default the pay date to the selected payroll month so the payment lands in it.
+  const openPayF = (fr) => { const [y, m] = payMonth.split("-"); const today = getTodayStr(); const inSel = today.startsWith(payMonth); setFPayForm({ amount: fr.amount || "", date: inSel ? today : `${y}-${m}-15`, note: "" }); setFPay(fr.id); };
+  const freelancerPaidFor = (fr, mk) => (fr.payments || []).find((p) => (p.monthKey || mKey(p.date)) === mk);
+  const freelancerPayslip = (fr, p) => {
+    const mk = p.monthKey || mKey(p.date); const [y, m] = mk.split("-"); const ld = new Date(+y, +m - 1, 1);
+    setPreview({ empId: fr.id, payload: { month: ld.toLocaleDateString("en-IN", { month: "long" }), year: +y, monthKey: mk, date: p.date, empName: fr.name, empId: fr.id, fixed: p.amount || 0, incentives: [], incentiveTotal: 0, deductions: [], deductionTotal: 0, total: p.amount || 0, note: p.note } });
+  };
   const doPayF = () => {
     const fr = (freelancers || []).find((f) => f.id === fPay);
     const amt = +fPayForm.amount || 0;
     if (!fr || amt <= 0) { showToast("Enter a valid amount", "err"); return; }
-    const payment = { id: `fp${Date.now()}`, amount: amt, date: fPayForm.date, note: fPayForm.note.trim(), method: "Freelance" };
+    const payment = { id: `fp${Date.now()}`, amount: amt, date: fPayForm.date, note: fPayForm.note.trim(), method: "Freelance", monthKey: payMonth };
     persistF((freelancers || []).map((f) => (f.id === fr.id ? { ...f, payments: [...(f.payments || []), payment] } : f)));
     if (captureExpense) {
       captureExpense({
@@ -355,7 +366,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
     (freelancers || []).forEach((f) => (f.payments || []).forEach((p) => { if (mKey(p.date) === payMonth) { freePaid += p.amount || 0; freePaidIds.add(f.id); } }));
     // Pending / net payable = the selected month's records that are NOT released yet.
     let pendingInc = 0, pendingDed = 0, netPayable = 0;
-    employees.forEach((e) => { const rec = getMonthRec(e.id, payMonth); if (rec.status !== "Released") { pendingInc += sumAmt(rec.incentives); pendingDed += sumAmt(rec.deductions); netPayable += (rec.fixed || 0) + sumAmt(rec.incentives) - sumAmt(rec.deductions); } });
+    employees.forEach((e) => { const rec = getMonthRec(e.id, payMonth); if (!pcResolved(rec.status)) { pendingInc += sumAmt(rec.incentives); pendingDed += sumAmt(rec.deductions); netPayable += (rec.fixed || 0) + sumAmt(rec.incentives) - sumAmt(rec.deductions); } });
     const withSalary = employees.filter((e) => (getMonthRec(e.id, payMonth).fixed || 0) > 0).length;
     const completion = withSalary > 0 ? Math.round((empPaidIds.size / withSalary) * 100) : 0;
     return { empPaid, freePaid, total: empPaid + freePaid, incPaid, dedPaid, pendingInc, pendingDed, netPayable, empPaidCount: empPaidIds.size, freePaidCount: freePaidIds.size, pending: Math.max(0, withSalary - empPaidIds.size), completion };
@@ -409,34 +420,12 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
 
   return (
     <div className="sv-flex-col sv-gap-4">
-      {/* KPI dashboard */}
+      {/* KPI dashboard — one clean row for the selected month (Released = paid) */}
       <div className="sv-sal-kpis">
-        <Kpi icon={<Wallet size={18} />} label="Payroll this month" value={money(kpi.total)} color="#3B82F6" note={`${kpi.empPaidCount} emp · ${kpi.freePaidCount} freelance`} />
-        <Kpi icon={<Users size={18} />} label="Employee salary" value={money(kpi.empPaid)} color="#22C55E" />
-        <Kpi icon={<Briefcase size={18} />} label="Freelancer payments" value={money(kpi.freePaid)} color="#8B5CF6" />
-        <Kpi icon={<TrendingUp size={18} />} label="Pending incentives" value={money(kpi.pendingInc)} color="#0EA5E9" />
-        <Kpi icon={<TrendingDown size={18} />} label="Pending deductions" value={money(kpi.pendingDed)} color="#EF4444" />
-        <Kpi icon={<IndianRupee size={18} />} label="Net payable now" value={money(kpi.netPayable)} color="#F59E0B" />
-      </div>
-
-      {/* Monthly payroll summary */}
-      <div className="sv-card sv-sal-payroll">
-        <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 12 }}>
-          <span className="sv-mod-icon"><CalendarDays size={16} /></span>
-          <div>
-            <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 15.5 }}>Payroll Summary · {monthLabel(payMonth)}</p>
-            <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>Selected month's payroll at a glance</p>
-          </div>
-        </div>
-        <div className="sv-sal-payroll-grid">
-          {[["Employees paid", kpi.empPaidCount], ["Freelancers paid", kpi.freePaidCount], ["Total payroll", money(kpi.total)], ["Incentives", money(kpi.incPaid)], ["Deductions", money(kpi.dedPaid)], ["Pending", kpi.pending]].map(([l, v]) => (
-            <div key={l} className="sv-sal-psum"><div className="sv-sal-psum-v">{v}</div><div className="sv-sal-psum-l">{l}</div></div>
-          ))}
-          <div className="sv-sal-psum sv-sal-psum--prog">
-            <div className="sv-sal-psum-v">{kpi.completion}%</div><div className="sv-sal-psum-l">Completed</div>
-            <span className="sv-team-prog"><span className="sv-team-prog-bar" style={{ width: `${kpi.completion}%`, background: "#22C55E" }} /></span>
-          </div>
-        </div>
+        <Kpi icon={<Wallet size={18} />} label="Total Salary" value={money(kpi.total)} color="#3B82F6" note={`Full-time + Freelance · ${monthLabel(payMonth)}`} />
+        <Kpi icon={<Users size={18} />} label="Employee Salary" value={money(kpi.empPaid)} color="#22C55E" note={`${kpi.empPaidCount} released`} />
+        <Kpi icon={<Briefcase size={18} />} label="Freelancer Payments" value={money(kpi.freePaid)} color="#8B5CF6" note={`${kpi.freePaidCount} paid`} />
+        <Kpi icon={<IndianRupee size={18} />} label="Net Payable" value={money(kpi.netPayable)} color="#F59E0B" note="Not yet released" />
       </div>
 
       {/* Sub-tabs + toolbar */}
@@ -518,10 +507,14 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
 
         {/* ── Payroll Cycle (month-based workflow) ── */}
         {view === "payroll" && (() => {
-          const recs = empFiltered.map((e) => ({ e, rec: getMonthRec(e.id, payMonth) }));
-          const cnt = { Draft: 0, Ready: 0, Approved: 0, Released: 0 };
+          const PC_ORDER = { Draft: 0, Ready: 1, Approved: 2, NA: 3, Released: 4 };
+          // Pending / not-resolved stay at the top; resolved (released or N/A) drop to the bottom.
+          const recs = empFiltered.map((e) => ({ e, rec: getMonthRec(e.id, payMonth) }))
+            .sort((a, b) => (PC_ORDER[a.rec.status] ?? 0) - (PC_ORDER[b.rec.status] ?? 0));
+          const cnt = { Draft: 0, Ready: 0, Approved: 0, Released: 0, NA: 0 };
           let releasedTotal = 0, netPayable = 0;
-          recs.forEach(({ rec }) => { cnt[rec.status] = (cnt[rec.status] || 0) + 1; const n = pcNet(rec); if (rec.status === "Released") releasedTotal += n; else netPayable += n; });
+          recs.forEach(({ rec }) => { cnt[rec.status] = (cnt[rec.status] || 0) + 1; const n = pcNet(rec); if (rec.status === "Released") releasedTotal += n; else if (rec.status !== "NA") netPayable += n; });
+          const allResolved = recs.length > 0 && recs.every(({ rec }) => pcResolved(rec.status));
           return (
             <>
               <div className="sv-flex sv-items-center sv-gap-2" style={{ flexWrap: "wrap", margin: "4px 0 14px" }}>
@@ -535,22 +528,30 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
                 </div>
               </div>
               <div className="sv-pc-summary">
-                {[["Draft", cnt.Draft, "#64748B"], ["Ready", cnt.Ready, "#B45309"], ["Approved", cnt.Approved, "#1D4ED8"], ["Released", cnt.Released, "#15803D"], ["Released total", money(releasedTotal), "#15803D"], ["Net payable", money(netPayable), "#F59E0B"]].map(([l, v, c]) => (
+                {[["Draft", cnt.Draft, "#64748B"], ["Approved", cnt.Approved, "#1D4ED8"], ["Released", cnt.Released, "#15803D"], ["N/A", cnt.NA, "#94A3B8"], ["Released total", money(releasedTotal), "#15803D"], ["Net payable", money(netPayable), "#F59E0B"]].map(([l, v, c]) => (
                   <div key={l} className="sv-pc-sum"><span className="sv-pc-sum-v" style={{ color: c }}>{v}</span><span className="sv-pc-sum-l">{l}</span></div>
                 ))}
               </div>
+              {allResolved && (
+                <div className="sv-flex sv-items-center sv-gap-2" style={{ margin: "10px 0 0", padding: "10px 14px", background: "#F0FDF4", border: "1px solid #CBEFD5", borderRadius: 12 }}>
+                  <CheckCircle2 size={16} style={{ color: "#15803D", flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, color: "#15803D", fontWeight: 600 }}>{monthLabel(payMonth)} payroll is fully processed — every employee is Released or N/A.</span>
+                  {(() => { const idx = PC_MONTHS.indexOf(payMonth); const next = idx > 0 ? PC_MONTHS[idx - 1] : null; return next ? <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ marginLeft: "auto" }} onClick={() => setPayMonth(next)}>Go to {monthLabel(next)} →</button> : null; })()}
+                </div>
+              )}
               {recs.length === 0 ? (
                 <div className="sv-leave-empty"><Users size={26} /><span>No employees to show.</span></div>
               ) : (
                 <div className="sv-sal-grid" style={{ marginTop: 12 }}>
                   {recs.map(({ e, rec }, i) => {
-                    const st = PC_STATUS[rec.status] || PC_STATUS.Draft; const net = pcNet(rec); const locked = rec.status === "Released"; const canEdit = editMode && !locked;
+                    const st = PC_STATUS[rec.status] || PC_STATUS.Draft; const net = pcNet(rec); const locked = pcResolved(rec.status); const canEdit = editMode && !locked;
                     return (
                       <div key={e.id} className="sv-sal-card sv-pc-card" style={{ background: st.soft, borderColor: st.bd, borderTop: `3px solid ${st.c}` }}>
                         <div className="sv-sal-card-top">
                           <Avatar emp={e} idx={i} size={40} />
                           <div style={{ flex: 1, minWidth: 0 }}><div className="sv-text-navy sv-font-700" style={{ fontSize: 14 }}>{e.name}</div><div className="sv-text-muted" style={{ fontSize: 11 }}>{e.id} · {e.department || "—"}</div></div>
-                          <span className="sv-team-badge" style={{ background: st.bg, color: st.c }}><span className="sv-team-badge-dot" style={{ background: st.c }} />{rec.status}</span>
+                          <span className="sv-team-badge" style={{ background: st.bg, color: st.c }}><span className="sv-team-badge-dot" style={{ background: st.c }} />{st.label}</span>
+                          {editMode && deleteEmployee && <button className="sv-icon-btn" title="Remove employee (offboard)" style={{ marginLeft: 6, color: "#DC2626" }} onClick={() => setDelEmp(e)}><Trash2 size={14} /></button>}
                         </div>
                         <div className="sv-sal-figs">
                           <div className="sv-sal-fig"><span>Fixed</span><input type="number" min="0" disabled={!canEdit} className="sv-input sv-sal-fixed" value={rec.fixed || ""} placeholder="0" onChange={(ev) => saveMonthRec(e.id, payMonth, { fixed: +ev.target.value || 0 })} /></div>
@@ -569,19 +570,27 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
                             <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--blue" onClick={() => { setPcEntry({ empId: e.id, type: "incentive" }); setPcAmt(""); setPcReason(""); }}><Plus size={12} /> Incentive</button>
                             <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--red" onClick={() => { setPcEntry({ empId: e.id, type: "deduction" }); setPcAmt(""); setPcReason(""); }}><TrendingDown size={12} /> Deduction</button>
                           </>)}
-                          {rec.status === "Draft" && <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--amber" onClick={() => pcSetStatus(e.id, "Ready")}>Mark Ready →</button>}
+                          {rec.status === "Draft" && (<>
+                            <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--amber" onClick={() => pcSetStatus(e.id, "Ready")}>Mark Ready →</button>
+                            <button disabled={!editMode} className="sv-chip-btn" title="No salary this month — mark done without paying" onClick={() => saveMonthRec(e.id, payMonth, { status: "NA", paidDate: getTodayStr() })}>Not Applicable</button>
+                          </>)}
                           {rec.status === "Ready" && (<>
                             <button disabled={!editMode} className="sv-chip-btn" onClick={() => pcSetStatus(e.id, "Draft")}>← Draft</button>
                             <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--blue" onClick={() => pcSetStatus(e.id, "Approved")}>Approve →</button>
+                            <button disabled={!editMode} className="sv-chip-btn" title="No salary this month — mark done without paying" onClick={() => saveMonthRec(e.id, payMonth, { status: "NA", paidDate: getTodayStr() })}>Not Applicable</button>
                           </>)}
                           {rec.status === "Approved" && (<>
                             <button disabled={!editMode} className="sv-chip-btn" onClick={() => pcSetStatus(e.id, "Ready")}>← Ready</button>
                             <button className="sv-chip-btn sv-chip-btn--violet" onClick={() => pcPayslip(e.id)}><FileText size={12} /> Payslip</button>
                             <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--green" onClick={() => setPcRelease(e.id)}><CheckCircle2 size={12} /> Release Salary</button>
                           </>)}
-                          {locked && (<>
+                          {rec.status === "Released" && (<>
                             <span className="sv-text-muted" style={{ fontSize: 11 }}>Released {rec.paidDate ? fmtDate(rec.paidDate) : ""}</span>
                             <button className="sv-chip-btn sv-chip-btn--violet" onClick={() => pcPayslip(e.id)}><FileText size={12} /> Payslip</button>
+                          </>)}
+                          {rec.status === "NA" && (<>
+                            <span className="sv-text-muted" style={{ fontSize: 11 }}>No salary this month</span>
+                            <button disabled={!editMode} className="sv-chip-btn" onClick={() => saveMonthRec(e.id, payMonth, { status: "Draft", paidDate: "" })}>↩ Reopen</button>
                           </>)}
                         </div>
                       </div>
@@ -594,8 +603,12 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
         })()}
 
         {/* ── Freelancers ── */}
-        {view === "freelancers" && (
-          frFiltered.length === 0 ? (
+        {view === "freelancers" && (<>
+          <div className="sv-flex sv-items-center sv-gap-2" style={{ flexWrap: "wrap", margin: "4px 0 12px" }}>
+            <div className="sv-flex sv-items-center sv-gap-2"><span className="sv-mod-icon" style={{ background: "rgba(139,92,246,.12)", color: "#8B5CF6" }}><Briefcase size={16} /></span><div><div className="sv-text-navy sv-font-800" style={{ fontSize: 15 }}>Freelancer Payments</div><div className="sv-text-muted" style={{ fontSize: 11.5 }}>Pay per month — once paid it locks for that month and renews next month.</div></div></div>
+            <div className="sv-flex sv-items-center sv-gap-2" style={{ marginLeft: "auto" }}><label className="sv-text-muted" style={{ fontSize: 12, fontWeight: 700 }}>Payroll Month</label><select className="sv-select" value={payMonth} onChange={(e) => setPayMonth(e.target.value)} style={{ minWidth: 170 }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select></div>
+          </div>
+          {frFiltered.length === 0 ? (
             <div className="sv-leave-empty"><Briefcase size={26} /><span>No freelancers added yet.</span>
               <button className="sv-btn sv-btn--primary sv-btn--sm" style={{ marginTop: 6 }} onClick={openAddF}><Plus size={14} /> Add Freelancer</button>
             </div>
@@ -604,8 +617,9 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
               {frFiltered.map((fr) => {
                 const paid = (fr.payments || []).reduce((a, p) => a + (p.amount || 0), 0);
                 const last = lastPayOf(fr.payments);
+                const paidThisMonth = freelancerPaidFor(fr, payMonth);
                 return (
-                  <div key={fr.id} className="sv-sal-card">
+                  <div key={fr.id} className="sv-sal-card" style={paidThisMonth ? { background: "#F0FDF4", borderColor: "#CBEFD5", borderTop: "3px solid #16A34A" } : undefined}>
                     <div className="sv-sal-card-top">
                       <span className="sv-team-avatar" style={{ background: "#8B5CF6", width: 40, height: 40, borderRadius: 11 }}>{(fr.name || "?").slice(0, 2).toUpperCase()}</span>
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -622,17 +636,23 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
                     </div>
                     <div className="sv-sal-meta">{last ? `Last paid ${fmtDate(last.date)}` : "No payments yet"}{fr.notes ? ` · ${fr.notes}` : ""}</div>
                     <div className="sv-sal-actions">
-                      <button className="sv-chip-btn sv-chip-btn--green" onClick={() => openPayF(fr)}><IndianRupee size={12} /> Pay</button>
-                      <button className="sv-chip-btn sv-chip-btn--violet" onClick={() => setModal({ frId: fr.id, type: "fhistory" })}><Eye size={12} /> History</button>
-                      <button className="sv-chip-btn sv-chip-btn--blue" onClick={() => openEditF(fr)}><Pencil size={12} /> Edit</button>
-                      <button className="sv-chip-btn sv-chip-btn--red" onClick={() => askDeleteF(fr)}><Trash2 size={12} /> Delete</button>
+                      {paidThisMonth ? (<>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#15803D", display: "inline-flex", alignItems: "center", gap: 4 }}><Lock size={11} /> Paid {monthLabel(payMonth)} · {fmtDate(paidThisMonth.date)}</span>
+                        <button className="sv-chip-btn sv-chip-btn--violet" onClick={() => freelancerPayslip(fr, paidThisMonth)}><FileText size={12} /> Payslip</button>
+                        <button className="sv-chip-btn sv-chip-btn--violet" onClick={() => setModal({ frId: fr.id, type: "fhistory" })}><Eye size={12} /> History</button>
+                      </>) : (<>
+                        <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--green" onClick={() => openPayF(fr)}><IndianRupee size={12} /> Pay {monthLabel(payMonth).split(" ")[0]}</button>
+                        <button className="sv-chip-btn sv-chip-btn--violet" onClick={() => setModal({ frId: fr.id, type: "fhistory" })}><Eye size={12} /> History</button>
+                        <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--blue" onClick={() => openEditF(fr)}><Pencil size={12} /> Edit</button>
+                        <button disabled={!editMode} className="sv-chip-btn sv-chip-btn--red" onClick={() => askDeleteF(fr)}><Trash2 size={12} /> Delete</button>
+                      </>)}
                     </div>
                   </div>
                 );
               })}
             </div>
-          )
-        )}
+          )}
+        </>)}
 
         {/* ── History ── */}
         {view === "history" && (
@@ -746,6 +766,20 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
           </div>
         );
       })()}
+
+      {/* Offboard / delete employee confirmation */}
+      {delEmp && (
+        <div className="sv-modal-overlay" onClick={() => setDelEmp(null)}>
+          <div className="sv-modal sv-confirm" onClick={(e) => e.stopPropagation()}>
+            <p className="sv-confirm-msg">Remove {delEmp.name}?</p>
+            <p className="sv-confirm-sub" style={{ color: "#B91C1C" }}>This permanently deletes the employee and their login. Their released payslips remain in records. This cannot be undone.</p>
+            <div className="sv-confirm-actions">
+              <button className="sv-btn sv-btn--outline" onClick={() => setDelEmp(null)}>Cancel</button>
+              <button className="sv-btn sv-btn--danger-solid" onClick={async () => { const nm = delEmp.name; await deleteEmployee(delEmp.id); setDelEmp(null); showToast(`${nm} removed.`, "success"); }}>Delete employee</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Payroll Cycle — release confirmation */}
       {pcRelease && (() => {

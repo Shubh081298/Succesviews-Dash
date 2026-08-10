@@ -1568,6 +1568,8 @@ body { background: var(--bg-page); -webkit-font-smoothing: antialiased; text-ren
 .sv-table tbody tr { transition: background .12s ease; }
 .sv-table tbody tr:hover { background: #F8FAFF; }
 .sv-table tbody tr:last-child td { border-bottom: none; }
+/* Short data tables (Expense sections): non-sticky header so it never overlaps the first row. */
+.sv-exp-table thead th { position: static !important; top: auto !important; z-index: auto !important; }
 
 /* ── Badges → pills ── */
 .sv-badge {

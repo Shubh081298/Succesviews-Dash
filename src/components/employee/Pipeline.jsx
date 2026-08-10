@@ -8,12 +8,12 @@ import { useState, useMemo } from "react";
 import {
   Search, Filter, Plus, Pencil, ArrowLeft, Mail, Globe, Hash,
   CalendarDays, FileText, CheckCircle2, AlertTriangle, Users,
-  Layers, Target, TrendingUp, Wallet,
+  Layers, Target, TrendingUp, Wallet, Clock,
 } from "lucide-react";
 import { useAppData } from "../../data/AppDataContext";
 import LeadWorkflow from "../crm/LeadWorkflow";
 import LeadTimeline from "../crm/LeadTimeline";
-import { NURTURE_STATUSES, DEAD, WORKFLOW_CONTROLLED, stageColour, progressOf, isClosed } from "../../utils/crmWorkflow";
+import { NURTURE_STATUSES, DEAD, WORKFLOW_CONTROLLED, stageColour, progressOf, isClosed, ACTION_TYPES, OUTCOMES, actionLabel, autoStageFromOutcome } from "../../utils/crmWorkflow";
 
 const FALLBACK_DOMAINS = ["CIO Visionaries", "CEO Vision", "Arab World Leaders", "CXO Leaders", "Healthcare Leaders"];
 const REGIONS = ["UAE", "Saudi Arabia", "India", "USA", "UK", "Australia", "Singapore", "Europe", "Africa"];
@@ -44,7 +44,7 @@ export default function Pipeline({ emp, onToast }) {
   const [hubId, setHubId] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const blankClient = { assignedEmailId: assignedEmails[0] || "", clientName: "", clientEmail: "", projectName: "", region: "", domainName: domainNames[0] || "", status: "New Lead", notes: "", nextFollowUp: "", nextTime: "" };
+  const blankClient = { assignedEmailId: assignedEmails[0] || "", clientName: "", clientEmail: "", projectName: "", region: "", domainName: domainNames[0] || "", status: "New Lead", notes: "", nextFollowUp: "", nextTime: "", nextActionType: "follow_up_call" };
   const [cForm, setCForm] = useState(blankClient);
 
   const mine = useMemo(() => pipelineClients.filter((c) => c.employeeId === emp.id && !c.isDeleted), [pipelineClients, emp.id]);
@@ -59,6 +59,7 @@ export default function Pipeline({ emp, onToast }) {
       active: mine.filter((c) => progressOf(c.status) >= 0 && !isClosed(c.status)).length,
       today: mine.filter(isDue).length,
       overdue: mine.filter(isOver).length,
+      upcoming: mine.filter((c) => needsFU(c) && c.nextFollowUp && c.nextFollowUp > t).length,
       interested: mine.filter((c) => c.status === "Interested").length,
       contracts: pipelineContracts.filter((x) => myIds.has(x.clientId)).length,
       sales: pipelineSales.filter((x) => myIds.has(x.clientId)).length,
@@ -77,6 +78,7 @@ export default function Pipeline({ emp, onToast }) {
       if (quick === "active" && (progressOf(c.status) < 0 || isClosed(c.status))) return false;
       if (quick === "today" && !isDue(c)) return false;
       if (quick === "overdue" && !isOver(c)) return false;
+      if (quick === "upcoming" && !(needsFU(c) && c.nextFollowUp && c.nextFollowUp > t)) return false;
       if (quick === "interested" && c.status !== "Interested") return false;
       if (quick === "contracts" && !hasRec(c.id, pipelineContracts)) return false;
       if (quick === "sales" && !hasRec(c.id, pipelineSales)) return false;
@@ -105,7 +107,7 @@ export default function Pipeline({ emp, onToast }) {
     if (DEAD.includes(cForm.status) && !cForm.notes.trim()) return toast("Add a note explaining why this lead is " + cForm.status + ".", "error");
     if (!DEAD.includes(cForm.status)) {
       if (!cForm.nextFollowUp) return toast("Next Follow-up Date is required.", "error");
-      if (!cForm.nextTime) return toast("Next Follow-up Time is required.", "error");
+      // Time is optional — a follow-up can be date-only.
     }
     if (mine.some((c) => c.domainName === cForm.domainName && c.clientEmail.toLowerCase() === cForm.clientEmail.trim().toLowerCase()))
       return toast("This client already exists under the selected domain.", "error");
@@ -155,8 +157,9 @@ export default function Pipeline({ emp, onToast }) {
   const chips = [
     ["all", "All", mine.length, "#475569", "#64748B", Layers],
     ["active", "Active", dash.active, "#2563EB", "#3B82F6", Users],
-    ["today", "Today", dash.today, "#16A34A", "#22C55E", CalendarDays],
+    ["today", "Due Today", dash.today, "#16A34A", "#22C55E", CalendarDays],
     ["overdue", "Overdue", dash.overdue, "#DC2626", "#F05252", AlertTriangle],
+    ["upcoming", "Upcoming", dash.upcoming, "#0891B2", "#06B6D4", Clock],
     ["interested", "Interested", dash.interested, "#EA580C", "#F97316", Target],
     ["contracts", "Contracts", dash.contracts, "#7C3AED", "#8B5CF6", FileText],
     ["sales", "Sales", dash.sales, "#0D9488", "#14B8A6", TrendingUp],
@@ -235,14 +238,14 @@ export default function Pipeline({ emp, onToast }) {
                 {field("Region", <input className="sv-input" list="pl-region-list" value={cForm.region} onChange={(e) => setCForm({ ...cForm, region: e.target.value })} placeholder="Type or pick…" />)}
                 {field("Domain", <input className="sv-input" list="pl-domain-list" value={cForm.domainName} onChange={(e) => setCForm({ ...cForm, domainName: e.target.value })} placeholder="Type or pick…" />, true)}
               </div>
-              {field("Status", <input className="sv-input" list="pl-status-list" value={cForm.status} onChange={(e) => setCForm({ ...cForm, status: e.target.value })} placeholder="Select a status or type your own…" />, true)}
-              {field(DEAD.includes(cForm.status) ? "Notes (reason required)" : "Notes", <textarea className="sv-input" rows={2} value={cForm.notes} onChange={(e) => setCForm({ ...cForm, notes: e.target.value })} />, DEAD.includes(cForm.status))}
-              {!DEAD.includes(cForm.status) && (
-                <div className="sv-pl-2col">
-                  {field("Next Follow-up Date", <input className="sv-input" type="date" value={cForm.nextFollowUp} onChange={(e) => setCForm({ ...cForm, nextFollowUp: e.target.value })} />, true)}
-                  {field("Time", <input className="sv-input" type="time" value={cForm.nextTime} onChange={(e) => setCForm({ ...cForm, nextTime: e.target.value })} />, true)}
-                </div>
-              )}
+              {/* Stage is set automatically to "New Lead" — no manual status on creation. */}
+              {field("Next Action", <select className="sv-select" value={cForm.nextActionType} onChange={(e) => setCForm({ ...cForm, nextActionType: e.target.value })}>{ACTION_TYPES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}</select>, true)}
+              <div className="sv-pl-2col">
+                {field("Next Follow-up Date", <input className="sv-input" type="date" value={cForm.nextFollowUp} onChange={(e) => setCForm({ ...cForm, nextFollowUp: e.target.value })} />, true)}
+                {field("Time (optional)", <input className="sv-input" type="time" value={cForm.nextTime} onChange={(e) => setCForm({ ...cForm, nextTime: e.target.value })} />)}
+              </div>
+              {field("Notes", <textarea className="sv-input" rows={2} value={cForm.notes} onChange={(e) => setCForm({ ...cForm, notes: e.target.value })} />)}
+              <p className="sv-text-muted" style={{ fontSize: 11.5, marginTop: 8 }}>New leads start at <b>New Lead</b>. You'll move them forward from the client's page.</p>
               <button className="sv-btn sv-btn--primary" style={{ width: "100%", marginTop: 12 }} disabled={saving} onClick={doAddClient}>{saving ? "Saving…" : "Save Lead"}</button>
             </div>
           </div>
@@ -273,7 +276,50 @@ function LeadHub({ client, emp, domainNames, assignedEmails, onClose, toast, upd
   const [savingD, setSavingD] = useState(false);
   const [savingF, setSavingF] = useState(false);
 
+  // ── Next Action (task) model ──
+  const overdue = !!client.nextFollowUp && client.nextFollowUp < t && !DEAD.includes(client.status) && !isClosed(client.status);
+  const hasAction = !!client.nextFollowUp && !DEAD.includes(client.status) && !isClosed(client.status);
+  const [comp, setComp] = useState(null);   // Complete Action modal state
+  const [resc, setResc] = useState(null);   // Reschedule modal state
+  const [busyA, setBusyA] = useState(false);
+
+  const openComplete = () => setComp({ notes: "", outcome: "", nextActionType: client.nextActionType || "follow_up_call", nextDate: "", nextTime: "" });
+  const doComplete = async () => {
+    if (!comp.notes.trim()) return toast("Please note what happened.", "error");
+    const dead = DEAD.includes(comp.outcome === "Not Interested" ? "Not Interested" : comp.outcome === "Lost" ? "Lost" : "");
+    if (!dead && !comp.nextDate) return toast("Set the next action date (or mark the lead Not Interested / Lost).", "error");
+    setBusyA(true);
+    const newStage = autoStageFromOutcome(client.status, comp.outcome);
+    const ok = await addFollowup({
+      clientId: client.id, employeeId: emp.id, clientName: client.clientName,
+      communicationType: "Update", actionType: client.nextActionType || "", outcome: comp.outcome || "",
+      notes: comp.notes.trim(),
+      status: newStage || undefined,
+      nextFollowUp: dead ? null : (comp.nextDate || null),
+      nextFollowUpTime: dead ? null : (comp.nextTime || null),
+      nextActionType: dead ? null : comp.nextActionType,
+    });
+    setBusyA(false);
+    if (ok) { setComp(null); toast(dead ? "Lead closed." : "Action completed — next action scheduled.", "success"); }
+  };
+
+  const openReschedule = () => setResc({ nextDate: client.nextFollowUp || t, nextTime: client.nextFollowUpTime || "", reason: "" });
+  const doReschedule = async () => {
+    if (!resc.nextDate) return toast("Pick a new date.", "error");
+    setBusyA(true);
+    const ok = await addFollowup({
+      clientId: client.id, employeeId: emp.id, clientName: client.clientName,
+      communicationType: "Update", actionType: client.nextActionType || "", outcome: "Rescheduled",
+      notes: resc.reason.trim() ? `Rescheduled: ${resc.reason.trim()}` : "Rescheduled",
+      nextFollowUp: resc.nextDate, nextFollowUpTime: resc.nextTime || null, nextActionType: client.nextActionType || null,
+    });
+    setBusyA(false);
+    if (ok) { setResc(null); toast("Action rescheduled.", "success"); }
+  };
+
   const saveDetails = async () => {
+    // A1: employees cannot reopen a closed (dead) lead — that needs Admin/Manager.
+    if (DEAD.includes(client.status) && !DEAD.includes(d.status)) return toast("This lead is closed. Reopening it requires Admin/Manager — please ask your admin.", "error");
     if (nurturing && d.status !== client.status && WORKFLOW_CONTROLLED.includes(d.status)) return toast(`"${d.status}" is set by the Production Workflow buttons, not manually.`, "error");
     if (DEAD.includes(d.status) && !d.notes.trim()) return toast("A note is required to mark this lead as " + d.status + ".", "error");
     setSavingD(true);
@@ -289,6 +335,8 @@ function LeadHub({ client, emp, domainNames, assignedEmails, onClose, toast, upd
 
   const logFollowup = async () => {
     if (!f.notes.trim()) return toast("Follow-up notes are required.", "error");
+    // A1: employees cannot reopen a closed (dead) lead — that needs Admin/Manager.
+    if (DEAD.includes(client.status) && !DEAD.includes(f.status)) return toast("This lead is closed. Reopening it requires Admin/Manager — please ask your admin.", "error");
     if (f.status !== client.status && WORKFLOW_CONTROLLED.includes(f.status)) return toast(`"${f.status}" is set by the Production Workflow buttons, not manually.`, "error");
     if (DEAD.includes(f.status) && !f.notes.trim()) return toast("Notes are required for " + f.status + ".", "error");
     if (!DEAD.includes(f.status) && progressOf(f.status) < 3) {
@@ -316,9 +364,37 @@ function LeadHub({ client, emp, domainNames, assignedEmails, onClose, toast, upd
             {badge(client.status)}
           </div>
 
-          {/* Workflow */}
+          {/* ── NEXT ACTION card — the employee's primary "what do I do next" ── */}
+          {!DEAD.includes(client.status) && !isClosed(client.status) && (
+            <div className="sv-hub-card" style={{ marginTop: 10, border: `1px solid ${overdue ? "#FECACA" : "#E2E8F0"}`, background: overdue ? "#FEF2F2" : "#F8FBFF" }}>
+              <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: .3, color: overdue ? "#B91C1C" : "#2563EB", textTransform: "uppercase" }}>{overdue ? "⚠ Overdue Action" : "Next Action"}</div>
+              {hasAction ? (
+                <>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a", marginTop: 4 }}>{actionLabel(client.nextActionType)}</div>
+                  <div className="sv-text-muted" style={{ fontSize: 12.5, marginTop: 2 }}>{fmt(client.nextFollowUp)}{client.nextFollowUpTime ? ` · ${fmt12(client.nextFollowUpTime)}` : ""}</div>
+                  <div className="sv-flex sv-gap-2" style={{ marginTop: 10 }}>
+                    <button className="sv-btn sv-btn--primary sv-btn--sm" onClick={openComplete}><CheckCircle2 size={14} /> Complete Action</button>
+                    <button className="sv-btn sv-btn--outline sv-btn--sm" onClick={openReschedule}><CalendarDays size={14} /> Reschedule</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="sv-text-muted" style={{ fontSize: 13, marginTop: 4 }}>No follow-up scheduled.</div>
+                  <button className="sv-btn sv-btn--primary sv-btn--sm" style={{ marginTop: 8 }} onClick={openComplete}><Plus size={14} /> Schedule Next Action</button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Workflow — hidden for brand-new leads so the first step stays simple (nurture first). */}
           <div className="sv-section-label" style={{ marginTop: 6 }}>Production Workflow</div>
-          <LeadWorkflow client={client} actorId={emp.id} onToast={toast} />
+          {client.status === "New Lead" ? (
+            <div className="sv-hub-card sv-text-muted" style={{ fontSize: 12.5 }}>
+              Nurture this lead with follow-ups first. The Contract → Sale → Payment workflow appears once you move it past <b>New Lead</b> (update the status below or after logging a follow-up).
+            </div>
+          ) : (
+            <LeadWorkflow client={client} actorId={emp.id} onToast={toast} />
+          )}
 
           {/* Lead details */}
           <div className="sv-section-label" style={{ marginTop: 18 }}>Lead Details</div>
@@ -335,6 +411,7 @@ function LeadHub({ client, emp, domainNames, assignedEmails, onClose, toast, upd
             </div>
             {priceLocked && <p className="sv-text-muted" style={{ fontSize: 11.5, marginTop: -4 }}>🔒 Price is locked from the generated sale. Edit the sale to change it.</p>}
             {nurturing && field("Current Status", <input className="sv-input" list="pl-status-list" value={d.status} onChange={(e) => setD({ ...d, status: e.target.value })} placeholder="Select a status or type your own…" />)}
+            {DEAD.includes(client.status) && <p className="sv-text-muted" style={{ fontSize: 11.5, marginTop: -4, color: "#B45309" }}>🔒 This lead is closed ({client.status}). Reopening it requires Admin/Manager.</p>}
             {field(DEAD.includes(d.status) ? "Notes (reason required)" : "Notes", <textarea className="sv-input" rows={2} value={d.notes} onChange={(e) => setD({ ...d, notes: e.target.value })} />, DEAD.includes(d.status))}
             <button className="sv-btn sv-btn--outline" style={{ marginTop: 4 }} disabled={savingD} onClick={saveDetails}>{savingD ? "Saving…" : "Save Details"}</button>
           </div>
@@ -357,6 +434,47 @@ function LeadHub({ client, emp, domainNames, assignedEmails, onClose, toast, upd
           <div className="sv-section-label" style={{ marginTop: 18 }}>Activity Timeline</div>
           <LeadTimeline clientId={client.id} />
         </div>
+
+        {/* ── Complete Action modal ── */}
+        {comp && (
+          <div className="sv-modal-overlay sv-pl-overlay" onClick={() => setComp(null)}>
+            <div className="sv-modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+              <div className="sv-modal-header"><span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>Complete Action</span><button className="sv-modal-close" onClick={() => setComp(null)}>×</button></div>
+              <div style={{ padding: "16px 20px" }}>
+                <p className="sv-text-muted" style={{ fontSize: 12.5, marginTop: 0 }}>Current action: <b>{actionLabel(client.nextActionType)}</b></p>
+                {field("What happened?", <textarea className="sv-input" rows={2} value={comp.notes} onChange={(e) => setComp({ ...comp, notes: e.target.value })} placeholder="Summary of the call / email / meeting…" />, true)}
+                {field("Outcome", <select className="sv-select" value={comp.outcome} onChange={(e) => setComp({ ...comp, outcome: e.target.value })}><option value="">Select…</option>{OUTCOMES.map((o) => <option key={o} value={o}>{o}</option>)}</select>)}
+                {!(comp.outcome === "Not Interested" || comp.outcome === "Lost") && (<>
+                  {field("Next Action", <select className="sv-select" value={comp.nextActionType} onChange={(e) => setComp({ ...comp, nextActionType: e.target.value })}>{ACTION_TYPES.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}</select>, true)}
+                  <div className="sv-pl-2col">
+                    {field("Next Date", <input className="sv-input" type="date" value={comp.nextDate} onChange={(e) => setComp({ ...comp, nextDate: e.target.value })} />, true)}
+                    {field("Time (optional)", <input className="sv-input" type="time" value={comp.nextTime} onChange={(e) => setComp({ ...comp, nextTime: e.target.value })} />)}
+                  </div>
+                </>)}
+                {(comp.outcome === "Not Interested" || comp.outcome === "Lost") && <p className="sv-text-muted" style={{ fontSize: 11.5, color: "#B45309" }}>This will close the lead ({comp.outcome}). No further follow-up needed.</p>}
+                <button className="sv-btn sv-btn--primary" style={{ width: "100%", marginTop: 10 }} disabled={busyA} onClick={doComplete}>{busyA ? "Saving…" : "Save & Schedule Next Action"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Reschedule modal ── */}
+        {resc && (
+          <div className="sv-modal-overlay sv-pl-overlay" onClick={() => setResc(null)}>
+            <div className="sv-modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+              <div className="sv-modal-header"><span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>Reschedule Action</span><button className="sv-modal-close" onClick={() => setResc(null)}>×</button></div>
+              <div style={{ padding: "16px 20px" }}>
+                <p className="sv-text-muted" style={{ fontSize: 12.5, marginTop: 0 }}>Current action: <b>{actionLabel(client.nextActionType)}</b></p>
+                <div className="sv-pl-2col">
+                  {field("New Date", <input className="sv-input" type="date" value={resc.nextDate} onChange={(e) => setResc({ ...resc, nextDate: e.target.value })} />, true)}
+                  {field("Time (optional)", <input className="sv-input" type="time" value={resc.nextTime} onChange={(e) => setResc({ ...resc, nextTime: e.target.value })} />)}
+                </div>
+                {field("Reason (optional)", <input className="sv-input" value={resc.reason} onChange={(e) => setResc({ ...resc, reason: e.target.value })} placeholder="e.g. Client requested another time" />)}
+                <button className="sv-btn sv-btn--primary" style={{ width: "100%", marginTop: 10 }} disabled={busyA} onClick={doReschedule}>{busyA ? "Saving…" : "Reschedule"}</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

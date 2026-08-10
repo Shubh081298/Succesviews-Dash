@@ -60,3 +60,56 @@ export const nextAction = (status) => {
   if (p < 0 || p >= 4) return null;
   return WORKFLOW.find((w) => w.at === p) || null;
 };
+
+/* ── Next-Action task model (employee simple workflow) ── */
+
+// Controlled action types the employee can schedule.
+export const ACTION_TYPES = [
+  { value: "follow_up_email", label: "Follow-up Email", icon: "mail" },
+  { value: "follow_up_call", label: "Follow-up Call", icon: "phone" },
+  { value: "whatsapp", label: "WhatsApp", icon: "message" },
+  { value: "meeting", label: "Meeting", icon: "calendar" },
+  { value: "send_proposal", label: "Send Proposal", icon: "file" },
+  { value: "send_contract", label: "Send Contract", icon: "file" },
+  { value: "contract_follow_up", label: "Contract Follow-up", icon: "file" },
+  { value: "payment_follow_up", label: "Payment Follow-up", icon: "wallet" },
+  { value: "check_payment", label: "Check Payment", icon: "wallet" },
+  { value: "other", label: "Other", icon: "dot" },
+];
+export const actionLabel = (v) => (ACTION_TYPES.find((a) => a.value === v) || {}).label || (v || "Follow-up");
+
+// What happened after an action.
+export const OUTCOMES = [
+  "No Answer", "Interested", "Asked for Details", "Asked for Pricing",
+  "Meeting Requested", "Meeting Completed", "Proposal Requested",
+  "Contract Requested", "Payment Discussion", "Not Interested", "Lost", "Other",
+];
+
+// Outcome → nurture stage (only moves FORWARD within nurture; commercial stages
+// stay button-gated and are never auto-set here).
+const NURTURE_ORDER = ["New Lead", "Contacted", "Interested", "Meeting Scheduled"];
+const OUTCOME_STAGE = {
+  "No Answer": "Contacted",
+  "Interested": "Interested",
+  "Asked for Details": "Interested",
+  "Asked for Pricing": "Interested",
+  "Proposal Requested": "Interested",
+  "Contract Requested": "Interested",
+  "Payment Discussion": "Interested",
+  "Meeting Requested": "Meeting Scheduled",
+  "Meeting Completed": "Meeting Scheduled",
+  "Not Interested": "Not Interested",
+  "Lost": "Lost",
+};
+// Returns the new status to set from an outcome, or null for "no change".
+export const autoStageFromOutcome = (currentStatus, outcome) => {
+  if (!outcome) return null;
+  if (DEAD.includes(OUTCOME_STAGE[outcome])) return OUTCOME_STAGE[outcome]; // Not Interested / Lost
+  // only auto-progress while the client is still nurturing (progress 0)
+  if (progressOf(currentStatus) > 0) return null;
+  const target = OUTCOME_STAGE[outcome];
+  if (!target) return null;
+  const cur = NURTURE_ORDER.indexOf(currentStatus);
+  const nxt = NURTURE_ORDER.indexOf(target);
+  return nxt > cur ? target : null; // never move backward
+};

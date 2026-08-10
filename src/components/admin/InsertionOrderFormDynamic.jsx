@@ -32,8 +32,8 @@ const IO_CUR_SYM = { USD: '$', AED: 'Dh', INR: '₹', EUR: '€', GBP: '£', AUD
 const IO_CUR_NAME = { USD: 'US Dollars', AED: 'UAE Dirham', INR: 'Indian Rupees', EUR: 'Euros', GBP: 'British Pounds', AUD: 'Australian Dollars', SGD: 'Singapore Dollars', CAD: 'Canadian Dollars' };
 const curSym = (c) => IO_CUR_SYM[c] || '';
 const curName = (c) => IO_CUR_NAME[c] || (c || 'USD');
-// Formatted as: "<symbol> <amount> <name>" — e.g. "$ 199 US Dollars"
-const fmtCost = (amount, c) => `${curSym(c) ? curSym(c) + ' ' : ''}${amount || '0'} ${curName(c)}`;
+// Formatted as: "<amount> <currency-code>" — e.g. "199 AED"
+const fmtCost = (amount, c) => `${amount || '0'} ${c || 'USD'}`;
 
 const CIO_TERMS_HTML =
   '<ol>' +

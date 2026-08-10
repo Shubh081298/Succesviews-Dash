@@ -212,27 +212,43 @@ export default function AdminDashboard() {
 
   const monthlySalary = useMemo(() => {
     const byMonth = {};
+    const bucket = (key) => {
+      if (!byMonth[key]) byMonth[key] = { monthKey: key, total: 0, empTotal: 0, freeTotal: 0, rows: [] };
+      return byMonth[key];
+    };
+    // Full-time employee salary payments
     Object.entries(salaries || {}).forEach(([empId, sal]) => {
       (sal.payments || []).forEach((p) => {
-        const key = (p.date || "").slice(0, 7);
+        const key = (p.monthKey || p.date || "").slice(0, 7);
         if (!key) return;
-        if (!byMonth[key]) byMonth[key] = { monthKey: key, total: 0, byEmp: {} };
-        byMonth[key].total += Number(p.amount) || 0;
-        byMonth[key].byEmp[empId] = (byMonth[key].byEmp[empId] || 0) + (Number(p.amount) || 0);
+        const amt = Number(p.amount) || 0;
+        const b = bucket(key);
+        b.total += amt; b.empTotal += amt;
+        b.rows.push({ name: (employees.find((e) => e.id === empId)?.name) || empId, amount: amt, kind: "Employee" });
       });
     });
-    const nameOf = (id) => (employees.find((e) => e.id === id)?.name) || id;
+    // Freelancer payments (shown as a separate series/colour)
+    (freelancers || []).forEach((fr) => {
+      (fr.payments || []).forEach((p) => {
+        const key = (p.monthKey || p.date || "").slice(0, 7);
+        if (!key) return;
+        const amt = Number(p.amount) || 0;
+        const b = bucket(key);
+        b.total += amt; b.freeTotal += amt;
+        b.rows.push({ name: fr.name, amount: amt, kind: "Freelancer" });
+      });
+    });
     return Object.values(byMonth)
       .sort((a, b) => a.monthKey.localeCompare(b.monthKey))
       .map((m) => ({
         monthKey: m.monthKey,
         label: new Date(m.monthKey + "-01T00:00:00").toLocaleDateString("en-IN", { month: "short", year: "numeric" }),
         total: m.total,
-        breakdown: Object.entries(m.byEmp)
-          .map(([id, amt]) => ({ name: nameOf(id), amount: amt }))
-          .sort((a, b) => b.amount - a.amount),
+        empTotal: m.empTotal,
+        freeTotal: m.freeTotal,
+        breakdown: m.rows.sort((a, b) => b.amount - a.amount),
       }));
-  }, [salaries, employees]);
+  }, [salaries, employees, freelancers]);
 
   const statusPie = useMemo(() => DSR_STATUSES.map((s, i) => ({
     name: s, value: submissions.filter((x) => x.status === s).length, color: CHART_COLORS[i],
@@ -455,10 +471,10 @@ export default function AdminDashboard() {
             showToast={showToast} pushNotification={pushNotification}
             addMessage={addMessage} editMode={editMode} setEditMode={setEditMode} settingsPwd={settingsPwd} logo={logo}
             freelancers={freelancers} saveFreelancers={saveFreelancers}
-            bankDetails={bankDetails} saveBankDetails={saveBankDetails} />
+            bankDetails={bankDetails} saveBankDetails={saveBankDetails} deleteEmployee={deleteEmployee} />
         )}
         {tab === "expense" && (
-          <ExpenseTab expenses={expenses} addExpense={addExpense} updateExpense={updateExpense} deleteExpense={deleteExpense} logo={logo} />
+          <ExpenseTab expenses={expenses} addExpense={addExpense} updateExpense={updateExpense} deleteExpense={deleteExpense} logo={logo} domains={domains} />
         )}
         {tab === "designs" && (
           <DesignsTab designProjects={designProjects} addDesignProject={addDesignProject} updateDesignProject={updateDesignProject} deleteDesignProject={deleteDesignProject} employees={employees} designFiles={designFiles} uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} designActivity={designActivity} changeProjectStatus={changeProjectStatus} requestRevision={requestRevision} designWork={designWork} saveDesignWork={saveDesignWork} pushNotification={pushNotification} captureExpense={captureExpense} designArchive={designArchive} saveDesignArchive={saveDesignArchive} addProjectComment={addProjectComment} designExtra={designExtra} releaseDesign={releaseDesign} addDesignFolder={addDesignFolder} deleteDesignFolder={deleteDesignFolder} addDesignLink={addDesignLink} deleteDesignLink={deleteDesignLink} />

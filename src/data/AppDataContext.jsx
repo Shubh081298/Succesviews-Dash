@@ -1140,8 +1140,8 @@ export function AppDataProvider({ children }) {
      (b) rolls up into TODAY's submissions row so the existing Admin
      Dashboard / Reports / Analytics keep working unchanged.
      ══════════════════════════════════════════════════════════ */
-  const rowToPClient = (r) => ({ id: r.id, employeeId: r.employee_id, assignedEmailId: r.assigned_email_id || "", domainId: r.domain_id || "", domainName: r.domain_name || "", clientName: r.client_name || "", companyName: r.company_name || "", projectName: r.project_name || "", clientEmail: r.client_email || "", region: r.region || "", status: r.status || "New Lead", notes: r.notes || "", lastFollowUp: r.last_follow_up || "", nextFollowUp: r.next_follow_up || "", nextFollowUpTime: r.next_follow_up_time || "", expectedAmount: Number(r.expected_amount) || 0, expectedCurrency: r.expected_currency || "", lostReason: r.lost_reason || "", isDeleted: !!r.is_deleted, createdAt: r.created_at, updatedAt: r.updated_at });
-  const rowToPFollowup = (r) => ({ id: r.id, clientId: r.client_id, employeeId: r.employee_id, followUpDate: r.follow_up_date || "", followUpTime: r.follow_up_time || "", communicationType: r.communication_type || "", notes: r.notes || "", status: r.status || "", nextFollowUp: r.next_follow_up || "", createdAt: r.created_at });
+  const rowToPClient = (r) => ({ id: r.id, employeeId: r.employee_id, assignedEmailId: r.assigned_email_id || "", domainId: r.domain_id || "", domainName: r.domain_name || "", clientName: r.client_name || "", companyName: r.company_name || "", projectName: r.project_name || "", clientEmail: r.client_email || "", region: r.region || "", status: r.status || "New Lead", notes: r.notes || "", lastFollowUp: r.last_follow_up || "", nextFollowUp: r.next_follow_up || "", nextFollowUpTime: r.next_follow_up_time || "", nextActionType: r.next_action_type || "", expectedAmount: Number(r.expected_amount) || 0, expectedCurrency: r.expected_currency || "", lostReason: r.lost_reason || "", isDeleted: !!r.is_deleted, createdAt: r.created_at, updatedAt: r.updated_at });
+  const rowToPFollowup = (r) => ({ id: r.id, clientId: r.client_id, employeeId: r.employee_id, followUpDate: r.follow_up_date || "", followUpTime: r.follow_up_time || "", communicationType: r.communication_type || "", notes: r.notes || "", status: r.status || "", nextFollowUp: r.next_follow_up || "", actionType: r.action_type || "", outcome: r.outcome || "", createdAt: r.created_at });
   const rowToPContract = (r) => ({ id: r.id, clientId: r.client_id, contractNumber: r.contract_number || "", contractDate: r.contract_date || "", notes: r.notes || "", createdAt: r.created_at });
   const rowToPSale = (r) => ({ id: r.id, clientId: r.client_id, packageName: r.package_name || "", amount: Number(r.amount) || 0, currency: r.currency || "USD", salesDate: r.sales_date || "", notes: r.notes || "", createdAt: r.created_at });
   const rowToPPayment = (r) => ({ id: r.id, clientId: r.client_id, amount: Number(r.amount) || 0, currency: r.currency || "USD", paymentMethod: r.payment_method || "", referenceNumber: r.reference_number || "", paymentDate: r.payment_date || "", notes: r.notes || "", createdAt: r.created_at });
@@ -1216,10 +1216,11 @@ export function AppDataProvider({ children }) {
         project_name: p.projectName || null,
         client_email: p.clientEmail || null, region: p.region || null, status: p.status || "New Lead",
         notes: p.notes || null, next_follow_up: p.nextFollowUp || null, next_follow_up_time: p.nextFollowUpTime || null,
+        next_action_type: p.nextActionType || null,
       };
       let { data, error } = await supabase.from("pipeline_clients").insert(payload).select("*").single();
-      if (error && /next_follow_up_time|project_name/.test(error.message || "")) { // columns not migrated yet — save without them
-        delete payload.next_follow_up_time; delete payload.project_name;
+      if (error && /next_follow_up_time|project_name|next_action_type/.test(error.message || "")) { // columns not migrated yet — save without them
+        delete payload.next_follow_up_time; delete payload.project_name; delete payload.next_action_type;
         ({ data, error } = await supabase.from("pipeline_clients").insert(payload).select("*").single());
       }
       if (error || !data) {
@@ -1241,12 +1242,12 @@ export function AppDataProvider({ children }) {
   async function updatePipelineClient(id, patch, employeeId) {
     const old = pipelineClients.find((c) => c.id === id);
     try {
-      const upd = {}; const map = { assignedEmailId: "assigned_email_id", domainId: "domain_id", domainName: "domain_name", clientName: "client_name", companyName: "company_name", projectName: "project_name", clientEmail: "client_email", region: "region", status: "status", notes: "notes", nextFollowUp: "next_follow_up", nextFollowUpTime: "next_follow_up_time", expectedAmount: "expected_amount", expectedCurrency: "expected_currency", lastFollowUp: "last_follow_up", lostReason: "lost_reason", isDeleted: "is_deleted" };
+      const upd = {}; const map = { assignedEmailId: "assigned_email_id", domainId: "domain_id", domainName: "domain_name", clientName: "client_name", companyName: "company_name", projectName: "project_name", clientEmail: "client_email", region: "region", status: "status", notes: "notes", nextFollowUp: "next_follow_up", nextFollowUpTime: "next_follow_up_time", nextActionType: "next_action_type", expectedAmount: "expected_amount", expectedCurrency: "expected_currency", lastFollowUp: "last_follow_up", lostReason: "lost_reason", isDeleted: "is_deleted" };
       Object.keys(patch).forEach((k) => { if (map[k] !== undefined) upd[map[k]] = patch[k]; });
       upd.updated_at = new Date().toISOString();
       let { data, error } = await supabase.from("pipeline_clients").update(upd).eq("id", id).select("*").single();
-      if (error && /next_follow_up_time|project_name|expected_amount|expected_currency/.test(error.message || "")) { // columns not migrated yet
-        delete upd.next_follow_up_time; delete upd.project_name; delete upd.expected_amount; delete upd.expected_currency;
+      if (error && /next_follow_up_time|project_name|expected_amount|expected_currency|next_action_type/.test(error.message || "")) { // columns not migrated yet
+        delete upd.next_follow_up_time; delete upd.project_name; delete upd.expected_amount; delete upd.expected_currency; delete upd.next_action_type;
         ({ data, error } = await supabase.from("pipeline_clients").update(upd).eq("id", id).select("*").single());
       }
       if (error || !data) { showToast("Could not update client.", "error"); return false; }
@@ -1303,16 +1304,22 @@ export function AppDataProvider({ children }) {
 
   async function addFollowup(p) {
     try {
-      const { data, error } = await supabase.from("pipeline_followups").insert({
+      const fuInsert = {
         client_id: p.clientId, employee_id: p.employeeId, follow_up_date: p.followUpDate || localDateStr(),
         follow_up_time: p.followUpTime || null, communication_type: p.communicationType || null, notes: p.notes || null,
         status: p.status || null, next_follow_up: p.nextFollowUp || null,
-      }).select("*").single();
+        action_type: p.actionType || null, outcome: p.outcome || null,
+      };
+      let { data, error } = await supabase.from("pipeline_followups").insert(fuInsert).select("*").single();
+      if (error && /action_type|outcome/.test(error.message || "")) { // columns not migrated yet — save without them
+        delete fuInsert.action_type; delete fuInsert.outcome;
+        ({ data, error } = await supabase.from("pipeline_followups").insert(fuInsert).select("*").single());
+      }
       if (error || !data) { showToast("Could not save follow-up.", "error"); return false; }
       const rec = rowToPFollowup(data);
       setPipelineFollowups((prev) => [rec, ...prev]);
-      // keep the client's last/next follow-up + status current
-      await updatePipelineClient(p.clientId, { lastFollowUp: rec.followUpDate, nextFollowUp: p.nextFollowUp || undefined, ...(p.nextFollowUpTime !== undefined ? { nextFollowUpTime: p.nextFollowUpTime || null } : {}), ...(p.status ? { status: p.status } : {}) }, p.employeeId);
+      // keep the client's last/next follow-up + next action + status current
+      await updatePipelineClient(p.clientId, { lastFollowUp: rec.followUpDate, nextFollowUp: p.nextFollowUp || undefined, ...(p.nextFollowUpTime !== undefined ? { nextFollowUpTime: p.nextFollowUpTime || null } : {}), ...(p.nextActionType !== undefined ? { nextActionType: p.nextActionType || null } : {}), ...(p.status ? { status: p.status } : {}) }, p.employeeId);
       await rollupToSubmission(p.employeeId, "followup", { client: p.clientName || "", type: rec.communicationType, ts: Date.now() });
       if (["Phone Call", "Zoom Meeting", "Google Meet"].includes(rec.communicationType)) {
         await rollupToSubmission(p.employeeId, "call", { client: p.clientName || "", type: rec.communicationType, ts: Date.now() });

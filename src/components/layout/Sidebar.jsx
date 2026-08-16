@@ -57,8 +57,10 @@ export default function Sidebar({ logo, brandTitle, brandSubtitle, brandPhoto, n
           {nav.map((n) => (
             <button
               key={n.key}
+              data-navkey={n.key}
               className={`sv-nav-btn ${active === n.key ? "sv-nav-btn--active" : ""}`}
               onClick={() => select(n.key)}
+              title={n.label}
             >
               {n.icon && <span className="sv-nav-icon">{n.icon}</span>}
               <span className="sv-nav-label">{n.label}</span>
@@ -67,12 +69,12 @@ export default function Sidebar({ logo, brandTitle, brandSubtitle, brandPhoto, n
           ))}
         </nav>
         <div className="sv-sidebar-footer">
-          <button className="sv-nav-btn sv-nav-btn--ghost" onClick={onToggleTheme}>
+          <button className="sv-nav-btn sv-nav-btn--ghost" onClick={onToggleTheme} title={theme === "light" ? "Dark Mode" : "Light Mode"}>
             <span className="sv-nav-icon">{theme === "light" ? <Moon size={17} /> : <Sun size={17} />}</span>
             <span className="sv-nav-label">{theme === "light" ? "Dark Mode" : "Light Mode"}</span>
           </button>
           {footerExtra}
-          <button className="sv-nav-btn sv-nav-btn--ghost" onClick={onSignOut}>
+          <button className="sv-nav-btn sv-nav-btn--ghost" onClick={onSignOut} title="Sign Out">
             <span className="sv-nav-icon"><LogOut size={17} /></span>
             <span className="sv-nav-label">Sign Out</span>
           </button>

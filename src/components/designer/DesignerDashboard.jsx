@@ -39,7 +39,7 @@ const dzProgress = (st) => { const i = dzStep(st); return i < 0 ? 0 : Math.round
 /* Designer upload categories (label shown → internal workflow kind kept intact).
    "sample" = Sample CP/CS (once only), "cp" = Final CP/CS (combined), magazine, revised. */
 const DZ_KINDS = { sample: "Sample CP/CS", cp: "Final CP/CS", magazine: "Magazine", revised: "Revised Files" };
-const DZ_ONCE = ["sample"]; // kinds that can only be uploaded once
+const DZ_ONCE = []; // (no lock) — designer can always re-upload updated/revised files
 const FILE_FOLDERS = [["draft", "Draft"], ["reference", "Client Draft"], ["images", "Client Images"], ["sample", "Samples"], ["cp", "Cover Page"], ["cs", "Cover Story"], ["index", "Index Page"], ["magazine", "Magazine"], ["revised", "Revised"], ["final", "Final"]];
 const ADMIN_DRAFT_KINDS = ["draft", "reference", "images"];
 const CO_CATEGORIES = ["Software Subscriptions", "Fonts / Assets", "Stock Images", "Printing", "Travel", "Equipment", "Miscellaneous"];
@@ -59,11 +59,13 @@ const payStyle = (s) => ({ "Paid": { bg: "#DCFCE7", fg: "#15803D" }, "Approved":
 const dzBadge = (t, st) => <span style={{ display: "inline-block", fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: st.bg, color: st.fg }}>{t}</span>;
 const fmtSize = (b) => (!b ? "" : b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(0) + " KB" : (b / 1048576).toFixed(1) + " MB");
 const money = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
+// Message screenshots: stored in activity.meta as a JSON array of URLs (or a bare URL for old rows).
+const parseMsgImgs = (meta) => { const mm = meta || ""; if (!mm) return []; if (mm[0] === "[") { try { return (JSON.parse(mm) || []).filter(Boolean); } catch (e) { return []; } } return /^https?:\/\//.test(mm) ? [mm] : []; };
 
 export default function DesignerDashboard({
   emp, logo, theme, toggleTheme, onLogout,
   designProjects = [], designArchive = [], designFiles = [], uploadDesignFile, deleteDesignFile, updateDesignProject,
-  designActivity = [], changeProjectStatus, addProjectComment,
+  designActivity = [], changeProjectStatus, addProjectComment, uploadMessageImage,
   designWork = [], saveDesignWork, pushNotification,
   notifications = [], markNotificationRead, markAllNotificationsRead, clearNotifications,
   designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {} }, releaseDesign, addDesignFolder, deleteDesignFolder,
@@ -85,6 +87,20 @@ export default function DesignerDashboard({
   const [addF, setAddF] = useState({ type: "Cover Page", amount: "", notes: "", proof: "" });
   const [editF, setEditF] = useState(null); // { id, amount, notes, reason }
   const [convoText, setConvoText] = useState("");
+  const [convoImgs, setConvoImgs] = useState([]);   // pending screenshots (multiple)
+  const [convoSending, setConvoSending] = useState(false);
+  const addConvoFiles = (files) => { const imgs = [...(files || [])].filter((f) => f && f.type && f.type.startsWith("image/")); if (imgs.length) setConvoImgs((p) => [...p, ...imgs]); };
+  const onConvoPaste = (e) => { const items = (e.clipboardData && e.clipboardData.items) || []; const files = []; for (const it of items) { if (it.kind === "file") { const f = it.getAsFile(); if (f && f.type.startsWith("image/")) files.push(f); } } if (files.length) { e.preventDefault(); addConvoFiles(files); } };
+  const removeConvoImg = (i) => setConvoImgs((p) => p.filter((_, idx) => idx !== i));
+  const sendConvo = async () => {
+    if ((!convoText.trim() && convoImgs.length === 0) || !project) return;
+    setConvoSending(true);
+    const urls = [];
+    for (const f of convoImgs) { if (uploadMessageImage) { const u = await uploadMessageImage(project.id, f); if (u) urls.push(u); } }
+    const ok = await addProjectComment(project.id, "designer", emp.name, convoText, urls);
+    setConvoSending(false);
+    if (ok !== false) { setConvoText(""); setConvoImgs([]); }
+  };
   const [flowAsk, setFlowAsk] = useState(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const [uploadFolder, setUploadFolder] = useState(""); // target custom folder id ("" = none)
@@ -112,6 +128,16 @@ export default function DesignerDashboard({
   const [dragOver, setDragOver] = useState(false);
   const uploadOne = async (file) => { if (!file || !project) return; setUploading(true); await uploadDesignFile(project.id, uploadKind, file, emp.name, uploadFolder); setUploading(false); /* private draft — admin is NOT notified until Submit */ };
   const releaseMine = async () => { releaseDesign && await releaseDesign(project.id, "designer"); };
+  // One clear "submit" action: release my draft files to the admin, optionally advance the stage,
+  // and notify. Used by the stage buttons AND the always-available "Submit new files" button so a
+  // designer can re-send updated work after changes are requested (no more getting stuck).
+  const submitToAdmin = async (advanceTo) => {
+    if (!project) return;
+    await releaseMine();
+    if (advanceTo) await setStatus(advanceTo);
+    pushNotification && pushNotification(`${emp.name} submitted files for ${project.clientName}${advanceTo ? ` → ${advanceTo}` : ""}.`);
+    showToast("Submitted to admin for review.");
+  };
   const onUpload = async (e) => { const files = [...(e.target.files || [])]; for (const fl of files) await uploadOne(fl); if (fileRef.current) fileRef.current.value = ""; setUploadFolder(""); };
   const onDropFiles = async (e) => { e.preventDefault(); setDragOver(false); const files = [...((e.dataTransfer && e.dataTransfer.files) || [])]; for (const fl of files) await uploadOne(fl); setUploadFolder(""); };
   const setStatus = async (status) => { if (project) { await changeProjectStatus(project, status, "designer", emp.name); pushNotification && pushNotification(`${emp.name} set ${project.clientName} → ${status}.`); } };
@@ -345,25 +371,34 @@ export default function DesignerDashboard({
                     const pf = designFiles.filter((f) => f.projectId === project.id);
                     const has = (k) => pf.some((f) => f.kind === k);
                     const st = project.status; const stg = dzCanon(st);
-                    const submit = async (label, msg) => { await releaseMine(); pushNotification && pushNotification(`${emp.name} ${msg} for ${project.clientName}.`); showToast(label); };
+                    // New files the designer has added but not yet sent to the admin.
+                    const pendingDrafts = pf.some((f) => f.uploadedByName === emp.name && isDraftFile(f.id));
+                    const resubmitBtn = (label) => (
+                      <button className="sv-flow-btn sv-flow-btn--ok" onClick={() => ask("Submit your updated files to the admin for review?", () => submitToAdmin(null))}>📤 {label}</button>
+                    );
                     if (st === "Draft") return <p className="sv-flow-wait">⏳ Waiting for the admin to send the draft.</p>;
                     if (st === "Draft Sent") return (has("reference") || has("images") || has("draft"))
                       ? <button className="sv-flow-btn sv-flow-btn--ok" onClick={() => ask("Confirm you've received the draft and start the sample?", () => setStatus("Sample Design"))}>✓ Draft Received → Start Sample</button>
                       : <p className="sv-flow-wait">⏳ Draft not fully uploaded yet — you can request more files from the admin below.</p>;
                     if (stg === "Sample Design") return has("sample")
-                      ? <button className="sv-flow-btn sv-flow-btn--ok" onClick={() => ask("Submit your Sample CP/CS to the admin for review? Files become visible to the admin only after this.", async () => { await releaseMine(); await setStatus("Client Review"); })}>Submit Sample Design →</button>
+                      ? <button className="sv-flow-btn sv-flow-btn--ok" onClick={() => ask("Submit your Sample CP/CS to the admin for review? Files become visible to the admin only after this.", () => submitToAdmin("Client Review"))}>Submit Sample Design →</button>
                       : <p className="sv-flow-wait">📎 Upload your Sample CP/CS below — Submit unlocks once a file is added.</p>;
-                    if (stg === "Client Review") return <p className="sv-flow-wait">⏳ Admin is reviewing your sample.</p>;
+                    // Review/waiting stages: if the admin asked for changes, let the designer re-submit updated work.
+                    if (stg === "Client Review") return pendingDrafts
+                      ? resubmitBtn("Submit updated design to admin →")
+                      : <p className="sv-flow-wait">⏳ Admin is reviewing your design. Upload updated files below to re-submit if changes were asked.</p>;
                     if (stg === "Final CP/CS") return has("cp")
-                      ? <button className="sv-flow-btn sv-flow-btn--ok" onClick={() => ask("Submit the Final CP/CS to the admin?", () => submit("Sent to admin for review.", "submitted the Final CP/CS"))}>Submit Final CP/CS →</button>
+                      ? <button className="sv-flow-btn sv-flow-btn--ok" onClick={() => ask("Submit the Final CP/CS to the admin?", () => submitToAdmin(null))}>Submit Final CP/CS →</button>
                       : <p className="sv-flow-wait">📎 Upload the Final CP/CS below to submit.</p>;
                     if (stg === "Index Page") return has("index")
                       ? <button className="sv-flow-btn sv-flow-btn--ok" onClick={() => ask("Confirm you've received the index and start the magazine?", () => setStatus("Magazine"))}>✓ Index Received → Start Magazine</button>
                       : <p className="sv-flow-wait">⏳ Waiting for the admin to upload the Index Page.</p>;
                     if (stg === "Magazine") return has("magazine")
-                      ? <button className="sv-flow-btn sv-flow-btn--ok" onClick={() => ask("Submit the complete magazine to the admin?", () => submit("Sent to admin for review.", "submitted the complete magazine"))}>Publish Magazine →</button>
+                      ? <button className="sv-flow-btn sv-flow-btn--ok" onClick={() => ask("Submit the complete magazine to the admin?", () => submitToAdmin(null))}>Publish Magazine →</button>
                       : <p className="sv-flow-wait">📎 Upload the complete magazine (as “Magazine”) below to submit.</p>;
-                    if (stg === "Final Review") return <p className="sv-flow-wait">⏳ Admin is doing the final review.</p>;
+                    if (stg === "Final Review") return pendingDrafts
+                      ? resubmitBtn("Submit updated files to admin →")
+                      : <p className="sv-flow-wait">⏳ Admin is doing the final review. Upload updated files below to re-submit if changes were asked.</p>;
                     return <p className="sv-flow-done">✓ Project completed.</p>;
                   })()}
                 </div>
@@ -379,16 +414,20 @@ export default function DesignerDashboard({
                   <div className="sv-convo">
                     {thread.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12.5, margin: "6px 0" }}>No messages yet. Ask the admin anything about this project.</p> : (
                       <div className="sv-convo-thread">
-                        {thread.map((m) => { const isChange = /changes requested/i.test(m.comment || ""); return (
+                        {thread.map((m) => { const isChange = /changes requested/i.test(m.comment || ""); const imgs = parseMsgImgs(m.meta); return (
                           <div key={m.id} className={`sv-convo-row sv-convo-row--${m.actorRole === "designer" ? "me" : "them"}`}>
-                            <div className={`sv-convo-bubble${isChange ? " sv-convo-bubble--change" : ""}`}>{isChange && <span className="sv-convo-tag"><AlertTriangle size={12} /> Change requested</span>}<div className="sv-convo-text">{(m.comment || "").replace(/^🔄\s*Changes requested:\s*/i, "")}</div><div className="sv-convo-meta">{m.actorName} · {m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}</div></div>
+                            <div className={`sv-convo-bubble${isChange ? " sv-convo-bubble--change" : ""}`}>{isChange && <span className="sv-convo-tag"><AlertTriangle size={12} /> Change requested</span>}{(m.comment || "") && <div className="sv-convo-text">{(m.comment || "").replace(/^🔄\s*Changes requested:\s*/i, "")}</div>}{imgs.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>{imgs.map((u, i) => <a key={i} href={u} target="_blank" rel="noreferrer"><img src={u} alt="screenshot" style={{ maxWidth: imgs.length > 1 ? 150 : "100%", maxHeight: 220, borderRadius: 8, display: "block", border: "1px solid var(--sv-border,#e2e8f0)" }} /></a>)}</div>}<div className="sv-convo-meta">{m.actorName} · {m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}</div></div>
                           </div>
                         ); })}
                       </div>
                     )}
                     <div className="sv-convo-compose">
-                      <textarea className="sv-input" rows={2} value={convoText} onChange={(e) => setConvoText(e.target.value)} placeholder="Reply to the admin…" style={{ resize: "vertical" }} />
-                      <button className="sv-btn sv-btn--primary" disabled={!convoText.trim()} onClick={async () => { const ok = await addProjectComment(project.id, "designer", emp.name, convoText); if (ok !== false) setConvoText(""); }}>Send</button>
+                      <textarea className="sv-input" rows={2} value={convoText} onChange={(e) => setConvoText(e.target.value)} onPaste={onConvoPaste} placeholder="Reply to the admin…  (paste a screenshot with Ctrl+V)" style={{ resize: "vertical" }} />
+                      {convoImgs.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "8px 0" }}>{convoImgs.map((f, i) => <span key={i} style={{ position: "relative", display: "inline-block" }}><img src={URL.createObjectURL(f)} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: "1px solid var(--sv-border,#e2e8f0)" }} /><button onClick={() => removeConvoImg(i)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: 999, border: "none", background: "#EF4444", color: "#fff", fontSize: 12, lineHeight: "18px", cursor: "pointer" }}>×</button></span>)}</div>}
+                      <div className="sv-flex sv-gap-2" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                        <label className="sv-btn sv-btn--sm sv-btn--ghost" style={{ cursor: "pointer" }}>📎 Screenshot<input type="file" accept="image/*" multiple hidden onChange={(e) => { addConvoFiles(e.target.files); e.target.value = ""; }} /></label>
+                        <button className="sv-btn sv-btn--primary" style={{ marginLeft: "auto" }} disabled={convoSending || (!convoText.trim() && convoImgs.length === 0)} onClick={sendConvo}>{convoSending ? "Sending…" : "Send"}</button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -426,7 +465,15 @@ export default function DesignerDashboard({
                     <div className="sv-flex sv-gap-2" style={{ marginTop: 10, flexWrap: "wrap" }}>
                       <input className="sv-input" placeholder="New folder name…" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} style={{ maxWidth: 200, fontSize: 12.5 }} />
                       <button className="sv-btn sv-btn--sm sv-btn--ghost" disabled={!newFolder.trim()} onClick={async () => { await addDesignFolder(project.id, newFolder, "designer"); setNewFolder(""); }}><Plus size={13} /> Create folder</button>
-                      {hasPendingDrafts && <span className="sv-file-draft" style={{ alignSelf: "center" }}>You have unsubmitted drafts — click a Submit button to send them.</span>}
+                      {hasPendingDrafts && (
+                        <button
+                          className="sv-btn sv-btn--sm sv-btn--primary"
+                          style={{ alignSelf: "center" }}
+                          onClick={() => ask("Submit your new file(s) to the admin now?", () => submitToAdmin(dzCanon(project.status) === "Sample Design" ? "Client Review" : null))}
+                        >
+                          📤 Submit new file(s) to admin
+                        </button>
+                      )}
                     </div>
                   </div>
                   <div style={{ height: 14 }} />

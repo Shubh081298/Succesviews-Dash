@@ -997,6 +997,35 @@ body {
   top: 12px;
 }
 
+/* Live document preview — renders the exact Confirmation Order HTML in an iframe */
+.sv-io-preview-doc {
+  background: #ffffff;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.sv-io-preview-frame {
+  width: 100%;
+  height: 1120px;
+  border: 0;
+  display: block;
+  background: #fff;
+}
+
+/* Sub-headings inside the insertion-order form (Order meta, Advertising, Payment…) */
+.sv-io-subhead {
+  margin: 18px 0 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #334155;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  border-top: 1px solid var(--border-light);
+  padding-top: 12px;
+}
+
 .sv-io-preview {
   background: #ffffff;
   border: 1px solid var(--border-light);
@@ -4592,13 +4621,45 @@ body { font-size: 14px; line-height: 1.55; letter-spacing: -0.006em; color: #0F1
 .sv-dark .sv-topbar-collapse{background:#1E293B;border-color:rgba(255,255,255,.1);color:#CBD5E1}
 @media(max-width:767px){.sv-topbar-collapse{display:none}}
 
-/* Smooth desktop collapse — main auto-expands (flex:1) */
+/* Smooth desktop collapse → icon-only mode (sidebar stays visible ~76px). Main auto-expands (flex:1). */
 @media(min-width:768px){
-  .sv-sidebar{transition:width .22s ease,min-width .22s ease,padding .22s ease,opacity .16s ease}
-  /* !important is required — the base rule pins .sv-sidebar to 232px !important,
-     so without this the box stays 232px wide (blank) and leaves a gap. */
-  .sv-sb-collapsed .sv-sidebar{width:0 !important;min-width:0 !important;padding-left:0 !important;padding-right:0 !important;border-right:none !important;opacity:0;pointer-events:none;overflow:hidden}
+  .sv-sidebar{transition:width .22s ease,min-width .22s ease,padding .22s ease}
+  /* !important overrides the base .sv-sidebar 232px pin. */
+  .sv-sb-collapsed .sv-sidebar{width:76px !important;min-width:76px !important;padding-left:10px !important;padding-right:10px !important;overflow-y:auto;overflow-x:hidden}
+  /* hide all text, keep icons */
+  .sv-sb-collapsed .sv-nav-label,
+  .sv-sb-collapsed .sv-sidebar-name,
+  .sv-sb-collapsed .sv-sidebar-sub{display:none}
+  /* centre the icons */
+  .sv-sb-collapsed .sv-nav-btn{justify-content:center;padding-left:0;padding-right:0;position:relative;gap:0}
+  .sv-sb-collapsed .sv-nav-icon{margin:0}
+  /* badge (e.g. pending leaves) becomes a compact corner pill */
+  .sv-sb-collapsed .sv-nav-badge{position:absolute;top:2px;right:8px;min-width:15px;height:15px;padding:0 3px;font-size:9px;line-height:15px;border-radius:8px}
+  /* identity + logo adapt to the narrow width */
+  .sv-sb-collapsed .sv-sidebar-identity,
+  .sv-sb-collapsed .sv-sidebar-user-card{justify-content:center;padding-left:6px;padding-right:6px}
+  /* compact app-icon-style logo (neat centred square, not a stretched blob) */
+  .sv-sb-collapsed .sv-sidebar-logo{height:auto;padding:0;margin-bottom:16px;display:flex;align-items:center;justify-content:center}
+  .sv-sb-collapsed .sv-sidebar-logo img{max-width:38px;max-height:34px;border-radius:6px}
+  .sv-sb-collapsed .sv-sidebar--dark .sv-sidebar-logo{width:48px;height:48px;padding:6px;margin:0 auto 16px;border-radius:12px;box-sizing:border-box}
 }
+
+/* ── Coloured, professional menu icons (both expanded & collapsed) ── */
+.sv-nav-btn[data-navkey="overview"] .sv-nav-icon{color:#3B82F6}
+.sv-nav-btn[data-navkey="reports"] .sv-nav-icon{color:#0EA5E9}
+.sv-nav-btn[data-navkey="leaderboard"] .sv-nav-icon{color:#F59E0B}
+.sv-nav-btn[data-navkey="analytics"] .sv-nav-icon{color:#8B5CF6}
+.sv-nav-btn[data-navkey="departments"] .sv-nav-icon{color:#14B8A6}
+.sv-nav-btn[data-navkey="insertionorder"] .sv-nav-icon{color:#6366F1}
+.sv-nav-btn[data-navkey="leaveboard"] .sv-nav-icon{color:#10B981}
+.sv-nav-btn[data-navkey="salary"] .sv-nav-icon{color:#F97316}
+.sv-nav-btn[data-navkey="expense"] .sv-nav-icon{color:#EF4444}
+.sv-nav-btn[data-navkey="designs"] .sv-nav-icon{color:#EC4899}
+.sv-nav-btn[data-navkey="managerassign"] .sv-nav-icon{color:#06B6D4}
+.sv-nav-btn[data-navkey="settings"] .sv-nav-icon{color:#64748B}
+/* sign-out reads red; keep the active item's icon white on its highlight */
+.sv-sidebar-footer .sv-nav-btn--ghost:last-child .sv-nav-icon{color:#EF4444}
+.sv-nav-btn--active .sv-nav-icon{color:#fff !important}
 
 /* ── Global overflow guard (kills page-level horizontal scroll on Android) ── */
 html,body{overflow-x:hidden;max-width:100%}

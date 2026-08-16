@@ -32,7 +32,7 @@ export default function AdminDashboard() {
     customFields, saveCustomFields,
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,
     messages, saveMessages, addMessage, deleteMessage,
-    leaves, saveLeaves, updateLeaveStatus,
+    leaves, saveLeaves, updateLeaveStatus, attendanceOverrides, saveAttendanceOverride,
     salaries, saveSalaries, bankDetails, saveBankDetails,
     freelancers, saveFreelancers,
     designWork, saveDesignWork,
@@ -41,7 +41,7 @@ export default function AdminDashboard() {
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,
     designProjects, addDesignProject, updateDesignProject, deleteDesignProject,
     designFiles, uploadDesignFile, deleteDesignFile,
-    designActivity, changeProjectStatus, requestRevision, addProjectComment,
+    designActivity, changeProjectStatus, requestRevision, addProjectComment, uploadMessageImage,
     logo, onLogoChange, onLogoRemove,
     adminPwd, setAdminPwd,
     settingsPwd, setSettingsPwd,
@@ -374,7 +374,7 @@ export default function AdminDashboard() {
       />
       <main className="sv-main">
         <header className="sv-topbar">
-          <button type="button" className="sv-topbar-collapse" onClick={toggleSidebar} title={sbCollapsed ? "Show sidebar" : "Hide sidebar"} aria-label="Toggle sidebar">
+          <button type="button" className="sv-topbar-collapse" onClick={toggleSidebar} title={sbCollapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label="Toggle sidebar">
             <PanelLeft size={18} />
           </button>
           <div className="sv-topbar-search">
@@ -465,7 +465,7 @@ export default function AdminDashboard() {
           />
         )}
         {tab === "insertionorder" && <InsertionOrderForm onCapture={captureExpense} sharedMagazines={ioMagazines} onSaveMagazines={saveIoMagazines} />}
-        {tab === "leaveboard" && <LeaveBoardTab leaves={leaves} employees={employees} setLeaveStatus={setLeaveStatus} editMode={editMode} submissions={submissions} />}
+        {tab === "leaveboard" && <LeaveBoardTab leaves={leaves} employees={employees} setLeaveStatus={setLeaveStatus} editMode={editMode} submissions={submissions} attendanceOverrides={attendanceOverrides} saveAttendanceOverride={saveAttendanceOverride} />}
         {tab === "salary" && (
           <SalaryModule employees={employees} salaries={salaries} setSalaries={saveSalaries} captureExpense={captureExpense}
             showToast={showToast} pushNotification={pushNotification}
@@ -477,7 +477,7 @@ export default function AdminDashboard() {
           <ExpenseTab expenses={expenses} addExpense={addExpense} updateExpense={updateExpense} deleteExpense={deleteExpense} logo={logo} domains={domains} />
         )}
         {tab === "designs" && (
-          <DesignsTab designProjects={designProjects} addDesignProject={addDesignProject} updateDesignProject={updateDesignProject} deleteDesignProject={deleteDesignProject} employees={employees} designFiles={designFiles} uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} designActivity={designActivity} changeProjectStatus={changeProjectStatus} requestRevision={requestRevision} designWork={designWork} saveDesignWork={saveDesignWork} pushNotification={pushNotification} captureExpense={captureExpense} designArchive={designArchive} saveDesignArchive={saveDesignArchive} addProjectComment={addProjectComment} designExtra={designExtra} releaseDesign={releaseDesign} addDesignFolder={addDesignFolder} deleteDesignFolder={deleteDesignFolder} addDesignLink={addDesignLink} deleteDesignLink={deleteDesignLink} />
+          <DesignsTab designProjects={designProjects} addDesignProject={addDesignProject} updateDesignProject={updateDesignProject} deleteDesignProject={deleteDesignProject} employees={employees} designFiles={designFiles} uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} designActivity={designActivity} changeProjectStatus={changeProjectStatus} requestRevision={requestRevision} designWork={designWork} saveDesignWork={saveDesignWork} pushNotification={pushNotification} captureExpense={captureExpense} designArchive={designArchive} saveDesignArchive={saveDesignArchive} addProjectComment={addProjectComment} uploadMessageImage={uploadMessageImage} designExtra={designExtra} releaseDesign={releaseDesign} addDesignFolder={addDesignFolder} deleteDesignFolder={deleteDesignFolder} addDesignLink={addDesignLink} deleteDesignLink={deleteDesignLink} />
         )}
         {tab === "managerassign" && (
           <div className="sv-flex-col sv-gap-4">

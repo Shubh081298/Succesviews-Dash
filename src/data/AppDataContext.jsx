@@ -33,6 +33,7 @@ export function AppDataProvider({ children }) {
   const [announcements, setAnnouncements]   = useState([]);
   const [messages, setMessages]             = useState([]);
   const [leaves, setLeaves]                 = useState([]);
+  const [attendanceOverrides, setAttendanceOverrides] = useState([]); // admin manual attendance edits
   const [salaries, setSalaries]             = useState({});
   const [bankDetails, setBankDetails]       = useState({});
   const [expenses, setExpenses]             = useState([]);
@@ -124,6 +125,7 @@ export function AppDataProvider({ children }) {
         loadAnnouncements(),
         loadMessages(),
         loadLeaves(),
+        loadAttendanceOverrides(),
         loadSalaries(),
         loadBankDetails(),
         loadExpenses(),
@@ -212,6 +214,30 @@ export function AppDataProvider({ children }) {
       reason: l.reason, status: l.status, remark: l.remark || "",
       ts: new Date(l.created_at).getTime(),
     })));
+  }
+
+  async function loadAttendanceOverrides() {
+    try {
+      const { data } = await supabase.from("attendance_overrides").select("*");
+      if (data) setAttendanceOverrides(data.map((r) => ({
+        id: r.id, empId: r.emp_id, date: r.date, status: r.status,
+        remark: r.remark || "", prevStatus: r.prev_status || "", updatedBy: r.updated_by || "",
+        updatedAt: r.updated_at || r.created_at,
+      })));
+    } catch (e) { /* table may not be migrated yet */ }
+  }
+
+  // Admin sets/updates an attendance status for one employee + date (one row per emp+date).
+  async function saveAttendanceOverride({ empId, date, status, remark, prevStatus, updatedBy }) {
+    try {
+      const row = { emp_id: empId, date, status, remark: remark || null, prev_status: prevStatus || null, updated_by: updatedBy || "Admin", updated_at: new Date().toISOString() };
+      const { data, error } = await supabase.from("attendance_overrides").upsert(row, { onConflict: "emp_id,date" }).select("*").single();
+      if (error || !data) { showToast("Could not save attendance." + (error ? " " + error.message : ""), "error"); return false; }
+      const rec = { id: data.id, empId: data.emp_id, date: data.date, status: data.status, remark: data.remark || "", prevStatus: data.prev_status || "", updatedBy: data.updated_by || "", updatedAt: data.updated_at };
+      setAttendanceOverrides((prev) => { const i = prev.findIndex((x) => x.empId === rec.empId && x.date === rec.date); if (i === -1) return [rec, ...prev]; const c = prev.slice(); c[i] = rec; return c; });
+      showToast("Attendance updated.", "success");
+      return true;
+    } catch (e) { showToast("Could not save attendance.", "error"); return false; }
   }
 
   async function loadSalaries() {
@@ -548,14 +574,32 @@ export function AppDataProvider({ children }) {
     showToast("Revision requested — the designer will see it.", "success");
     return true;
   }
+  // Upload an inline screenshot/image for a project message. Returns a public URL (or "").
+  async function uploadMessageImage(projectId, file) {
+    try {
+      if (!file) return "";
+      const safe = (file.name || "screenshot").replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `messages/${projectId}/${Date.now()}-${safe}`;
+      const { error } = await supabase.storage.from("design-files").upload(path, file, { upsert: false });
+      if (error) { showToast("Screenshot upload failed: " + error.message, "error"); return ""; }
+      return supabase.storage.from("design-files").getPublicUrl(path).data.publicUrl || "";
+    } catch (e) { showToast("Screenshot upload error.", "error"); return ""; }
+  }
+
   // Project conversation (ticket-style). Stored as design_activity type "message"
   // so it lives with the project forever and is never overwritten.
-  async function addProjectComment(projectId, actorRole, actorName, text) {
-    if (!text || !text.trim()) return false;
-    await addActivity(projectId, "message", actorRole, actorName, text.trim(), "");
+  // Optional screenshots (one or many URLs) are stored in `meta` as a JSON array
+  // (a bare URL string is still accepted for backward compatibility) and rendered inline.
+  async function addProjectComment(projectId, actorRole, actorName, text, images = []) {
+    const body = (text || "").trim();
+    const urls = Array.isArray(images) ? images.filter(Boolean) : (images ? [images] : []);
+    if (!body && urls.length === 0) return false;
+    const meta = urls.length ? JSON.stringify(urls) : "";
+    await addActivity(projectId, "message", actorRole, actorName, body, meta);
     const proj = designProjects.find((p) => p.id === projectId);
     const to = actorRole === "admin" ? "the designer" : "the admin";
-    pushNotification(`${actorName} messaged ${to} on ${proj ? proj.clientName : "a project"}: ${text.trim().slice(0, 50)}`, "review");
+    const preview = body ? body.slice(0, 50) : (urls.length > 1 ? `📷 ${urls.length} screenshots` : "📷 screenshot");
+    pushNotification(`${actorName} messaged ${to} on ${proj ? proj.clientName : "a project"}: ${preview}`, "review");
     return true;
   }
 
@@ -1415,11 +1459,12 @@ export function AppDataProvider({ children }) {
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,
     messages, saveMessages, addMessage, deleteMessage, dismissMessage,
     leaves, saveLeaves, addLeave, updateLeaveStatus,
+    attendanceOverrides, saveAttendanceOverride,
     salaries, saveSalaries, bankDetails, saveBankDetails,
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,
     designProjects, addDesignProject, updateDesignProject, deleteDesignProject,
     designFiles, uploadDesignFile, deleteDesignFile,
-    designActivity, changeProjectStatus, requestRevision, addProjectComment,
+    designActivity, changeProjectStatus, requestRevision, addProjectComment, uploadMessageImage,
     logo, onLogoChange, onLogoRemove,
     adminPwd, setAdminPwd,
     adminEmail, setAdminEmail,

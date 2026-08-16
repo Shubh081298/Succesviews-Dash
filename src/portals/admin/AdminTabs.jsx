@@ -1048,14 +1048,20 @@ export function DepartmentsTab({ departments, employees, submissions, newDept, s
 /* ───────────────────────────────────────────────────────────────
  * LeaveBoardTab — approve/reject with mandatory remark + history.
  * ──────────────────────────────────────────────────────────────*/
-export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode = false, submissions = [] }) {
+export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode = false, submissions = [], attendanceOverrides = [], saveAttendanceOverride }) {
   const [remarks, setRemarks] = useState({});
   const [pendingRemark, setPendingRemark] = useState({}); // id -> "Approved"|"Rejected" awaiting confirm
   const [errorId, setErrorId] = useState(null);
   const [confirm, setConfirm] = useState(null); // { leave, status, remark }
   const [histSearch, setHistSearch] = useState("");
   const [histFilter, setHistFilter] = useState("All");
-  const [histPeriod, setHistPeriod] = useState("Today"); // Today | Month | Year
+  const [histPeriod, setHistPeriod] = useState("Month"); // Month | Year
+  // Employee attendance overview + detail
+  const [calDetail, setCalDetail] = useState(null); // empId whose detail modal is open
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [attEdit, setAttEdit] = useState(null); // { empId, date, status, remark, prevStatus }
+  const [attSaving, setAttSaving] = useState(false);
+  const overrideMap = Object.fromEntries((attendanceOverrides || []).map((o) => [`${o.empId}|${o.date}`, o]));
   // Self-marked attendance from the DSR (Absent / Half Day) — all departments
   const [attSearch, setAttSearch] = useState("");
   const [attType, setAttType] = useState("All"); // All | Absent | Half Day
@@ -1083,6 +1089,14 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
     setLeaveStatus(confirm.leave.id, confirm.status, confirm.remark);
     setRemarks((prev) => ({ ...prev, [confirm.leave.id]: "" }));
     setConfirm(null);
+  };
+  const ATT_STATUSES = ["Present", "Half Day", "Leave", "Absent", "Holiday"];
+  const doSaveAtt = async () => {
+    if (!saveAttendanceOverride || !attEdit) return;
+    setAttSaving(true);
+    const ok = await saveAttendanceOverride({ empId: attEdit.empId, date: attEdit.date, status: attEdit.status, remark: attEdit.remark, prevStatus: attEdit.prevStatus, updatedBy: "Admin" });
+    setAttSaving(false);
+    if (ok) setAttEdit(null);
   };
 
   const StatCard = ({ icon, label, value, color }) => (
@@ -1116,7 +1130,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
   };
 
   const nowIso = new Date().toISOString();
-  const periodPrefix = histPeriod === "Today" ? nowIso.slice(0, 10) : histPeriod === "Month" ? nowIso.slice(0, 7) : nowIso.slice(0, 4);
+  const periodPrefix = histPeriod === "Month" ? nowIso.slice(0, 7) : nowIso.slice(0, 4);
   const histFiltered = decided.filter((l) => {
     if (histFilter !== "All" && l.status !== histFilter) return false;
     if (!String(l.fromDate || "").startsWith(periodPrefix)) return false;
@@ -1136,6 +1150,167 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
         <StatCard icon={<Palmtree size={18} />} label="Total requests" value={leaves.length} color="#3B82F6" />
       </div>
 
+      {/* ── Compact Multi-Employee Attendance Overview ── */}
+      {(() => {
+        const y = calMonth.getFullYear(), m = calMonth.getMonth();
+        const monthLabel = calMonth.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+        const pad = (n) => String(n).padStart(2, "0");
+        const keyOf = (day) => `${y}-${pad(m + 1)}-${pad(day)}`;
+        const daysInMonth = new Date(y, m + 1, 0).getDate();
+        const dowOf = (day) => new Date(y, m, day).getDay();
+        const todayKey = new Date().toISOString().slice(0, 10);
+        const STc = {
+          present: { bg: "#DCFCE7", bd: "#86EFAC", fg: "#15803D", label: "Present" },
+          leave: { bg: "#FEE2E2", bd: "#FCA5A5", fg: "#B91C1C", label: "Leave" },
+          absent: { bg: "#E2E8F0", bd: "#94A3B8", fg: "#334155", label: "Absent" },
+          half: { bg: "#FEF3C7", bd: "#FDE68A", fg: "#B45309", label: "Half Day" },
+          holiday: { bg: "#EDE9FE", bd: "#C4B5FD", fg: "#6D28D9", label: "Holiday" },
+          weekend: { bg: "#F1F5F9", bd: "#E2E8F0", fg: "#94A3B8", label: "Weekend" },
+          none: { bg: "#fff", bd: "#EEF2F7", fg: "#CBD5E1", label: "No data" },
+        };
+        const ovKey = (s) => ({ "Present": "present", "Present — Full Day": "present", "Present — Half Day": "half", "Half Day": "half", "Leave": "leave", "Absent": "absent", "Holiday": "holiday" }[s] || "present");
+        // Precompute approved-leave dates per employee, and DSR submissions by emp+date.
+        const leavesByEmp = {};
+        (leaves || []).filter((l) => l.status === "Approved").forEach((l) => {
+          try { let d = new Date((l.fromDate) + "T00:00:00"); const end = new Date((l.toDate || l.fromDate) + "T00:00:00"); let g = 0;
+            while (d <= end && g < 400) { const k = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; (leavesByEmp[l.empId] = leavesByEmp[l.empId] || new Set()).add(k); d.setDate(d.getDate() + 1); g++; } } catch (e) { /* ignore */ }
+        });
+        const subMap = {};
+        (submissions || []).forEach((s) => { subMap[`${s.empId}|${s.date}`] = s; });
+        const statusOf = (empId, day) => {
+          const key = keyOf(day); const dow = dowOf(day);
+          const ov = overrideMap[`${empId}|${key}`];
+          if (ov) return ovKey(ov.status); // admin override wins over everything
+          if (leavesByEmp[empId] && leavesByEmp[empId].has(key)) return "leave";
+          const s = subMap[`${empId}|${key}`];
+          if (s) { if (s.attendance === "Absent") return "absent"; if (s.attendance === "Half Day") return "half"; return "present"; }
+          if (dow === 0 || dow === 6) return "weekend";
+          return "none";
+        };
+        let workingDays = 0; for (let d = 1; d <= daysInMonth; d++) { const dw = dowOf(d); if (dw !== 0 && dw !== 6) workingDays++; }
+        let totLeave = 0, totAbsent = 0;
+        employees.forEach((e) => { for (let d = 1; d <= daysInMonth; d++) { const st = statusOf(e.id, d); if (st === "leave") totLeave++; else if (st === "absent") totAbsent++; } });
+        const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+        const NAMEW = 170, COLW = 24, ROWH = 40;
+        const totalW = NAMEW + daysInMonth * COLW;
+        const initials = (n) => (n || "?").split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+        const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+        const legendItem = (k) => (<span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "#475569" }}><span style={{ width: 11, height: 11, borderRadius: 4, background: STc[k].bg, border: `1px solid ${STc[k].bd}` }} />{STc[k].label}</span>);
+        const stickyName = { position: "sticky", left: 0, zIndex: 2, background: "#fff" };
+        return (
+          <div className="sv-card">
+            <div className="sv-flex sv-items-center sv-gap-2" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
+              <div className="sv-flex sv-items-center sv-gap-2" style={{ minWidth: 0 }}>
+                <span className="sv-mod-icon" style={{ background: "rgba(37,99,235,.12)", color: "#2563EB" }}><CalendarDays size={16} /></span>
+                <div style={{ minWidth: 0 }}>
+                  <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>Attendance</p>
+                  <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>{employees.length} employees · {workingDays} working days · {totLeave} leaves{totAbsent ? ` · ${totAbsent} absent` : ""}</p>
+                </div>
+              </div>
+              <div className="sv-flex sv-items-center" style={{ gap: 4, border: "1px solid #E9EEF4", borderRadius: 10, padding: 3 }}>
+                <button className="sv-icon-btn" onClick={() => setCalMonth(new Date(y, m - 1, 1))} title="Previous month">‹</button>
+                <span style={{ fontWeight: 800, color: "#162B55", fontSize: 13, minWidth: 120, textAlign: "center" }}>{monthLabel}</span>
+                <button className="sv-icon-btn" onClick={() => setCalMonth(new Date(y, m + 1, 1))} title="Next month">›</button>
+                <button className="sv-btn sv-btn--sm sv-btn--ghost" style={{ marginLeft: 4 }} onClick={() => { const d = new Date(); setCalMonth(new Date(d.getFullYear(), d.getMonth(), 1)); }}>Today</button>
+              </div>
+            </div>
+
+            {employees.length === 0 ? (
+              <div className="sv-leave-empty"><Inbox size={26} /><span>No employees to show.</span></div>
+            ) : (
+              <div style={{ overflowX: "auto", border: "1px solid #EEF2F7", borderRadius: 12 }}>
+                <div style={{ width: totalW, minWidth: "100%" }}>
+                  {/* header row: date numbers */}
+                  <div style={{ display: "grid", gridTemplateColumns: `${NAMEW}px repeat(${daysInMonth}, ${COLW}px)`, borderBottom: "1px solid #EEF2F7", background: "#F8FAFC" }}>
+                    <div style={{ ...stickyName, background: "#F8FAFC", padding: "8px 12px", fontSize: 11, fontWeight: 800, color: "#64748B", textTransform: "uppercase", letterSpacing: .3 }}>Employee</div>
+                    {days.map((d) => { const dw = dowOf(d); const wknd = dw === 0 || dw === 6; return (
+                      <div key={d} title={new Date(y, m, d).toLocaleDateString("en-IN", { weekday: "long" })} style={{ textAlign: "center", padding: "4px 0", color: wknd ? "#CBD5E1" : "#94A3B8" }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 700 }}>{d}</div>
+                        <div style={{ fontSize: 8.5, fontWeight: 700 }}>{DOW[dw]}</div>
+                      </div>
+                    ); })}
+                  </div>
+                  {/* body: max 5 rows visible, rest scroll */}
+                  <div style={{ maxHeight: ROWH * 5, overflowY: "auto" }}>
+                    {employees.map((e, ri) => (
+                      <div key={e.id} onClick={() => setCalDetail(e.id)} title="Open detailed calendar"
+                        style={{ display: "grid", gridTemplateColumns: `${NAMEW}px repeat(${daysInMonth}, ${COLW}px)`, alignItems: "center", cursor: "pointer", borderTop: ri ? "1px solid #F1F5F9" : "none" }}>
+                        <div style={{ ...stickyName, display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", height: ROWH, borderRight: "1px solid #EEF2F7" }}>
+                          <span style={{ flexShrink: 0 }}><Avatar emp={e} name={e.name} idx={ri} size={26} /></span>
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: "#162B55", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 108 }}>{e.name}</span>
+                            <span style={{ display: "block", fontSize: 10.5, color: "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 108 }}>{e.department || "—"}</span>
+                          </span>
+                        </div>
+                        {days.map((d) => { const st = statusOf(e.id, d); const c = STc[st]; const wknd = st === "weekend"; const isToday = keyOf(d) === todayKey; const dot = st !== "none" && st !== "weekend";
+                          return (
+                            <div key={d} title={`${e.name} · ${monthLabel.split(" ")[0]} ${d} · ${c.label}`} style={{ height: ROWH, display: "flex", alignItems: "center", justifyContent: "center", background: wknd ? "#F8FAFC" : (isToday ? "#EFF6FF" : "transparent") }}>
+                              <span style={{ width: 13, height: 13, borderRadius: 5, background: dot ? c.bg : "transparent", border: dot ? `1px solid ${c.bd}` : (wknd ? "none" : "1px dashed #E2E8F0") }} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="sv-flex sv-items-center" style={{ gap: 14, flexWrap: "wrap", marginTop: 10 }}>
+              {legendItem("present")}{legendItem("leave")}{legendItem("absent")}{legendItem("half")}{legendItem("holiday")}{legendItem("weekend")}
+              {employees.length > 5 && <span style={{ marginLeft: "auto", fontSize: 11.5, color: "#94A3B8" }}>Scroll for all {employees.length} employees · click a row for details</span>}
+            </div>
+
+            {/* ── Employee detail modal ── */}
+            {calDetail && (() => {
+              const emp = empById[calDetail];
+              const firstDow = new Date(y, m, 1).getDay();
+              const cells = []; for (let i = 0; i < firstDow; i++) cells.push(null); for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+              let cP = 0, cL = 0, cA = 0, cH = 0;
+              for (let d = 1; d <= daysInMonth; d++) { const st = statusOf(calDetail, d); if (st === "present") cP++; else if (st === "leave") cL++; else if (st === "absent") cA++; else if (st === "half") cH++; }
+              return (
+                <div className="sv-modal-overlay" onClick={() => setCalDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
+                  <div className="sv-modal" style={{ maxWidth: 560, width: "100%", background: "#fff", borderRadius: 16, overflow: "hidden" }} onClick={(ev) => ev.stopPropagation()}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid #F1F5F9" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <Avatar emp={emp} name={emp?.name} idx={0} size={34} />
+                        <div><div style={{ fontWeight: 800, color: "#162B55", fontSize: 15 }}>{emp?.name || "Employee"}</div><div style={{ fontSize: 12, color: "#94A3B8" }}>{emp?.department || "—"} · {monthLabel}</div></div>
+                      </div>
+                      <button onClick={() => setCalDetail(null)} style={{ border: "none", background: "transparent", fontSize: 22, cursor: "pointer", color: "#64748B", lineHeight: 1 }}>×</button>
+                    </div>
+                    <div style={{ padding: "14px 18px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 5 }}>
+                        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => <div key={w} style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase" }}>{w}</div>)}
+                        {cells.map((day, i) => {
+                          if (day == null) return <div key={`b${i}`} />;
+                          const st = statusOf(calDetail, day); const c = STc[st]; const isToday = keyOf(day) === todayKey; const show = st !== "none" && st !== "weekend";
+                          const ov = overrideMap[`${calDetail}|${keyOf(day)}`];
+                          return (
+                            <div key={day} title={`${c.label} — click to edit`} onClick={() => setAttEdit({ empId: calDetail, date: keyOf(day), status: STc[st].label === "No data" || STc[st].label === "Weekend" ? "Present" : STc[st].label, remark: (ov && ov.remark) || "", prevStatus: c.label })}
+                              style={{ minHeight: 46, borderRadius: 9, background: st === "weekend" ? "#F8FAFC" : (show ? c.bg : "#fff"), border: `1px solid ${isToday ? "#2563EB" : (show ? c.bd : "#EEF2F7")}`, padding: "5px 7px", display: "flex", flexDirection: "column", justifyContent: "space-between", cursor: "pointer", position: "relative" }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: show ? c.fg : "#64748B" }}>{day}</span>
+                              {show && <span style={{ fontSize: 8.5, fontWeight: 800, color: c.fg, textTransform: "uppercase" }}>{c.label}</span>}
+                              {ov && <span title="Admin edited" style={{ position: "absolute", top: 3, right: 4, width: 5, height: 5, borderRadius: "50%", background: "#2563EB" }} />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 12, fontSize: 12.5, fontWeight: 600, alignItems: "center" }}>
+                        <span style={{ color: "#15803D" }}>{cP} Present</span>
+                        <span style={{ color: "#B91C1C" }}>{cL} Leave</span>
+                        {cH > 0 && <span style={{ color: "#B45309" }}>{cH} Half Day</span>}
+                        {cA > 0 && <span style={{ color: "#334155" }}>{cA} Absent</span>}
+                        <span style={{ marginLeft: "auto", fontSize: 11, color: "#94A3B8", fontWeight: 500 }}>Click any day to edit</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        );
+      })()}
+
+      {pending.length > 0 && (
       <div className="sv-card">
         <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 4 }}>
           <span className="sv-mod-icon" style={{ background: "rgba(245,158,11,.14)", color: "#D97706" }}><Clock size={16} /></span>
@@ -1145,9 +1320,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
           </div>
         </div>
 
-        {pending.length === 0 ? (
-          <div className="sv-leave-empty"><Inbox size={26} /><span>No pending leave requests.</span></div>
-        ) : (
+        {(
           <div className="sv-leave-pending-list">
             {pending.map((l) => (
               <div key={l.id} className="sv-leave-req">
@@ -1171,6 +1344,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
           </div>
         )}
       </div>
+      )}
 
       <div className="sv-card">
         <div className="sv-leave-hist-head">
@@ -1187,7 +1361,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
               <input placeholder="Search name, reason…" value={histSearch} onChange={(e) => setHistSearch(e.target.value)} />
             </div>
             <div className="sv-seg">
-              {["Today", "Month", "Year"].map((p) => (
+              {["Month", "Year"].map((p) => (
                 <button key={p} className={`sv-seg-btn${histPeriod === p ? " sv-seg-btn--on" : ""}`} onClick={() => setHistPeriod(p)}>{p}</button>
               ))}
             </div>
@@ -1267,6 +1441,40 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
                 })}
               </div>
             )}
+          </div>
+        );
+      })()}
+
+      {/* ── Admin attendance edit ── */}
+      {attEdit && (() => {
+        const emp = empById[attEdit.empId]; const existing = overrideMap[`${attEdit.empId}|${attEdit.date}`];
+        return (
+          <div className="sv-modal-overlay" onClick={() => setAttEdit(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10001, padding: 16 }}>
+            <div className="sv-modal" style={{ maxWidth: 400, width: "100%", background: "#fff", borderRadius: 16, overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid #F1F5F9" }}>
+                <div><div style={{ fontWeight: 800, color: "#162B55", fontSize: 15 }}>Attendance — {emp?.name || "Employee"}</div><div style={{ fontSize: 12, color: "#94A3B8" }}>{fmtDate(attEdit.date)}</div></div>
+                <button onClick={() => setAttEdit(null)} style={{ border: "none", background: "transparent", fontSize: 22, cursor: "pointer", color: "#64748B", lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ padding: "16px 18px", display: "grid", gap: 12 }}>
+                <label style={lblS}>Status
+                  <select className="sv-select" value={attEdit.status} onChange={(e) => setAttEdit({ ...attEdit, status: e.target.value })}>{ATT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+                </label>
+                <label style={lblS}>Remark / Reason
+                  <textarea className="sv-input" rows={2} value={attEdit.remark} onChange={(e) => setAttEdit({ ...attEdit, remark: e.target.value })} placeholder="e.g. Worked until 1:00 PM · manually corrected by Admin" style={{ resize: "vertical" }} />
+                </label>
+                <div style={{ fontSize: 11.5, color: "#94A3B8", background: "#F8FAFC", borderRadius: 8, padding: "8px 10px" }}>
+                  Previous status: <b style={{ color: "#475569" }}>{attEdit.prevStatus}</b>
+                  {existing && <><br />Last edited by {existing.updatedBy || "Admin"} · {existing.updatedAt ? new Date(existing.updatedAt).toLocaleString() : ""}</>}
+                </div>
+              </div>
+              <div className="sv-flex sv-justify-between" style={{ padding: "12px 18px", borderTop: "1px solid #F1F5F9", alignItems: "center" }}>
+                <span className="sv-text-muted" style={{ fontSize: 11 }}>Admin override · reflects everywhere</span>
+                <div className="sv-flex sv-gap-sm">
+                  <button className="sv-btn sv-btn--ghost" onClick={() => setAttEdit(null)}>Cancel</button>
+                  <button className="sv-btn sv-btn--primary" onClick={doSaveAtt} disabled={attSaving}>{attSaving ? "Saving…" : "Save Changes"}</button>
+                </div>
+              </div>
+            </div>
           </div>
         );
       })()}
@@ -2599,7 +2807,10 @@ const designPriorityStyle = (p) => ({
   "Low": { bg: "#DCFCE7", fg: "#15803D" },
 }[p] || { bg: "#F1F5F9", fg: "#475569" });
 
-export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision, designWork = [], saveDesignWork, pushNotification, captureExpense, designArchive = [], saveDesignArchive, addProjectComment, designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {} }, releaseDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink }) {
+// Message screenshots: stored in activity.meta as a JSON array of URLs (or a bare URL for old rows).
+const parseMsgImgs = (meta) => { const mm = meta || ""; if (!mm) return []; if (mm[0] === "[") { try { return (JSON.parse(mm) || []).filter(Boolean); } catch (e) { return []; } } return /^https?:\/\//.test(mm) ? [mm] : []; };
+
+export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision, designWork = [], saveDesignWork, pushNotification, captureExpense, designArchive = [], saveDesignArchive, addProjectComment, uploadMessageImage, designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {} }, releaseDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink }) {
   const [search, setSearch] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [fPriority, setFPriority] = useState("");
@@ -2618,6 +2829,11 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
   const [openKeys, setOpenKeys] = useState(() => new Set());
   const [fmSearch, setFmSearch] = useState("");
   const [convoText, setConvoText] = useState("");
+  const [convoImgs, setConvoImgs] = useState([]);   // pending screenshots (multiple)
+  const [convoSending, setConvoSending] = useState(false);
+  const addConvoFiles = (files) => { const imgs = [...(files || [])].filter((f) => f && f.type && f.type.startsWith("image/")); if (imgs.length) setConvoImgs((p) => [...p, ...imgs]); };
+  const onConvoPaste = (e) => { const items = (e.clipboardData && e.clipboardData.items) || []; const files = []; for (const it of items) { if (it.kind === "file") { const f = it.getAsFile(); if (f && f.type.startsWith("image/")) files.push(f); } } if (files.length) { e.preventDefault(); addConvoFiles(files); } };
+  const removeConvoImg = (i) => setConvoImgs((p) => p.filter((_, idx) => idx !== i));
   const ask = (message, onYes, onNo) => setFlowAsk({ message, onYes, onNo });
   const [form, setForm] = useState(null);
   const [isNew, setIsNew] = useState(false);
@@ -2693,6 +2909,15 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
   const stepMeta = (pid) => { const m = {}; (designActivity || []).filter((a) => a.projectId === pid).slice().sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt))).forEach((a) => { const k = a.type === "created" ? "Draft" : (a.type === "status" ? stepOf(a.meta) : null); if (k) m[k] = { actor: a.actorName, time: a.createdAt ? new Date(a.createdAt).toLocaleString() : "" }; }); return m; };
   const advance = async (p, stage) => { releaseDesign && await releaseDesign(p.id, "admin"); await changeProjectStatus(p, stage, "admin", "Admin"); pushNotification && pushNotification(`${p.clientName}: workflow → ${stage}`); setDetail((d) => (d ? { ...d, status: stage } : d)); };
   const sendBack = async (p, stage) => { const note = revComment.trim(); if (!note) return; await addProjectComment(p.id, "admin", "Admin", "🔄 Changes requested: " + note); await changeProjectStatus(p, stage, "admin", "Admin"); pushNotification && pushNotification(`Changes requested on ${p.clientName} — sent to the designer.`, "rejected"); setRevComment(""); setDetail((d) => (d ? { ...d, status: stage } : d)); };
+  const sendConvo = async () => {
+    if ((!convoText.trim() && convoImgs.length === 0) || !detail) return;
+    setConvoSending(true);
+    const urls = [];
+    for (const f of convoImgs) { if (uploadMessageImage) { const u = await uploadMessageImage(detail.id, f); if (u) urls.push(u); } }
+    const ok = await addProjectComment(detail.id, "admin", "Admin", convoText, urls);
+    setConvoSending(false);
+    if (ok !== false) { setConvoText(""); setConvoImgs([]); }
+  };
   const doDelete = async () => { const id = confirmDel.id; setConfirmDel(null); setDetail(null); await deleteDesignProject(id); };
   const doArchive = () => {
     if (!archiveAsk) return;
@@ -2885,7 +3110,9 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
       })()}
 
       {view === "final" && (() => {
-        const KINDS = [["draft", "Drafts"], ["reference", "Client Attachments"], ["images", "Client Images"], ["sample", "Samples"], ["cp", "Cover Page"], ["cs", "Cover Story"], ["index", "Index Page"], ["magazine", "Magazine"], ["revised", "Revised"], ["final", "Final Files"]];
+        // Only the three deliverable groups the admin cares about here.
+        const FINAL_GROUPS = [["Draft", ["draft"]], ["Final CP/CS", ["cp", "cs"]], ["Final Magazine", ["magazine"]]];
+        const FINAL_KINDS = FINAL_GROUPS.flatMap(([, ks]) => ks);
         const toggle = (k) => setOpenKeys((prev) => { const n = new Set(prev); n.has(k) ? n.delete(k) : n.add(k); return n; });
         const q = fmSearch.trim().toLowerCase();
         const live = designProjects.filter((p) => !archivedIds.has(p.id));
@@ -2907,20 +3134,20 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
             {clients.length === 0 ? <div className="sv-leave-empty"><FileText size={26} /><span>No files yet.</span></div> : clients.map((c) => {
               const cProjects = live.filter((p) => p.clientName === c && (!q || c.toLowerCase().includes(q) || `${p.magazineName} ${p.companyName}`.toLowerCase().includes(q)));
               const ck = `c:${c}`; const cOpen = openKeys.has(ck);
-              const cFiles = designFiles.filter((fx) => cProjects.some((p) => p.id === fx.projectId)).length;
+              const cFiles = designFiles.filter((fx) => cProjects.some((p) => p.id === fx.projectId) && FINAL_KINDS.includes(fx.kind)).length;
               return (
                 <div key={c} className="sv-fm-client">
                   <button className="sv-fm-folder" onClick={() => toggle(ck)}><span className={`sv-fm-caret${cOpen ? " open" : ""}`}>▸</span>📁 <b>{c}</b><span className="sv-fm-count">{cProjects.length} project{cProjects.length !== 1 ? "s" : ""} · {cFiles} file{cFiles !== 1 ? "s" : ""}</span></button>
                   {cOpen && cProjects.map((p) => {
                     const pk = `p:${p.id}`; const pOpen = openKeys.has(pk);
-                    const pFiles = designFiles.filter((fx) => fx.projectId === p.id);
+                    const pFiles = designFiles.filter((fx) => fx.projectId === p.id && FINAL_KINDS.includes(fx.kind));
                     return (
                       <div key={p.id} className="sv-fm-project">
                         <button className="sv-fm-folder sv-fm-folder--sub" onClick={() => toggle(pk)}><span className={`sv-fm-caret${pOpen ? " open" : ""}`}>▸</span>📂 {p.magazineName || "Untitled"}{p.companyName ? ` · ${p.companyName}` : ""}<span className="sv-fm-count">{pFiles.length} file{pFiles.length !== 1 ? "s" : ""}</span></button>
-                        {pOpen && (pFiles.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12, margin: "4px 0 8px 26px" }}>No files uploaded.</p> : KINDS.map(([kind, label]) => {
-                          const fs = pFiles.filter((fx) => fx.kind === kind).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                        {pOpen && (pFiles.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12, margin: "4px 0 8px 26px" }}>No Draft, Final CP/CS or Final Magazine files yet.</p> : FINAL_GROUPS.map(([label, kinds]) => {
+                          const fs = pFiles.filter((fx) => kinds.includes(fx.kind)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
                           if (!fs.length) return null;
-                          return <div key={kind} className="sv-fm-kind"><div className="sv-fm-kind-label">{label} ({fs.length})</div>{fs.map(dl)}</div>;
+                          return <div key={label} className="sv-fm-kind"><div className="sv-fm-kind-label">{label} ({fs.length})</div>{fs.map(dl)}</div>;
                         }))}
                       </div>
                     );
@@ -3135,16 +3362,20 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                       <div className="sv-convo">
                         {thread.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12.5, margin: "6px 0" }}>No messages yet. Start the conversation with the designer.</p> : (
                           <div className="sv-convo-thread">
-                            {thread.map((m) => { const isChange = /changes requested/i.test(m.comment || ""); return (
+                            {thread.map((m) => { const isChange = /changes requested/i.test(m.comment || ""); const imgs = parseMsgImgs(m.meta); return (
                               <div key={m.id} className={`sv-convo-row sv-convo-row--${m.actorRole === "admin" ? "me" : "them"}`}>
-                                <div className={`sv-convo-bubble${isChange ? " sv-convo-bubble--change" : ""}`}>{isChange && <span className="sv-convo-tag"><AlertTriangle size={12} /> Change requested</span>}<div className="sv-convo-text">{(m.comment || "").replace(/^🔄\s*Changes requested:\s*/i, "")}</div><div className="sv-convo-meta">{m.actorName} · {m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}</div></div>
+                                <div className={`sv-convo-bubble${isChange ? " sv-convo-bubble--change" : ""}`}>{isChange && <span className="sv-convo-tag"><AlertTriangle size={12} /> Change requested</span>}{(m.comment || "") && <div className="sv-convo-text">{(m.comment || "").replace(/^🔄\s*Changes requested:\s*/i, "")}</div>}{imgs.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>{imgs.map((u, i) => <a key={i} href={u} target="_blank" rel="noreferrer"><img src={u} alt="screenshot" style={{ maxWidth: imgs.length > 1 ? 150 : "100%", maxHeight: 220, borderRadius: 8, display: "block", border: "1px solid #e2e8f0" }} /></a>)}</div>}<div className="sv-convo-meta">{m.actorName} · {m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}</div></div>
                               </div>
                             ); })}
                           </div>
                         )}
                         <div className="sv-convo-compose">
-                          <textarea className="sv-input" rows={2} value={convoText} onChange={(e) => setConvoText(e.target.value)} placeholder="Message the designer…" style={{ resize: "vertical" }} />
-                          <button className="sv-btn sv-btn--primary" disabled={!convoText.trim()} onClick={async () => { const ok = await addProjectComment(detail.id, "admin", "Admin", convoText); if (ok !== false) setConvoText(""); }}>Send</button>
+                          <textarea className="sv-input" rows={2} value={convoText} onChange={(e) => setConvoText(e.target.value)} onPaste={onConvoPaste} placeholder="Message the designer…  (paste a screenshot with Ctrl+V)" style={{ resize: "vertical" }} />
+                          {convoImgs.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "8px 0" }}>{convoImgs.map((f, i) => <span key={i} style={{ position: "relative", display: "inline-block" }}><img src={URL.createObjectURL(f)} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 6, border: "1px solid #e2e8f0" }} /><button onClick={() => removeConvoImg(i)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: 999, border: "none", background: "#EF4444", color: "#fff", fontSize: 12, lineHeight: "18px", cursor: "pointer" }}>×</button></span>)}</div>}
+                          <div className="sv-flex sv-gap-2" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                            <label className="sv-btn sv-btn--sm sv-btn--ghost" style={{ cursor: "pointer" }}>📎 Screenshot<input type="file" accept="image/*" multiple hidden onChange={(e) => { addConvoFiles(e.target.files); e.target.value = ""; }} /></label>
+                            <button className="sv-btn sv-btn--primary" style={{ marginLeft: "auto" }} disabled={convoSending || (!convoText.trim() && convoImgs.length === 0)} onClick={sendConvo}>{convoSending ? "Sending…" : "Send"}</button>
+                          </div>
                         </div>
                       </div>
                     );

@@ -291,16 +291,17 @@ export default function DesignerDashboard({
                   return (
                     <div key={p.id} className="sv-dsn-card" onClick={() => setOpenId(p.id)} style={{ borderLeft: `4px solid ${brandStyle(p.companyName).solid}` }}>
                       <div className="sv-dsn-card-top">
-                        <div style={{ minWidth: 0 }}><div className="sv-dsn-client">{p.clientName}</div>{p.companyName ? <span className="sv-domain-chip" style={{ background: brandStyle(p.companyName).bg, color: brandStyle(p.companyName).fg }}>{brandFor(p.companyName) && brandFor(p.companyName).logo ? <img src={brandFor(p.companyName).logo} alt="" style={{ height: 12, marginRight: 2, borderRadius: 2 }} /> : <span className="sv-domain-dot" style={{ background: brandStyle(p.companyName).solid }} />}{p.companyName}</span> : <div className="sv-dsn-sub">—</div>}</div>
+                        <div style={{ minWidth: 0 }}><div className="sv-dsn-client">{p.clientName}</div>{p.companyName ? <span className="sv-domain-chip" style={{ background: brandStyle(p.companyName).bg, color: brandStyle(p.companyName).fg }}><span className="sv-domain-dot" style={{ background: brandStyle(p.companyName).solid }} />{p.companyName}</span> : <div className="sv-dsn-sub">—</div>}</div>
                         {dzBadge(p.priority, dzStatusStyle(p.priority))}
                       </div>
                       <div className="sv-dsn-mag">{p.magazineName || "Untitled magazine"}{p.edition ? ` · ${p.edition}` : ""}</div>
                       <div className="sv-dsn-stage-row">{dzBadge(p.status, st)}<span className="sv-dsn-pct">{pct}%</span></div>
-                      <div className="sv-dsn-prog"><span style={{ width: `${pct}%`, background: st.fg }} /></div>
-                      <div className="sv-dsn-meta">
+                      <div className="sv-dsn-prog"><span style={{ width: `${pct}%`, background: brandStyle(p.companyName).solid }} /></div>
+                      <div className="sv-dsn-meta" style={{ alignItems: "center" }}>
                         <span>📅 {p.dueDate ? fmtDate(p.dueDate) : "No due date"}</span>
                         <span>📎 {files} upload{files !== 1 ? "s" : ""}</span>
                         {rev && <span className="sv-dsn-over">● Revision</span>}
+                        {brandFor(p.companyName) && brandFor(p.companyName).logo && <img src={brandFor(p.companyName).logo} alt={p.companyName} title={p.companyName} style={{ marginLeft: "auto", maxHeight: 22, maxWidth: 74, objectFit: "contain" }} />}
                       </div>
                       <div className="sv-dsn-actions"><button className="sv-chip-btn sv-chip-btn--violet" onClick={(e) => { e.stopPropagation(); setOpenId(p.id); }}>Open project</button></div>
                     </div>
@@ -315,14 +316,18 @@ export default function DesignerDashboard({
         {tab === "designs" && project && (
           <div className="sv-tab">
             <button className="sv-btn sv-btn--ghost" onClick={() => setOpenId(null)} style={{ marginBottom: 4 }}><ArrowLeft size={15} /> Back to projects</button>
-            <h2 className="sv-tab-title">{project.clientName}</h2>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <h2 className="sv-tab-title" style={{ margin: 0 }}>{project.clientName}</h2>
+              {project.companyName && <span className="sv-domain-chip" style={{ background: brandStyle(project.companyName).bg, color: brandStyle(project.companyName).fg }}><span className="sv-domain-dot" style={{ background: brandStyle(project.companyName).solid }} />{project.companyName}</span>}
+              {brandFor(project.companyName) && brandFor(project.companyName).logo && <img src={brandFor(project.companyName).logo} alt={project.companyName} title={project.companyName} style={{ marginLeft: "auto", maxHeight: 36, maxWidth: 110, objectFit: "contain" }} />}
+            </div>
 
-            <div className="sv-card">
+            <div className="sv-card" style={project.companyName ? { borderTop: `3px solid ${brandStyle(project.companyName).solid}` } : undefined}>
               <div className="sv-dsn-stage-row" style={{ marginBottom: 8 }}>
                 <span className="sv-text-navy sv-font-800" style={{ fontSize: 15 }}>{project.magazineName || "Project"}{project.edition ? ` · ${project.edition}` : ""}</span>
                 <span className="sv-dsn-pct">{dzProgress(project.status)}%</span>
               </div>
-              <div className="sv-dsn-prog" style={{ marginBottom: 14 }}><span style={{ width: `${dzProgress(project.status)}%`, background: dzStatusStyle(project.status).fg }} /></div>
+              <div className="sv-dsn-prog" style={{ marginBottom: 14 }}><span style={{ width: `${dzProgress(project.status)}%`, background: brandStyle(project.companyName).solid }} /></div>
               {(() => {
                 const sc = dzStatusStyle(project.status);
                 const fc = designFiles.filter((f) => f.projectId === project.id).length;
@@ -373,6 +378,7 @@ export default function DesignerDashboard({
                       progress={pct} stageNumber={Math.min((draftSent ? 1 : ci) + 1, STEPS.length)} stageTitle={stg}
                       nextAction={isDone ? "" : `${own[0]} — ${own[1]}`}
                       statusLabel={own[0] === "You" ? "In Progress" : "Under Review"}
+                      brand={project.companyName ? brandStyle(project.companyName).solid : ""}
                     />
                   </>);
                 })()}

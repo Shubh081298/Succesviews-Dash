@@ -3266,7 +3266,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                   <div className="sv-dsn-card-top">
                     <div style={{ minWidth: 0 }}>
                       <div className="sv-dsn-client">{p.clientName}</div>
-                      {p.companyName ? <span className="sv-domain-chip" style={{ background: brandStyle(p.companyName).bg, color: brandStyle(p.companyName).fg }}>{brandFor(p.companyName) && brandFor(p.companyName).logo ? <img src={brandFor(p.companyName).logo} alt="" style={{ height: 12, marginRight: 2, borderRadius: 2 }} /> : <span className="sv-domain-dot" style={{ background: brandStyle(p.companyName).solid }} />}{p.companyName}</span> : <div className="sv-dsn-sub">—</div>}
+                      {p.companyName ? <span className="sv-domain-chip" style={{ background: brandStyle(p.companyName).bg, color: brandStyle(p.companyName).fg }}><span className="sv-domain-dot" style={{ background: brandStyle(p.companyName).solid }} />{p.companyName}</span> : <div className="sv-dsn-sub">—</div>}
                     </div>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                       {newCount > 0 && <span title={`${newCount} new file(s) from the designer`} style={{ fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FEF3C7", padding: "2px 8px", borderRadius: 999 }}>🆕 {newCount} new</span>}
@@ -3275,11 +3275,12 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                   </div>
                   <div className="sv-dsn-mag">{p.magazineName || "Untitled magazine"}{p.edition ? ` · ${p.edition}` : ""}</div>
                   <div className="sv-dsn-stage-row">{badge(p.status, st)}<span className="sv-dsn-pct">{pct}%</span></div>
-                  <div className="sv-dsn-prog"><span style={{ width: `${pct}%`, background: st.fg }} /></div>
-                  <div className="sv-dsn-meta">
+                  <div className="sv-dsn-prog"><span style={{ width: `${pct}%`, background: brandStyle(p.companyName).solid }} /></div>
+                  <div className="sv-dsn-meta" style={{ alignItems: "center" }}>
                     <span title="Designer">👤 {p.assignedDesignerName || "Unassigned"}</span>
                     <span className={od ? "sv-dsn-over" : ""}>📅 {p.dueDate ? fmtDate(p.dueDate) : "No due date"}{od ? " ⚠" : ""}</span>
                     <span>📎 {files} file{files !== 1 ? "s" : ""}</span>
+                    {brandFor(p.companyName) && brandFor(p.companyName).logo && <img src={brandFor(p.companyName).logo} alt={p.companyName} title={p.companyName} style={{ marginLeft: "auto", maxHeight: 22, maxWidth: 74, objectFit: "contain" }} />}
                   </div>
                   <div className="sv-dsn-actions">
                     <button className="sv-chip-btn sv-chip-btn--violet" onClick={(e) => { e.stopPropagation(); setDetail(p); }}>Open project</button>
@@ -3360,18 +3361,21 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
         );
         return (
           <div className="sv-ws">
-            <div className="sv-ws-header">
+            <div className="sv-ws-header" style={detail.companyName ? { borderTop: `3px solid ${brandStyle(detail.companyName).solid}` } : undefined}>
               <div className="sv-ws-head-left">
                 <button className="sv-ws-back" onClick={() => setDetail(null)}><ArrowLeft size={15} /> Back to Projects</button>
                 <div className="sv-ws-client">{detail.clientName}</div>
                 <div className="sv-ws-mag">{detail.magazineName || "Untitled Project"}</div>
                 <div className="sv-ws-sub">{detail.companyName || "—"}{detail.edition ? ` • ${detail.edition}` : ""}</div>
               </div>
-              <div className="sv-ws-head-meta">
-                <div className="sv-ws-hm"><span>Designer</span><b>{detail.assignedDesignerName || "Unassigned"}</b></div>
-                <div className="sv-ws-hm"><span>Stage</span><b>{stg}</b></div>
-                <div className="sv-ws-hm"><span>Progress</span><b>{pct}%</b></div>
-                <div className="sv-ws-hm"><span>Priority</span><b>{badge(detail.priority, designPriorityStyle(detail.priority))}</b></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+                <div className="sv-ws-head-meta">
+                  <div className="sv-ws-hm"><span>Designer</span><b>{detail.assignedDesignerName || "Unassigned"}</b></div>
+                  <div className="sv-ws-hm"><span>Stage</span><b>{stg}</b></div>
+                  <div className="sv-ws-hm"><span>Progress</span><b>{pct}%</b></div>
+                  <div className="sv-ws-hm"><span>Priority</span><b>{badge(detail.priority, designPriorityStyle(detail.priority))}</b></div>
+                </div>
+                {brandFor(detail.companyName) && brandFor(detail.companyName).logo && <img src={brandFor(detail.companyName).logo} alt={detail.companyName} title={detail.companyName} style={{ maxHeight: 40, maxWidth: 120, objectFit: "contain" }} />}
               </div>
             </div>
             <div className="sv-ws-actionbar">
@@ -3394,6 +3398,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                     progress={pct} stageNumber={Math.min((draftSent ? 1 : ci) + 1, STEPS.length)} stageTitle={stg}
                     nextAction={isDone ? "" : `${own[0]} — ${own[1]}`}
                     statusLabel={own[0] === "Admin" ? "Action needed" : "Waiting"}
+                    brand={detail.companyName ? brandStyle(detail.companyName).solid : ""}
                   />
                   <div className="sv-flow-actions">
                     {detail.status === "Draft" && (hasDraft

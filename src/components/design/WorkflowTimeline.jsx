@@ -18,11 +18,11 @@ const R = 19, C = 2 * Math.PI * R;
 
 export default function WorkflowTimeline({
   steps = [], currentIndex = 0, stepMeta = {}, revisionsByStage = {},
-  progress = 0, stageNumber = 1, stageTitle = "", nextAction = "", statusLabel = "",
+  progress = 0, stageNumber = 1, stageTitle = "", nextAction = "", statusLabel = "", brand = "",
 }) {
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
   return (
-    <div className="sv-wf">
+    <div className="sv-wf" style={brand ? { "--brand": brand } : undefined}>
       <div className="sv-wf-head">
         <div className="sv-wf-head-l">
           <div className="sv-wf-eyebrow">Workflow Progress</div>
@@ -32,7 +32,7 @@ export default function WorkflowTimeline({
         <div className="sv-wf-ring">
           <svg viewBox="0 0 44 44" aria-hidden="true">
             <circle className="sv-wf-ring-bg" cx="22" cy="22" r={R} />
-            <circle className="sv-wf-ring-fg" cx="22" cy="22" r={R} style={{ strokeDasharray: C, strokeDashoffset: C * (1 - pct / 100) }} />
+            <circle className="sv-wf-ring-fg" cx="22" cy="22" r={R} style={{ strokeDasharray: C, strokeDashoffset: C * (1 - pct / 100), stroke: brand || undefined }} />
           </svg>
           <div className="sv-wf-ring-txt"><b>{pct}%</b><span>Overall</span></div>
         </div>
@@ -48,7 +48,7 @@ export default function WorkflowTimeline({
           const badge = done ? "Completed" : current ? (revs.length ? "Revision" : (statusLabel || "In Progress")) : "Pending";
           const badgeCls = done ? "done" : current ? (revs.length ? "rev" : "current") : "todo";
           return (
-            <div key={st.key} className={`sv-wf-col is-${state}`} style={{ "--sc": st.color }}>
+            <div key={st.key} className={`sv-wf-col is-${state}`} style={{ "--sc": (current && brand) ? brand : st.color }}>
               <div className="sv-wf-node">
                 {i > 0 && <span className={`sv-wf-line${done || current ? " is-fill" : ""}`} />}
                 <span className="sv-wf-dot">{done ? <Check size={16} /> : <Icon size={15} />}</span>

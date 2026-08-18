@@ -2857,13 +2857,31 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
   // ── Designer file updates: anything the designer has submitted (released) that is newer than the
   //    admin's last acknowledgement for that project stays flagged NEW until the admin acknowledges. ──
   const isDesignerFile = (f) => !!f.uploadedByName && f.uploadedByName !== "Admin";
-  const ackTsFor = (pid) => (designExtra.acks || {})[pid] || "";
+  const ackTsFor = (pid) => { const a = designExtra.acks || {}; return a[`admin:${pid}`] || a[pid] || ""; };
   const newFilesFor = (pid) => {
     const ack = ackTsFor(pid);
     return (designFiles || []).filter((f) => f.projectId === pid && isDesignerFile(f) && !isDraftFile(f.id) && String(f.createdAt || "") > String(ack));
   };
   const isNewFile = (f) => isDesignerFile(f) && !isDraftFile(f.id) && String(f.createdAt || "") > String(ackTsFor(f.projectId));
-  const uploadOne = async (file) => { if (!file || !detail) return; setUploading(true); await uploadDesignFile(detail.id, uploadKind, file, "Admin", uploadFolder); setUploading(false); };
+  // uploadKind holds a stage kind (e.g. "reference") OR a custom folder token "cf:<folderId>".
+  const uploadOne = async (file) => {
+    if (!file || !detail) return;
+    setUploading(true);
+    let kind = uploadKind, folderId = "";
+    if (String(uploadKind).startsWith("cf:")) { folderId = uploadKind.slice(3); kind = "other"; }
+    await uploadDesignFile(detail.id, kind, file, "Admin", folderId);
+    setUploading(false);
+  };
+  // "➕ New folder…" in the Upload-into dropdown → prompt, create it, then select it.
+  const handleUploadDest = async (e) => {
+    const v = e.target.value;
+    if (v === "__new__") {
+      const name = (window.prompt("New folder name:") || "").trim();
+      if (name && detail && addDesignFolder) { const id = await addDesignFolder(detail.id, name, "admin"); if (id) setUploadKind("cf:" + id); }
+      return;
+    }
+    setUploadKind(v);
+  };
   // Auto-expand any folder that holds an unacknowledged NEW designer file, so updated files are
   // never hidden inside a collapsed folder when the admin opens the project.
   useEffect(() => {
@@ -3410,11 +3428,13 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                     <div className={`sv-dropzone${dragOver ? " is-drag" : ""}`}
                       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDropFiles}>
                       <label className="sv-form-label" style={{ margin: 0, whiteSpace: "nowrap" }}>Upload into:</label>
-                      <select className="sv-select" value={uploadKind} onChange={(e) => setUploadKind(e.target.value)} style={{ maxWidth: 170 }} title="Files are filed automatically into this folder">
+                      <select className="sv-select" value={uploadKind} onChange={handleUploadDest} style={{ maxWidth: 190 }} title="Files are filed automatically into this folder">
                         {Object.entries(KIND_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                        {((designExtra.folders || {})[detail.id] || []).map((fo) => <option key={fo.id} value={"cf:" + fo.id}>📁 {fo.name}</option>)}
+                        <option value="__new__">➕ New folder…</option>
                       </select>
                       <input ref={fileRef} type="file" multiple onChange={onUploadFile} disabled={uploading} accept=".pdf,.ai,.psd,.png,.jpg,.jpeg,.svg,.docx,.zip,image/*" style={{ fontSize: 12.5 }} />
-                      <span className="sv-dropzone-hint">{uploading ? "Uploading…" : `filed into “${KIND_LABELS[uploadKind]}” · drag & drop works too`}</span>
+                      <span className="sv-dropzone-hint">{uploading ? "Uploading…" : `filed into “${String(uploadKind).startsWith("cf:") ? ((((designExtra.folders || {})[detail.id] || []).find((f) => ("cf:" + f.id) === uploadKind) || {}).name || "folder") : (KIND_LABELS[uploadKind] || uploadKind)}” · drag & drop works too`}</span>
                     </div>
                     <div className="sv-flex sv-gap-2" style={{ marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
                       <span className="sv-text-muted" style={{ fontSize: 11.5 }}>Add a link (optional):</span>
@@ -3451,12 +3471,36 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                     const KIND_COLOR = { draft: "#F59E0B", reference: "#0EA5E9", images: "#14B8A6", sample: "#7C3AED", cp: "#2563EB", cs: "#8B5CF6", index: "#0891B2", magazine: "#4F46E5", revised: "#EA580C", final: "#16A34A", other: "#64748B" };
                     const vis = all.filter(visible);
                     const known = new Set(KIND_ORDER);
+                    const ff = designExtra.fileFolders || {};
+                    const customFolders = (designExtra.folders || {})[detail.id] || [];
+                    const folderIdSet = new Set(customFolders.map((f) => f.id));
+                    const inCustom = (f) => folderIdSet.has(ff[f.id] || "");
+                    // Custom folders first (created via "➕ New folder"), then the kind auto-folders.
+                    const customSections = customFolders.map((fo) => {
+                      const files = vis.filter((f) => (ff[f.id] || "") === fo.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                      const key = "cf:" + fo.id;
+                      const open = !openFolders[key];
+                      const gnew = files.some(isNewFile);
+                      return (
+                        <div key={"cf-" + fo.id} className={`sv-folder${open ? " is-open" : ""}`} style={{ borderLeft: "3px solid #64748B" }}>
+                          <div className="sv-folder-head" onClick={() => toggleFolder(key)}>
+                            <span className="sv-folder-caret">{open ? "▾" : "▸"}</span>
+                            <FolderOpen size={15} className="sv-folder-ic" />
+                            <span className="sv-folder-name">{fo.name}</span>
+                            <span className="sv-folder-count">{files.length} file{files.length !== 1 ? "s" : ""}</span>
+                            {gnew && <span style={{ fontSize: 10, fontWeight: 800, color: "#B45309", background: "#FEF3C7", padding: "1px 7px", borderRadius: 999 }}>NEW</span>}
+                            <button className="sv-btn sv-btn--sm sv-btn--ghost sv-folder-del" onClick={(e) => { e.stopPropagation(); ask(`Delete folder "${fo.name}"? Files inside move back to their stage folder.`, () => deleteDesignFolder(detail.id, fo.id)); }}>×</button>
+                          </div>
+                          {open && <div className="sv-folder-body">{files.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12 }}>Empty — pick this folder in “Upload into” and add files.</p> : files.map((f, fi) => rowA(f, fi === 0))}</div>}
+                        </div>
+                      );
+                    });
                     const groups = KIND_ORDER
-                      .map((k) => ({ k, label: KIND_LABELS[k] || k, files: vis.filter((f) => f.kind === k).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)) }))
+                      .map((k) => ({ k, label: KIND_LABELS[k] || k, files: vis.filter((f) => f.kind === k && !inCustom(f)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)) }))
                       .filter((g) => g.files.length);
-                    const otherFiles = vis.filter((f) => !known.has(f.kind)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                    const otherFiles = vis.filter((f) => !known.has(f.kind) && !inCustom(f)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
                     if (otherFiles.length) groups.push({ k: "other", label: "Other", files: otherFiles });
-                    const sections = groups.map((g) => {
+                    const kindSections = groups.map((g) => {
                       const key = "kind:" + g.k;
                       const open = !openFolders[key]; // default OPEN so files are always visible; click collapses
                       const gnew = g.files.some(isNewFile);
@@ -3474,6 +3518,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                         </div>
                       );
                     });
+                    const sections = [...customSections, ...kindSections];
                     const newFiles = newFilesFor(detail.id);
                     const latestNewTs = newFiles.reduce((m, f) => (String(f.createdAt || "") > m ? String(f.createdAt) : m), "");
                     return (
@@ -3484,7 +3529,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                             <button className="sv-btn sv-btn--sm sv-btn--success" style={{ marginLeft: "auto" }} onClick={() => ask(`Acknowledge ${newFiles.length} new file(s)? The highlight will clear.`, () => acknowledgeDesign(detail.id, latestNewTs))}>✓ Acknowledge</button>
                           </div>
                         )}
-                        {myDrafts.length > 0 && detail.status !== "Draft" && <button className="sv-btn sv-btn--sm sv-btn--ghost" style={{ marginBottom: 10 }} onClick={() => ask(`Send ${myDrafts.length} draft file(s) to the designer now?`, () => releaseDesign(detail.id, "admin"))}>📤 Send {myDrafts.length} file(s) to designer</button>}
+                        {myDrafts.length > 0 && detail.status !== "Draft" && <button className="sv-btn sv-btn--sm sv-btn--ghost" style={{ marginBottom: 10 }} onClick={() => ask(`Send ${myDrafts.length} file(s) to the designer now? They'll be notified.`, async () => { const n = myDrafts.length; await releaseDesign(detail.id, "admin"); pushNotification && pushNotification(`📎 ${n} new file(s) added by Admin on ${detail.clientName} — open Files & Versions.`, "review"); })}>📤 Send {myDrafts.length} file(s) to designer</button>}
                         {links.length > 0 && <div style={{ marginBottom: 10 }}><div className="sv-section-label">Links</div>{links.map((l) => (<div key={l.id} className="sv-fileitem" style={{ marginTop: 6 }}><span style={{ width: 36, height: 36, borderRadius: 6, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", flex: "none", color: "#4338CA", fontWeight: 800 }}>🔗</span><div style={{ minWidth: 0, flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{l.label}{!l.released && <span className="sv-file-draft">not sent</span>}</div><div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div></div><a className="sv-btn sv-btn--sm sv-btn--ghost" href={l.url} target="_blank" rel="noreferrer">Open</a><button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => ask("Remove this link?", () => deleteDesignLink(detail.id, l.id))}>×</button></div>))}</div>}
                         {sections.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12.5 }}>No files yet. Pick a type and upload — every upload is versioned and stays private until sent.</p> : sections}
                       </>

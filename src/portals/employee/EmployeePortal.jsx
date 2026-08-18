@@ -27,7 +27,7 @@ export default function EmployeePortal() {
     designProjects, designArchive, designFiles, uploadDesignFile, deleteDesignFile, updateDesignProject,
     designActivity, changeProjectStatus, addProjectComment, uploadMessageImage,
     designWork, saveDesignWork,
-    designExtra, releaseDesign, addDesignFolder, deleteDesignFolder,
+    designExtra, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder,
     expenses, addExpense,
     logo, theme, toggleTheme,
     showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications, logAudit,
@@ -278,7 +278,7 @@ export default function EmployeePortal() {
         designActivity={designActivity} changeProjectStatus={changeProjectStatus} addProjectComment={addProjectComment} uploadMessageImage={uploadMessageImage}
         notifications={notifications} markNotificationRead={markNotificationRead} markAllNotificationsRead={markAllNotificationsRead} clearNotifications={clearNotifications}
         designWork={designWork} saveDesignWork={saveDesignWork} pushNotification={pushNotification}
-        designExtra={designExtra} releaseDesign={releaseDesign} addDesignFolder={addDesignFolder} deleteDesignFolder={deleteDesignFolder}
+        designExtra={designExtra} releaseDesign={releaseDesign} acknowledgeDesign={acknowledgeDesign} addDesignFolder={addDesignFolder} deleteDesignFolder={deleteDesignFolder}
         expenses={expenses} addExpense={addExpense} showToast={showToast}
       />
     );

@@ -68,7 +68,7 @@ export default function DesignerDashboard({
   designActivity = [], changeProjectStatus, addProjectComment, uploadMessageImage,
   designWork = [], saveDesignWork, pushNotification,
   notifications = [], markNotificationRead, markAllNotificationsRead, clearNotifications,
-  designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {} }, releaseDesign, addDesignFolder, deleteDesignFolder,
+  designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder,
   expenses = [], addExpense, showToast,
 }) {
   const [tab, setTab] = useState("designs");
@@ -108,6 +108,10 @@ export default function DesignerDashboard({
   const [openFolders, setOpenFolders] = useState({}); // { [folderId]: true } — collapsed by default
   const toggleFolder = (id) => setOpenFolders((o) => ({ ...o, [id]: !o[id] }));
   const isDraftFile = (id) => (designExtra.drafts || []).includes(id);
+  // Admin files newer than the designer's last acknowledgement stay flagged NEW so the designer
+  // easily notices files the admin just sent (e.g. added to Client Draft after the first send).
+  const dzAckTs = (pid) => (designExtra.acks || {})[`designer:${pid}`] || "";
+  const isNewAdminFile = (f) => f.uploadedByName === "Admin" && !isDraftFile(f.id) && String(f.createdAt || "") > String(dzAckTs(f.projectId));
   const ask = (message, onYes, onNo) => setFlowAsk({ message, onYes, onNo });
 
   // Match assigned projects by id, with a name fallback so a drifted/re-keyed
@@ -201,12 +205,13 @@ export default function DesignerDashboard({
   const fileRow = (f, canDelete, isLatest) => {
     const isImg = /\.(png|jpe?g|svg|gif|webp)$/i.test(f.fileName);
     const draft = isDraftFile(f.id) && f.uploadedByName === emp.name; // my unsubmitted draft
+    const isNew = isNewAdminFile(f);
     return (
-      <div key={f.id} className={`sv-fileitem${isLatest ? " is-latest" : ""}${draft ? " is-draft" : ""}`}>
+      <div key={f.id} className={`sv-fileitem${isLatest ? " is-latest" : ""}${draft ? " is-draft" : ""}`} style={isNew ? { outline: "2px solid #F59E0B", outlineOffset: "-1px", background: "rgba(245,158,11,0.08)", borderRadius: 8 } : undefined}>
         {isImg ? <img src={f.fileUrl} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", flex: "none" }} />
           : <span style={{ width: 36, height: 36, borderRadius: 6, background: "var(--sv-surface-2,#F1F5F9)", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}><FileText size={16} /></span>}
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--sv-text-1,#0F172A)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}{draft ? <span className="sv-file-draft">DRAFT · not submitted</span> : isLatest && <span className="sv-file-latest">LATEST</span>}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "var(--sv-text-1,#0F172A)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}{isNew && <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FEF3C7", padding: "2px 7px", borderRadius: 999 }}>🆕 NEW</span>}{draft ? <span className="sv-file-draft">DRAFT · not submitted</span> : isLatest && <span className="sv-file-latest">LATEST</span>}</div>
           <div style={{ fontSize: 11, color: "var(--sv-text-3,#64748B)", marginTop: 2 }}>{"v" + f.version} · {fmtSize(f.sizeBytes)} · {f.uploadedByName} · {f.createdAt ? new Date(f.createdAt).toLocaleString() : ""}</div>
         </div>
         <a className="sv-btn sv-btn--sm sv-btn--ghost" href={f.fileUrl} target="_blank" rel="noreferrer">Open</a>
@@ -448,7 +453,15 @@ export default function DesignerDashboard({
                 const fileFolders = designExtra.fileFolders || {};
                 const visible = (f) => f.uploadedByName === emp.name || !isDraftFile(f.id); // own drafts + released
                 const inFolder = (f, fid) => (fileFolders[f.id] || "") === fid;
+                const newAdminFiles = projFiles.filter(isNewAdminFile);
+                const latestNewTs = newAdminFiles.reduce((m, f) => (String(f.createdAt || "") > m ? String(f.createdAt) : m), "");
                 return (<>
+                  {newAdminFiles.length > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E", borderRadius: 10, padding: "9px 12px", fontSize: 12.5, marginBottom: 10 }}>
+                      <span>🆕 <b>{newAdminFiles.length} new file{newAdminFiles.length !== 1 ? "s" : ""}</b> from the admin — highlighted below until you acknowledge.</span>
+                      <button className="sv-btn sv-btn--sm sv-btn--primary" style={{ marginLeft: "auto" }} onClick={() => ask(`Acknowledge ${newAdminFiles.length} new file(s)? The highlight will clear.`, () => acknowledgeDesign && acknowledgeDesign(project.id, latestNewTs, "designer"))}>✓ Acknowledge</button>
+                    </div>
+                  )}
                   <div className="sv-fileadd">
                     <div className={`sv-dropzone${dragOver ? " is-drag" : ""}`}
                       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDropFiles}>

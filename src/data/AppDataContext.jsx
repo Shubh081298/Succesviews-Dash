@@ -1092,19 +1092,22 @@ export function AppDataProvider({ children }) {
     links[projectId] = (links[projectId] || []).map((ln) => (ln.side === role ? { ...ln, released: true } : ln));
     await saveDesignExtra({ ...cur, drafts: (cur.drafts || []).filter((id) => !mineIds.includes(id)), folders, links });
   }
-  // Admin acknowledges the designer's latest files for a project. Stores the ACK timestamp so any
-  // designer file newer than this stays highlighted as "NEW" until acknowledged. Never misses updates.
-  async function acknowledgeDesign(projectId, ts) {
+  // Acknowledge the other side's latest files for a project (per side). Stores the ACK timestamp so any
+  // newer file stays highlighted as "NEW" until acknowledged. who = "admin" (acks designer files) or
+  // "designer" (acks admin files). Legacy key `acks[projectId]` is kept as an admin fallback.
+  async function acknowledgeDesign(projectId, ts, who = "admin") {
     const cur = designExtraRef.current;
     const acks = { ...(cur.acks || {}) };
-    acks[projectId] = ts || new Date().toISOString();
+    acks[`${who}:${projectId}`] = ts || new Date().toISOString();
     await saveDesignExtra({ ...cur, acks });
   }
   async function addDesignFolder(projectId, name, side) {
     const cur = designExtraRef.current;
+    const id = genId();
     const folders = { ...(cur.folders || {}) };
-    folders[projectId] = [...(folders[projectId] || []), { id: genId(), name: (name || "Folder").trim(), side, released: false, createdAt: new Date().toISOString() }];
+    folders[projectId] = [...(folders[projectId] || []), { id, name: (name || "Folder").trim(), side, released: false, createdAt: new Date().toISOString() }];
     await saveDesignExtra({ ...cur, folders });
+    return id;
   }
   async function deleteDesignFolder(projectId, folderId) {
     const cur = designExtraRef.current;

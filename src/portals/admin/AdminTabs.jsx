@@ -2810,7 +2810,7 @@ const designPriorityStyle = (p) => ({
 // Message screenshots: stored in activity.meta as a JSON array of URLs (or a bare URL for old rows).
 const parseMsgImgs = (meta) => { const mm = meta || ""; if (!mm) return []; if (mm[0] === "[") { try { return (JSON.parse(mm) || []).filter(Boolean); } catch (e) { return []; } } return /^https?:\/\//.test(mm) ? [mm] : []; };
 
-export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision, designWork = [], saveDesignWork, pushNotification, captureExpense, designArchive = [], saveDesignArchive, addProjectComment, uploadMessageImage, designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {} }, releaseDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink }) {
+export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision, designWork = [], saveDesignWork, pushNotification, captureExpense, designArchive = [], saveDesignArchive, addProjectComment, uploadMessageImage, designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink }) {
   const [search, setSearch] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [fPriority, setFPriority] = useState("");
@@ -2854,7 +2854,26 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
   const [linkLabel, setLinkLabel] = useState("");
   const [linkUrl, setLinkUrl] = useState("");
   const isDraftFile = (id) => (designExtra.drafts || []).includes(id);
+  // ── Designer file updates: anything the designer has submitted (released) that is newer than the
+  //    admin's last acknowledgement for that project stays flagged NEW until the admin acknowledges. ──
+  const isDesignerFile = (f) => !!f.uploadedByName && f.uploadedByName !== "Admin";
+  const ackTsFor = (pid) => (designExtra.acks || {})[pid] || "";
+  const newFilesFor = (pid) => {
+    const ack = ackTsFor(pid);
+    return (designFiles || []).filter((f) => f.projectId === pid && isDesignerFile(f) && !isDraftFile(f.id) && String(f.createdAt || "") > String(ack));
+  };
+  const isNewFile = (f) => isDesignerFile(f) && !isDraftFile(f.id) && String(f.createdAt || "") > String(ackTsFor(f.projectId));
   const uploadOne = async (file) => { if (!file || !detail) return; setUploading(true); await uploadDesignFile(detail.id, uploadKind, file, "Admin", uploadFolder); setUploading(false); };
+  // Auto-expand any folder that holds an unacknowledged NEW designer file, so updated files are
+  // never hidden inside a collapsed folder when the admin opens the project.
+  useEffect(() => {
+    if (!detail) return;
+    const ff = designExtra.fileFolders || {};
+    const openIds = {};
+    newFilesFor(detail.id).forEach((f) => { const fid = ff[f.id]; if (fid) openIds[fid] = true; });
+    if (Object.keys(openIds).length) setOpenFolders((o) => ({ ...o, ...openIds }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail && detail.id, designExtra.acks, designFiles.length]);
   const onUploadFile = async (e) => { const files = [...(e.target.files || [])]; for (const fl of files) await uploadOne(fl); if (fileRef.current) fileRef.current.value = ""; setUploadFolder(""); };
   const onDropFiles = async (e) => { e.preventDefault(); setDragOver(false); const files = [...((e.dataTransfer && e.dataTransfer.files) || [])]; for (const fl of files) await uploadOne(fl); setUploadFolder(""); };
 
@@ -3209,14 +3228,18 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
               const pct = designProgress(p.status);
               const files = designFiles.filter((x) => x.projectId === p.id).length;
               const od = isOverdue(p);
+              const newCount = newFilesFor(p.id).length;
               return (
-                <div key={p.id} className="sv-dsn-card" onClick={() => setDetail(p)} style={{ borderLeft: `4px solid ${domainColor(p.companyName).solid}` }}>
+                <div key={p.id} className="sv-dsn-card" onClick={() => setDetail(p)} style={{ borderLeft: `4px solid ${domainColor(p.companyName).solid}`, ...(newCount ? { boxShadow: "0 0 0 2px #FDE68A inset" } : {}) }}>
                   <div className="sv-dsn-card-top">
                     <div style={{ minWidth: 0 }}>
                       <div className="sv-dsn-client">{p.clientName}</div>
                       {p.companyName ? <span className="sv-domain-chip" style={{ background: domainColor(p.companyName).bg, color: domainColor(p.companyName).fg }}><span className="sv-domain-dot" style={{ background: domainColor(p.companyName).solid }} />{p.companyName}</span> : <div className="sv-dsn-sub">—</div>}
                     </div>
-                    {badge(p.priority, designPriorityStyle(p.priority))}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      {newCount > 0 && <span title={`${newCount} new file(s) from the designer`} style={{ fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FEF3C7", padding: "2px 8px", borderRadius: 999 }}>🆕 {newCount} new</span>}
+                      {badge(p.priority, designPriorityStyle(p.priority))}
+                    </span>
                   </div>
                   <div className="sv-dsn-mag">{p.magazineName || "Untitled magazine"}{p.edition ? ` · ${p.edition}` : ""}</div>
                   <div className="sv-dsn-stage-row">{badge(p.status, st)}<span className="sv-dsn-pct">{pct}%</span></div>
@@ -3414,11 +3437,12 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                     const rowA = (f, latest) => {
                       const isImg = /\.(png|jpe?g|svg|gif|webp)$/i.test(f.fileName);
                       const draft = isDraftFile(f.id) && f.uploadedByName === "Admin";
+                      const isNew = isNewFile(f);
                       return (
-                        <div key={f.id} className={`sv-fileitem${latest ? " is-latest" : ""}${draft ? " is-draft" : ""}`}>
+                        <div key={f.id} className={`sv-fileitem${latest ? " is-latest" : ""}${draft ? " is-draft" : ""}`} style={isNew ? { outline: "2px solid #F59E0B", outlineOffset: "-1px", background: "rgba(245,158,11,0.08)", borderRadius: 8 } : undefined}>
                           {isImg ? <img src={f.fileUrl} alt="" style={{ width: 36, height: 36, borderRadius: 6, objectFit: "cover", flex: "none" }} /> : <span style={{ width: 36, height: 36, borderRadius: 6, background: "#F1F5F9", display: "flex", alignItems: "center", justifyContent: "center", flex: "none" }}><FileText size={16} /></span>}
                           <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--sv-text-1,#0F172A)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}{draft ? <span className="sv-file-draft">DRAFT · not sent</span> : latest && <span className="sv-file-latest">LATEST</span>}</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--sv-text-1,#0F172A)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.fileName}{isNew && <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FEF3C7", padding: "2px 7px", borderRadius: 999 }}>🆕 NEW</span>}{draft ? <span className="sv-file-draft">DRAFT · not sent</span> : latest && <span className="sv-file-latest">LATEST</span>}</div>
                             <div style={{ fontSize: 11, color: "var(--sv-text-3,#64748B)", marginTop: 2 }}>{badge(`${KIND_LABELS[f.kind] || f.kind} v${f.version}`, designStatusStyle("Pending"))} · {fmtSize(f.sizeBytes)} · {f.uploadedByName} · {f.createdAt ? new Date(f.createdAt).toLocaleString() : ""}</div>
                           </div>
                           <a className="sv-btn sv-btn--sm sv-btn--ghost" href={f.fileUrl} target="_blank" rel="noreferrer">Open</a>
@@ -3445,10 +3469,21 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                         </div>
                       );
                     });
-                    const loose = all.filter((f) => visible(f) && !(ff[f.id])).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                    // Loose = files with no folder OR whose folder no longer exists (so a deleted folder
+                    // can never make a file vanish — it just falls back to the loose list).
+                    const folderIdSet = new Set(allFolders.map((fo) => fo.id));
+                    const loose = all.filter((f) => visible(f) && !folderIdSet.has(ff[f.id] || "")).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
                     if (loose.length) sections.push(<div key="loose" style={{ display: "flex", flexDirection: "column", gap: 8 }}>{loose.map((f, fi) => rowA(f, fi === 0))}</div>);
+                    const newFiles = newFilesFor(detail.id);
+                    const latestNewTs = newFiles.reduce((m, f) => (String(f.createdAt || "") > m ? String(f.createdAt) : m), "");
                     return (
                       <>
+                        {newFiles.length > 0 && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", background: "#FFFBEB", border: "1px solid #FDE68A", color: "#92400E", borderRadius: 10, padding: "9px 12px", fontSize: 12.5, marginBottom: 10 }}>
+                            <span>🆕 <b>{newFiles.length} new file{newFiles.length !== 1 ? "s" : ""}</b> from {detail.assignedDesignerName || "the designer"} — highlighted below until you acknowledge.</span>
+                            <button className="sv-btn sv-btn--sm sv-btn--success" style={{ marginLeft: "auto" }} onClick={() => ask(`Acknowledge ${newFiles.length} new file(s)? The highlight will clear.`, () => acknowledgeDesign(detail.id, latestNewTs))}>✓ Acknowledge</button>
+                          </div>
+                        )}
                         {myDrafts.length > 0 && detail.status !== "Draft" && <button className="sv-btn sv-btn--sm sv-btn--ghost" style={{ marginBottom: 10 }} onClick={() => ask(`Send ${myDrafts.length} draft file(s) to the designer now?`, () => releaseDesign(detail.id, "admin"))}>📤 Send {myDrafts.length} file(s) to designer</button>}
                         {links.length > 0 && <div style={{ marginBottom: 10 }}><div className="sv-section-label">Links</div>{links.map((l) => (<div key={l.id} className="sv-fileitem" style={{ marginTop: 6 }}><span style={{ width: 36, height: 36, borderRadius: 6, background: "#EEF2FF", display: "flex", alignItems: "center", justifyContent: "center", flex: "none", color: "#4338CA", fontWeight: 800 }}>🔗</span><div style={{ minWidth: 0, flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{l.label}{!l.released && <span className="sv-file-draft">not sent</span>}</div><div style={{ fontSize: 11, color: "#64748B", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.url}</div></div><a className="sv-btn sv-btn--sm sv-btn--ghost" href={l.url} target="_blank" rel="noreferrer">Open</a><button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => ask("Remove this link?", () => deleteDesignLink(detail.id, l.id))}>×</button></div>))}</div>}
                         {sections.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12.5 }}>No files yet. Pick a type and upload — every upload is versioned and stays private until sent.</p> : sections}

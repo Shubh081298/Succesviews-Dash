@@ -13,6 +13,7 @@ import { useAppData } from '../../data/AppDataContext';
 const LS_MAGS = 'svd_io_magazines';
 const LS_CURRENT = 'svd_io_current';
 const LS_DRAFT = 'svd_io_draft'; // last order form (auto-saved so the previous order is retained)
+const LS_SAVED = 'svd_io_saved'; // saved insertion orders (local mirror so they always show, even if the DB write is unavailable)
 
 const DEFAULT_PERKS = [
   "You'll be on the Cover page of the magazine.",
@@ -231,9 +232,11 @@ function genOrderHtml(m, data, preview = false) {
   // print via color-adjust. Uses the uploaded watermark image, else a faint logo-text mark.
   // Honor the opacity chosen in the magazine config (selector), defaulting to a subtle value.
   const wmOpacity = m.watermarkOpacity != null && m.watermarkOpacity !== '' ? Number(m.watermarkOpacity) : 0.08;
-  const wmSize = Math.max(40, Math.min(Number(m.watermarkSize) || 62, 92));
+  const wmSize = Math.max(30, Math.min(Number(m.watermarkSize) || 52, 65));
+  // Centered, fully contained watermark (never cropped): width caps at wmSize%, height caps so it
+  // always fits the page. object-fit:contain keeps the aspect ratio.
   const watermarkHtml = m.watermarkDataUrl
-    ? `<div class="wm"><img src="${m.watermarkDataUrl}" style="width:${wmSize}%;opacity:${wmOpacity};" alt="" /></div>`
+    ? `<div class="wm"><img src="${m.watermarkDataUrl}" style="width:${wmSize}%;max-width:66%;max-height:55%;opacity:${wmOpacity};" alt="" /></div>`
     : `<div class="wm"><div class="wmtext" style="opacity:${wmOpacity};color:${accent};">${esc(D(m.logoText, 'CIO'))} ${esc(D(m.logoSubText, 'VISIONARIES'))}</div></div>`;
   return `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(docTitle)}</title>
 <style>
@@ -241,7 +244,7 @@ function genOrderHtml(m, data, preview = false) {
   html,body{margin:0;padding:0}
   body{font-family:Arial,Helvetica,sans-serif;color:#1f2937;font-size:10px;line-height:1.4;background:#fff}
   .wm{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:0;pointer-events:none}
-  .wm img{max-width:92%;height:auto;object-fit:contain}
+  .wm img{max-width:66%;max-height:55%;height:auto;object-fit:contain}
   .wmtext{font-family:Georgia,'Times New Roman',serif;font-size:66px;font-weight:800;letter-spacing:5px;transform:rotate(-18deg);white-space:nowrap;text-align:center}
   .doc{position:relative;z-index:1;max-width:800px;min-height:100vh;margin:0 auto;padding:16px 22px 10px;display:flex;flex-direction:column}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
@@ -253,14 +256,14 @@ function genOrderHtml(m, data, preview = false) {
   .rule::before{content:'';position:absolute;left:0;top:-1px;height:3px;width:104px;background:${accent};border-radius:2px}
   .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:11px}
   .panel{border:1px solid #e2e5ea;border-radius:5px;overflow:hidden}
-  .panel-h{font-weight:700;font-size:11.5px;color:#111;padding:6px 10px;border-bottom:1px solid #eceef2;background:#fbfcfd}
+  .panel-h{font-weight:700;font-size:11.5px;color:#111;padding:6px 10px;border-bottom:1px solid #eceef2;background:rgba(251,252,253,0.72)}
   .kv{display:grid;grid-template-columns:108px 1fr}
   .kv>div{padding:4px 10px;border-bottom:1px solid #f0f1f4;font-size:10px}
   .kv:last-child>div{border-bottom:none}
   .kv .k{font-weight:700;color:#111;border-right:1px solid #f0f1f4}
   .kv .v{color:#374151;word-break:break-word}
   .sec{border:1px solid #e2e5ea;border-radius:5px;margin-bottom:11px}
-  .sec-h{font-weight:700;font-size:11.5px;color:#111;padding:6px 10px;border-bottom:1px solid #eceef2;background:#fbfcfd}
+  .sec-h{font-weight:700;font-size:11.5px;color:#111;padding:6px 10px;border-bottom:1px solid #eceef2;background:rgba(251,252,253,0.72)}
   .adv{display:grid;grid-template-columns:140px 1fr;padding:4px 10px;font-size:10px;border-bottom:1px solid #f4f5f7}
   .adv:last-child{border-bottom:none}
   .adv .ak{font-weight:700;color:#111}
@@ -270,7 +273,7 @@ function genOrderHtml(m, data, preview = false) {
   .rich li{padding:1px 0}
   .ctable{width:100%;border-collapse:collapse;font-size:10px}
   .ctable th,.ctable td{padding:5px 10px;border-bottom:1px solid #eceef2;text-align:left}
-  .ctable th{background:#f8fafc;font-weight:700;color:#111}
+  .ctable th{background:rgba(248,250,252,0.72);font-weight:700;color:#111}
   .ctable td.amt,.ctable th.amt{text-align:right}
   .ctable tr.total td{font-weight:800;color:${accent};border-top:1px solid #e2e5ea}
   .pay{padding:2px 10px 8px}
@@ -311,6 +314,7 @@ function genOrderHtml(m, data, preview = false) {
     <div class="cols">
       <div class="panel">
         <div class="panel-h">${esc(hClient)}</div>
+        ${kv('Company', data.clientCompany)}
         ${kv('Contact Person', data.clientName)}
         ${kv('Designation', data.clientTitle)}
         ${kv('Email', data.clientEmail)}
@@ -380,8 +384,20 @@ function genOrderHtml(m, data, preview = false) {
 }
 
 export default function InsertionOrderForm({ onCapture, sharedMagazines = null, onSaveMagazines } = {}) {
-  const { expenses = [] } = useAppData();
-  const savedOrders = (expenses || []).filter((e) => e.type === 'insertion_order');
+  const { expenses = [], showToast, deleteExpense } = useAppData();
+  // Local mirror of saved orders so they always appear immediately and survive even if the
+  // DB write is unavailable. Merged with any DB-backed insertion_order expenses (dedup by key).
+  const [localSaved, setLocalSaved] = useState(() => {
+    try { const r = localStorage.getItem(LS_SAVED); if (r) { const a = JSON.parse(r); if (Array.isArray(a)) return a; } } catch (e) { /* ignore */ }
+    return [];
+  });
+  useEffect(() => { try { localStorage.setItem(LS_SAVED, JSON.stringify(localSaved)); } catch (e) { /* ignore */ } }, [localSaved]);
+  const savedOrders = (() => {
+    const byKey = new Map();
+    (localSaved || []).forEach((r) => { if (r) byKey.set(r.sourceKey || r.id, r); });
+    (expenses || []).filter((e) => e.type === 'insertion_order').forEach((e) => { byKey.set(e.sourceKey || e.id, e); });
+    return Array.from(byKey.values());
+  })();
   const [showSaved, setShowSaved] = useState(false);
   const [busyDl, setBusyDl] = useState(false);
   const [magazines, setMagazines] = useState(loadMagazines);
@@ -561,6 +577,18 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     );
   };
 
+  // Delete a saved insertion order — from the local mirror and (if it's a DB row) the ledger.
+  const deleteSaved = async (rec) => {
+    if (!rec) return;
+    if (!window.confirm(`Delete this saved insertion order${rec.clientName ? ` for ${rec.clientName}` : ''}? This cannot be undone.`)) return;
+    // remove from the local mirror (match by id or sourceKey)
+    setLocalSaved((prev) => (prev || []).filter((x) => x.id !== rec.id && (x.sourceKey || '') !== (rec.sourceKey || '__none__')));
+    // remove from the DB ledger if it exists there (DB rows have a uuid id; local-only ids start with "io_")
+    const isDbRow = rec.id && !String(rec.id).startsWith('io_');
+    if (isDbRow && typeof deleteExpense === 'function') { try { await deleteExpense(rec.id); } catch (e) { /* local already removed */ } }
+    showToast && showToast('Insertion order deleted.', 'success');
+  };
+
   // Re-open (regenerate) a saved insertion order from its stored data.
   const reopenSaved = (rec) => {
     const dd = rec.details || {};
@@ -570,6 +598,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
       orderId: dd.orderId || dd.confirmationNo || '',
       date: rec.paymentDate || (dd.generatedAt ? String(dd.generatedAt).slice(0, 10) : ''),
       edition: dd.edition || '',
+      clientCompany: dd.companyName || '',
       clientName: dd.clientName || rec.clientName || '',
       clientTitle: dd.clientTitle || '', clientEmail: dd.clientEmail || '',
       featureTitle: dd.featureTitle || '', participationType: dd.participationType || '',
@@ -618,6 +647,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
   // Build the data object (order + client + advertising + commercial) for the document.
   const orderData = (orderId) => ({
     orderId: orderId || form.orderId, date: form.date, edition: form.edition,
+    clientCompany: form.clientCompany,
     clientName: form.clientName, clientTitle: form.clientTitle, clientEmail: form.clientEmail,
     featureTitle: form.featureTitle, participationType: form.participationType, publication: form.publication,
     cost: form.cost, currency: form.currency,
@@ -638,8 +668,9 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
   };
 
   // Persist a generated order to storage + the Saved Insertion Orders list (memory).
+  // Always mirrors to localStorage (so it shows instantly and never gets lost) and also
+  // pushes to the DB via onCapture when available.
   const persistOrder = async ({ html, confNo, src, orderId }) => {
-    if (typeof onCapture !== 'function') return;
     let fileUrl = '', fileName = '';
     try {
       setBusyDl(true);
@@ -649,7 +680,9 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
       if (!error) { fileUrl = supabase.storage.from('design-files').getPublicUrl(path).data.publicUrl; fileName = `Confirmation Order ${confNo}.html`; }
     } catch (e) { /* upload optional — record still captured */ }
     finally { setBusyDl(false); }
-    onCapture({
+    const rec = {
+      id: `io_${Date.now()}`,
+      createdAt: new Date().toISOString(),
       type: 'insertion_order',
       sourceKey: src,
       title: form.featureTitle || form.clientName || 'Insertion Order',
@@ -685,7 +718,12 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
         repName: docMag.repName || '', repTitle: docMag.repTitle || '', repEmail: docMag.repEmail || '',
         magSnapshot: magSnap(docMag),
       },
-    });
+    };
+    // 1) Local mirror — instant + reliable (dedup by sourceKey).
+    setLocalSaved((prev) => [rec, ...(prev || []).filter((x) => (x.sourceKey || '') !== src)]);
+    // 2) DB (best-effort) — keeps it in sync across devices / with the expenses ledger.
+    if (typeof onCapture === 'function') { try { await onCapture(rec); } catch (e) { /* local copy already saved */ } }
+    showToast && showToast('Saved to Insertion Orders.', 'success');
   };
 
   /* ── Download: open the print dialog, then ask whether to save to memory ── */
@@ -775,7 +813,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
 
             <div className="sv-io-row-2">
               <div className="sv-io-field">
-                <label className="sv-form-label">Client company <span style={{ color: '#94A3B8', fontWeight: 500 }}>(record only)</span></label>
+                <label className="sv-form-label">Client company</label>
                 <input
                   className="sv-input"
                   type="text"
@@ -1235,6 +1273,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
                             <button type="button" onClick={() => editSaved(e)} style={{ border: 'none', background: 'transparent', color: '#16A34A', fontWeight: 700, cursor: 'pointer', padding: 0 }}>Edit</button>
                             <button type="button" onClick={() => reopenSaved(e)} style={{ border: 'none', background: 'transparent', color: '#2563EB', fontWeight: 600, cursor: 'pointer', padding: 0 }}>Re-open</button>
                             {d.invoiceUrl && <a href={d.invoiceUrl} target="_blank" rel="noreferrer" style={{ color: '#64748B', fontWeight: 600 }}>File</a>}
+                            <button type="button" onClick={() => deleteSaved(e)} style={{ border: 'none', background: 'transparent', color: '#DC2626', fontWeight: 700, cursor: 'pointer', padding: 0 }}>Delete</button>
                           </span>
                         </td>
                       </tr>

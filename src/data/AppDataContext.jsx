@@ -27,6 +27,7 @@ export function AppDataProvider({ children }) {
   const [ioMagazines, setIoMagazines]       = useState(null); // shared Insertion-Order magazine configs (null = not loaded from DB yet)
   const [designWork, setDesignWork]         = useState([]);  // designer client-wise work items
   const [designArchive, setDesignArchive]   = useState([]);  // soft-archived design projects
+  const [brandDomains, setBrandDomains]     = useState([]);  // configurable domains/brands: {id,name,website,logo,color}
   const [designExtra, setDesignExtra]       = useState({ drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }); // submit-gate + custom folders + links + admin acknowledgements (settings-backed)
   const designExtraRef = useRef({ drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }); // synchronous mirror to avoid stale-closure across sequential uploads
   const [customFields, setCustomFields]     = useState([]);
@@ -627,6 +628,9 @@ export function AppDataProvider({ children }) {
         if (row.key === "design_archive") {
           try { setDesignArchive(JSON.parse(row.value) || []); } catch {}
         }
+        if (row.key === "brand_domains") {
+          try { const v = JSON.parse(row.value); if (Array.isArray(v)) setBrandDomains(v); } catch {}
+        }
         if (row.key === "design_extra") {
           try { const v = JSON.parse(row.value) || {}; const de = { drafts: v.drafts || [], folders: v.folders || {}, links: v.links || {}, fileFolders: v.fileFolders || {}, acks: v.acks || {} }; designExtraRef.current = de; setDesignExtra(de); } catch {}
         }
@@ -1057,6 +1061,13 @@ export function AppDataProvider({ children }) {
       .upsert({ key: "design_archive", value: JSON.stringify(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
   }
 
+  // Configurable domains/brands (AWL, CIO, …) — name, website, logo (dataUrl), brand colour.
+  async function saveBrandDomains(next) {
+    setBrandDomains(next);
+    await supabase.from("settings")
+      .upsert({ key: "brand_domains", value: JSON.stringify(next), updated_at: new Date().toISOString() }, { onConflict: "key" });
+  }
+
   /* ── Design "extra" store: submit-gate (drafts) + custom folders + links.
      Settings-backed, one key. A file is PRIVATE to its uploader while its id is
      in `drafts`; releasing (Submit/Send) removes it so the other party can see it.
@@ -1461,6 +1472,7 @@ export function AppDataProvider({ children }) {
     freelancers, saveFreelancers, ioMagazines, saveIoMagazines,
     designWork, saveDesignWork,
     designArchive, saveDesignArchive,
+    brandDomains, saveBrandDomains,
     designExtra, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink,
     // Pipeline (Employee CRM)
     pipelineClients, pipelineFollowups, pipelineContracts, pipelineSales, pipelinePayments, pipelineNotes, pipelineHistory,

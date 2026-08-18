@@ -36,7 +36,7 @@ export default function AdminDashboard() {
     salaries, saveSalaries, bankDetails, saveBankDetails,
     freelancers, saveFreelancers,
     designWork, saveDesignWork,
-    designArchive, saveDesignArchive,
+    designArchive, saveDesignArchive, brandDomains, saveBrandDomains,
     designExtra, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink,
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,
     designProjects, addDesignProject, updateDesignProject, deleteDesignProject,
@@ -477,7 +477,7 @@ export default function AdminDashboard() {
           <ExpenseTab expenses={expenses} addExpense={addExpense} updateExpense={updateExpense} deleteExpense={deleteExpense} logo={logo} domains={domains} />
         )}
         {tab === "designs" && (
-          <DesignsTab designProjects={designProjects} addDesignProject={addDesignProject} updateDesignProject={updateDesignProject} deleteDesignProject={deleteDesignProject} employees={employees} designFiles={designFiles} uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} designActivity={designActivity} changeProjectStatus={changeProjectStatus} requestRevision={requestRevision} designWork={designWork} saveDesignWork={saveDesignWork} pushNotification={pushNotification} captureExpense={captureExpense} designArchive={designArchive} saveDesignArchive={saveDesignArchive} addProjectComment={addProjectComment} uploadMessageImage={uploadMessageImage} designExtra={designExtra} releaseDesign={releaseDesign} acknowledgeDesign={acknowledgeDesign} addDesignFolder={addDesignFolder} deleteDesignFolder={deleteDesignFolder} addDesignLink={addDesignLink} deleteDesignLink={deleteDesignLink} />
+          <DesignsTab designProjects={designProjects} addDesignProject={addDesignProject} updateDesignProject={updateDesignProject} deleteDesignProject={deleteDesignProject} employees={employees} designFiles={designFiles} uploadDesignFile={uploadDesignFile} deleteDesignFile={deleteDesignFile} designActivity={designActivity} changeProjectStatus={changeProjectStatus} requestRevision={requestRevision} designWork={designWork} saveDesignWork={saveDesignWork} pushNotification={pushNotification} captureExpense={captureExpense} designArchive={designArchive} saveDesignArchive={saveDesignArchive} addProjectComment={addProjectComment} uploadMessageImage={uploadMessageImage} brandDomains={brandDomains} saveBrandDomains={saveBrandDomains} designExtra={designExtra} releaseDesign={releaseDesign} acknowledgeDesign={acknowledgeDesign} addDesignFolder={addDesignFolder} deleteDesignFolder={deleteDesignFolder} addDesignLink={addDesignLink} deleteDesignLink={deleteDesignLink} />
         )}
         {tab === "managerassign" && (
           <div className="sv-flex-col sv-gap-4">

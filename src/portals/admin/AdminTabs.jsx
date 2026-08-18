@@ -2810,7 +2810,7 @@ const designPriorityStyle = (p) => ({
 // Message screenshots: stored in activity.meta as a JSON array of URLs (or a bare URL for old rows).
 const parseMsgImgs = (meta) => { const mm = meta || ""; if (!mm) return []; if (mm[0] === "[") { try { return (JSON.parse(mm) || []).filter(Boolean); } catch (e) { return []; } } return /^https?:\/\//.test(mm) ? [mm] : []; };
 
-export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision, designWork = [], saveDesignWork, pushNotification, captureExpense, designArchive = [], saveDesignArchive, addProjectComment, uploadMessageImage, designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink }) {
+export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision, designWork = [], saveDesignWork, pushNotification, captureExpense, designArchive = [], saveDesignArchive, addProjectComment, uploadMessageImage, brandDomains = [], saveBrandDomains, designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink }) {
   const [search, setSearch] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [fPriority, setFPriority] = useState("");
@@ -2863,6 +2863,19 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
     return (designFiles || []).filter((f) => f.projectId === pid && isDesignerFile(f) && !isDraftFile(f.id) && String(f.createdAt || "") > String(ack));
   };
   const isNewFile = (f) => isDesignerFile(f) && !isDraftFile(f.id) && String(f.createdAt || "") > String(ackTsFor(f.projectId));
+  // ── Domains / Brands: admin-configured colour + logo, applied to projects by companyName ──
+  const brandFor = (name) => { const n = String(name || "").trim().toLowerCase(); return (brandDomains || []).find((b) => String(b.name || "").trim().toLowerCase() === n) || null; };
+  const hexToRgba = (hex, a) => { const h = String(hex || "").replace("#", ""); if (h.length !== 6) return `rgba(100,116,139,${a})`; const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); return `rgba(${r},${g},${b},${a})`; };
+  const brandStyle = (name) => { const b = brandFor(name); if (b && b.color) return { solid: b.color, bg: hexToRgba(b.color, 0.12), fg: b.color }; return domainColor(name); };
+  const [brandMgr, setBrandMgr] = useState(false);
+  const [brandRows, setBrandRows] = useState([]);
+  const [brandSaving, setBrandSaving] = useState(false);
+  const openBrandMgr = () => { setBrandRows((brandDomains || []).map((b) => ({ ...b }))); setBrandMgr(true); };
+  const addBrandRow = () => setBrandRows((r) => [...r, { id: `br${Date.now()}`, name: "", website: "", color: "#2563EB", logo: "" }]);
+  const updBrandRow = (i, patch) => setBrandRows((r) => r.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
+  const delBrandRow = (i) => setBrandRows((r) => r.filter((_, idx) => idx !== i));
+  const onBrandLogo = (i, e) => { const file = e.target.files && e.target.files[0]; if (!file) return; const rd = new FileReader(); rd.onload = () => updBrandRow(i, { logo: rd.result }); rd.readAsDataURL(file); e.target.value = ""; };
+  const saveBrands = async () => { setBrandSaving(true); const clean = brandRows.filter((b) => (b.name || "").trim()).map((b) => ({ ...b, name: b.name.trim() })); if (saveBrandDomains) await saveBrandDomains(clean); setBrandSaving(false); setBrandMgr(false); };
   // uploadKind holds a stage kind (e.g. "reference") OR a custom folder token "cf:<folderId>".
   const uploadOne = async (file) => {
     if (!file || !detail) return;
@@ -3217,6 +3230,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
           </div>
           <div className="sv-flex sv-gap-sm">
             {archivedProjects.length > 0 && <button className={`sv-btn sv-btn--outline${showArchived ? " sv-btn--danger" : ""}`} onClick={() => setShowArchived((v) => !v)}>{showArchived ? "← Back to Projects" : `Archived (${archivedProjects.length})`}</button>}
+            <button className="sv-btn sv-btn--outline" onClick={openBrandMgr} title="Configure domains/brands (colour + logo)">🎨 Manage Brands</button>
             <button className="sv-btn sv-btn--primary" onClick={openAdd}><Plus size={15} /> New Project</button>
           </div>
         </div>
@@ -3248,11 +3262,11 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
               const od = isOverdue(p);
               const newCount = newFilesFor(p.id).length;
               return (
-                <div key={p.id} className="sv-dsn-card" onClick={() => setDetail(p)} style={{ borderLeft: `4px solid ${domainColor(p.companyName).solid}`, ...(newCount ? { boxShadow: "0 0 0 2px #FDE68A inset" } : {}) }}>
+                <div key={p.id} className="sv-dsn-card" onClick={() => setDetail(p)} style={{ borderLeft: `4px solid ${brandStyle(p.companyName).solid}`, ...(newCount ? { boxShadow: "0 0 0 2px #FDE68A inset" } : {}) }}>
                   <div className="sv-dsn-card-top">
                     <div style={{ minWidth: 0 }}>
                       <div className="sv-dsn-client">{p.clientName}</div>
-                      {p.companyName ? <span className="sv-domain-chip" style={{ background: domainColor(p.companyName).bg, color: domainColor(p.companyName).fg }}><span className="sv-domain-dot" style={{ background: domainColor(p.companyName).solid }} />{p.companyName}</span> : <div className="sv-dsn-sub">—</div>}
+                      {p.companyName ? <span className="sv-domain-chip" style={{ background: brandStyle(p.companyName).bg, color: brandStyle(p.companyName).fg }}>{brandFor(p.companyName) && brandFor(p.companyName).logo ? <img src={brandFor(p.companyName).logo} alt="" style={{ height: 12, marginRight: 2, borderRadius: 2 }} /> : <span className="sv-domain-dot" style={{ background: brandStyle(p.companyName).solid }} />}{p.companyName}</span> : <div className="sv-dsn-sub">—</div>}
                     </div>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                       {newCount > 0 && <span title={`${newCount} new file(s) from the designer`} style={{ fontSize: 10.5, fontWeight: 800, color: "#B45309", background: "#FEF3C7", padding: "2px 8px", borderRadius: 999 }}>🆕 {newCount} new</span>}
@@ -3540,7 +3554,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
               <div className="sv-ws-right">
                 <div className="sv-card sv-ws-summary">
                   <div className="sv-section-label">Project Summary</div>
-                  {metaCell("Magazine Domain", detail.companyName)}
+                  {metaCell("Domain / Brand", detail.companyName ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 700, padding: "2px 9px", borderRadius: 999, background: brandStyle(detail.companyName).bg, color: brandStyle(detail.companyName).fg }}>{brandFor(detail.companyName) && brandFor(detail.companyName).logo ? <img src={brandFor(detail.companyName).logo} alt="" style={{ height: 14, borderRadius: 2 }} /> : <span style={{ width: 10, height: 10, borderRadius: 3, background: brandStyle(detail.companyName).solid }} />}{detail.companyName}</span> : "—")}
                   {metaCell("Project Title", detail.magazineName)}
                   {metaCell("Edition", detail.edition)}
                   {metaCell("Designer", detail.assignedDesignerName)}
@@ -3624,7 +3638,21 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
             <div style={{ overflowY: "auto", padding: "16px 20px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               {field("Client Name *", <input className="sv-input" value={form.clientName} onChange={(e) => upd("clientName", e.target.value)} placeholder="Client name" />)}
               {field("Project Title *", <input className="sv-input" value={form.magazineName} onChange={(e) => upd("magazineName", e.target.value)} placeholder="e.g. Top 10 Leaders" />)}
-              {field("Magazine Domain *", <input className="sv-input" value={form.companyName} onChange={(e) => upd("companyName", e.target.value)} placeholder="e.g. CIO Visionaries" />)}
+              {field("Domain / Brand *", (
+                <div>
+                  <select className="sv-select" value={brandFor(form.companyName) ? form.companyName : "__custom__"} onChange={(e) => { if (e.target.value !== "__custom__") upd("companyName", e.target.value); }}>
+                    {(brandDomains || []).map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
+                    <option value="__custom__">Custom / type below…</option>
+                  </select>
+                  <input className="sv-input" style={{ marginTop: 6 }} value={form.companyName} onChange={(e) => upd("companyName", e.target.value)} placeholder="e.g. CIO Visionaries" />
+                  {brandFor(form.companyName) && (
+                    <div style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 8, fontSize: 11.5, color: "#475569" }}>
+                      {brandFor(form.companyName).logo ? <img src={brandFor(form.companyName).logo} alt="" style={{ height: 16, borderRadius: 3 }} /> : null}
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><span style={{ width: 12, height: 12, borderRadius: 3, background: brandFor(form.companyName).color }} /> Brand theme applied</span>
+                    </div>
+                  )}
+                </div>
+              ))}
               {field("Edition *", <input className="sv-input" value={form.edition} onChange={(e) => upd("edition", e.target.value)} placeholder="e.g. Jan 2026" />)}
               {field("Assign Designer *", (
                 <select className="sv-select" value={form.assignedDesigner} onChange={(e) => setDesigner(e.target.value)}>
@@ -3645,6 +3673,42 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
               <div className="sv-flex sv-gap-sm">
                 <button className="sv-btn sv-btn--ghost" onClick={() => setForm(null)}>Cancel</button>
                 <button className="sv-btn sv-btn--primary" onClick={save} disabled={saving || !form.clientName.trim()}>{saving ? "Saving…" : isNew ? "Create" : "Save"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manage Brands / Domains */}
+      {brandMgr && (
+        <div className="sv-modal-overlay" onClick={() => setBrandMgr(false)}>
+          <div className="sv-modal" style={{ maxWidth: 720, maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={(ev) => ev.stopPropagation()}>
+            <div className="sv-modal-header" style={{ flexShrink: 0 }}>
+              <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>🎨 Domains / Brands</span>
+              <button className="sv-modal-close" onClick={() => setBrandMgr(false)}>×</button>
+            </div>
+            <div style={{ overflowY: "auto", padding: "14px 20px" }}>
+              <p className="sv-text-muted" style={{ fontSize: 12, marginTop: 0 }}>Set up each domain once (e.g. AWL, CIO). New projects can pick a domain and instantly get its logo &amp; colour.</p>
+              {brandRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12.5 }}>No brands yet — add your first below.</p> : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {brandRows.map((b, i) => (
+                    <div key={b.id || i} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.4fr auto auto auto", gap: 8, alignItems: "center", border: "1px solid #E2E8F0", borderRadius: 10, padding: "8px 10px" }}>
+                      <input className="sv-input" placeholder="Brand name (e.g. AWL)" value={b.name} onChange={(e) => updBrandRow(i, { name: e.target.value })} />
+                      <input className="sv-input" placeholder="Website (e.g. www.awl.com)" value={b.website || ""} onChange={(e) => updBrandRow(i, { website: e.target.value })} />
+                      <input type="color" value={b.color || "#2563EB"} onChange={(e) => updBrandRow(i, { color: e.target.value })} title="Brand colour" style={{ width: 40, height: 34, border: "1px solid #E2E8F0", borderRadius: 8, background: "none", cursor: "pointer" }} />
+                      <label className="sv-btn sv-btn--sm sv-btn--ghost" style={{ cursor: "pointer" }}>{b.logo ? <img src={b.logo} alt="" style={{ height: 18, borderRadius: 3 }} /> : "Logo"}<input type="file" accept="image/*" hidden onChange={(e) => onBrandLogo(i, e)} /></label>
+                      <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => delBrandRow(i)}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button className="sv-btn sv-btn--sm sv-btn--ghost" style={{ marginTop: 12 }} onClick={addBrandRow}><Plus size={13} /> Add brand</button>
+            </div>
+            <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", flexShrink: 0, alignItems: "center" }}>
+              <span className="sv-text-muted" style={{ fontSize: 12 }}>Colour &amp; logo apply to every project on that domain.</span>
+              <div className="sv-flex sv-gap-sm">
+                <button className="sv-btn sv-btn--ghost" onClick={() => setBrandMgr(false)}>Cancel</button>
+                <button className="sv-btn sv-btn--primary" onClick={saveBrands} disabled={brandSaving}>{brandSaving ? "Saving…" : "Save brands"}</button>
               </div>
             </div>
           </div>

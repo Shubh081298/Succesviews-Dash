@@ -68,6 +68,7 @@ export default function DesignerDashboard({
   designActivity = [], changeProjectStatus, addProjectComment, uploadMessageImage,
   designWork = [], saveDesignWork, pushNotification,
   notifications = [], markNotificationRead, markAllNotificationsRead, clearNotifications,
+  brandDomains = [],
   designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder,
   expenses = [], addExpense, showToast,
 }) {
@@ -110,6 +111,10 @@ export default function DesignerDashboard({
   const isDraftFile = (id) => (designExtra.drafts || []).includes(id);
   // Admin files newer than the designer's last acknowledgement stay flagged NEW so the designer
   // easily notices files the admin just sent (e.g. added to Client Draft after the first send).
+  // Brand colour/logo (admin-configured) applied by companyName, falling back to the auto colour.
+  const brandFor = (name) => { const n = String(name || "").trim().toLowerCase(); return (brandDomains || []).find((b) => String(b.name || "").trim().toLowerCase() === n) || null; };
+  const hexToRgba = (hex, a) => { const h = String(hex || "").replace("#", ""); if (h.length !== 6) return `rgba(100,116,139,${a})`; const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); return `rgba(${r},${g},${b},${a})`; };
+  const brandStyle = (name) => { const b = brandFor(name); if (b && b.color) return { solid: b.color, bg: hexToRgba(b.color, 0.12), fg: b.color }; return domainColor(name); };
   const dzAckTs = (pid) => (designExtra.acks || {})[`designer:${pid}`] || "";
   const isNewAdminFile = (f) => f.uploadedByName === "Admin" && !isDraftFile(f.id) && String(f.createdAt || "") > String(dzAckTs(f.projectId));
   const ask = (message, onYes, onNo) => setFlowAsk({ message, onYes, onNo });
@@ -284,9 +289,9 @@ export default function DesignerDashboard({
                   const files = designFiles.filter((x) => x.projectId === p.id && x.kind !== "reference").length;
                   const rev = p.status === "Revision Required";
                   return (
-                    <div key={p.id} className="sv-dsn-card" onClick={() => setOpenId(p.id)} style={{ borderLeft: `4px solid ${domainColor(p.companyName).solid}` }}>
+                    <div key={p.id} className="sv-dsn-card" onClick={() => setOpenId(p.id)} style={{ borderLeft: `4px solid ${brandStyle(p.companyName).solid}` }}>
                       <div className="sv-dsn-card-top">
-                        <div style={{ minWidth: 0 }}><div className="sv-dsn-client">{p.clientName}</div>{p.companyName ? <span className="sv-domain-chip" style={{ background: domainColor(p.companyName).bg, color: domainColor(p.companyName).fg }}><span className="sv-domain-dot" style={{ background: domainColor(p.companyName).solid }} />{p.companyName}</span> : <div className="sv-dsn-sub">—</div>}</div>
+                        <div style={{ minWidth: 0 }}><div className="sv-dsn-client">{p.clientName}</div>{p.companyName ? <span className="sv-domain-chip" style={{ background: brandStyle(p.companyName).bg, color: brandStyle(p.companyName).fg }}>{brandFor(p.companyName) && brandFor(p.companyName).logo ? <img src={brandFor(p.companyName).logo} alt="" style={{ height: 12, marginRight: 2, borderRadius: 2 }} /> : <span className="sv-domain-dot" style={{ background: brandStyle(p.companyName).solid }} />}{p.companyName}</span> : <div className="sv-dsn-sub">—</div>}</div>
                         {dzBadge(p.priority, dzStatusStyle(p.priority))}
                       </div>
                       <div className="sv-dsn-mag">{p.magazineName || "Untitled magazine"}{p.edition ? ` · ${p.edition}` : ""}</div>

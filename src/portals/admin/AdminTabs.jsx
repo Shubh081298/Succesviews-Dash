@@ -3409,31 +3409,25 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                   <div className="sv-fileadd">
                     <div className={`sv-dropzone${dragOver ? " is-drag" : ""}`}
                       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDropFiles}>
-                      <select className="sv-select" value={uploadKind} onChange={(e) => setUploadKind(e.target.value)} style={{ maxWidth: 150 }}>
+                      <label className="sv-form-label" style={{ margin: 0, whiteSpace: "nowrap" }}>Upload into:</label>
+                      <select className="sv-select" value={uploadKind} onChange={(e) => setUploadKind(e.target.value)} style={{ maxWidth: 170 }} title="Files are filed automatically into this folder">
                         {Object.entries(KIND_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                       </select>
-                      <select className="sv-select" value={uploadFolder} onChange={(e) => setUploadFolder(e.target.value)} style={{ maxWidth: 150 }} title="Optional folder">
-                        <option value="">No folder</option>
-                        {((designExtra.folders || {})[detail.id] || []).map((fo) => <option key={fo.id} value={fo.id}>{fo.name}</option>)}
-                      </select>
                       <input ref={fileRef} type="file" multiple onChange={onUploadFile} disabled={uploading} accept=".pdf,.ai,.psd,.png,.jpg,.jpeg,.svg,.docx,.zip,image/*" style={{ fontSize: 12.5 }} />
-                      <span className="sv-dropzone-hint">{uploading ? "Uploading…" : "or drag & drop — files stay private until sent"}</span>
+                      <span className="sv-dropzone-hint">{uploading ? "Uploading…" : `filed into “${KIND_LABELS[uploadKind]}” · drag & drop works too`}</span>
                     </div>
                     <div className="sv-flex sv-gap-2" style={{ marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
-                      <input className="sv-input" placeholder="New folder name…" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} style={{ maxWidth: 170, fontSize: 12.5 }} />
-                      <button className="sv-btn sv-btn--sm sv-btn--ghost" disabled={!newFolder.trim()} onClick={async () => { await addDesignFolder(detail.id, newFolder, "admin"); setNewFolder(""); }}><Plus size={13} /> Folder</button>
-                      <input className="sv-input" placeholder="Link label" value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} style={{ maxWidth: 130, fontSize: 12.5 }} />
-                      <input className="sv-input" placeholder="https://… (optional)" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} style={{ maxWidth: 190, fontSize: 12.5 }} />
+                      <span className="sv-text-muted" style={{ fontSize: 11.5 }}>Add a link (optional):</span>
+                      <input className="sv-input" placeholder="Link label" value={linkLabel} onChange={(e) => setLinkLabel(e.target.value)} style={{ maxWidth: 150, fontSize: 12.5 }} />
+                      <input className="sv-input" placeholder="https://…" value={linkUrl} onChange={(e) => setLinkUrl(e.target.value)} style={{ maxWidth: 200, fontSize: 12.5 }} />
                       <button className="sv-btn sv-btn--sm sv-btn--ghost" disabled={!linkUrl.trim()} onClick={async () => { await addDesignLink(detail.id, linkLabel, linkUrl, "admin"); setLinkLabel(""); setLinkUrl(""); }}><Plus size={13} /> Link</button>
                     </div>
                   </div>
                   {(() => {
                     const all = designFiles.filter((x) => x.projectId === detail.id);
                     const visible = (f) => f.uploadedByName === "Admin" || !isDraftFile(f.id); // designer files only after they submit
-                    const ff = designExtra.fileFolders || {};
                     const myDrafts = all.filter((f) => f.uploadedByName === "Admin" && isDraftFile(f.id));
                     const links = ((designExtra.links || {})[detail.id] || []).filter((l) => l.side === "admin");
-                    const allFolders = ((designExtra.folders || {})[detail.id] || []); /* shared — both sides */
                     const rowA = (f, latest) => {
                       const isImg = /\.(png|jpe?g|svg|gif|webp)$/i.test(f.fileName);
                       const draft = isDraftFile(f.id) && f.uploadedByName === "Admin";
@@ -3451,29 +3445,35 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                         </div>
                       );
                     };
-                    const sections = [];
-                    allFolders.forEach((fo) => {
-                      const fs = all.filter((f) => visible(f) && (ff[f.id] || "") === fo.id).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-                      const open = !!openFolders[fo.id];
-                      sections.push(
-                        <div key={"fo-" + fo.id} className={`sv-folder${open ? " is-open" : ""}`}>
-                          <div className="sv-folder-head" onClick={() => toggleFolder(fo.id)}>
+                    // ── Auto-folders by kind: every file lands in its stage folder (Draft, Client Draft,
+                    //    Sample, Cover Page, Index Page, …). Clean, well-defined, nothing to file manually. ──
+                    const KIND_ORDER = ["draft", "reference", "images", "sample", "cp", "cs", "index", "magazine", "revised", "final"];
+                    const KIND_COLOR = { draft: "#F59E0B", reference: "#0EA5E9", images: "#14B8A6", sample: "#7C3AED", cp: "#2563EB", cs: "#8B5CF6", index: "#0891B2", magazine: "#4F46E5", revised: "#EA580C", final: "#16A34A", other: "#64748B" };
+                    const vis = all.filter(visible);
+                    const known = new Set(KIND_ORDER);
+                    const groups = KIND_ORDER
+                      .map((k) => ({ k, label: KIND_LABELS[k] || k, files: vis.filter((f) => f.kind === k).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)) }))
+                      .filter((g) => g.files.length);
+                    const otherFiles = vis.filter((f) => !known.has(f.kind)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                    if (otherFiles.length) groups.push({ k: "other", label: "Other", files: otherFiles });
+                    const sections = groups.map((g) => {
+                      const key = "kind:" + g.k;
+                      const open = !openFolders[key]; // default OPEN so files are always visible; click collapses
+                      const gnew = g.files.some(isNewFile);
+                      const col = KIND_COLOR[g.k] || "#64748B";
+                      return (
+                        <div key={g.k} className={`sv-folder${open ? " is-open" : ""}`} style={{ borderLeft: `3px solid ${col}` }}>
+                          <div className="sv-folder-head" onClick={() => toggleFolder(key)}>
                             <span className="sv-folder-caret">{open ? "▾" : "▸"}</span>
-                            <FolderOpen size={15} className="sv-folder-ic" />
-                            <span className="sv-folder-name">{fo.name}</span>
-                            <span className="sv-folder-count">{fs.length} file{fs.length !== 1 ? "s" : ""}</span>
-                            {!fo.released && fo.side === "admin" && <span className="sv-file-draft">private</span>}
-                            <button className="sv-btn sv-btn--sm sv-btn--ghost sv-folder-del" onClick={(e) => { e.stopPropagation(); ask(`Delete folder "${fo.name}"? Files inside are kept.`, () => deleteDesignFolder(detail.id, fo.id)); }}>×</button>
+                            <FolderOpen size={15} className="sv-folder-ic" style={{ color: col }} />
+                            <span className="sv-folder-name">{g.label}</span>
+                            <span className="sv-folder-count">{g.files.length} file{g.files.length !== 1 ? "s" : ""}</span>
+                            {gnew && <span style={{ fontSize: 10, fontWeight: 800, color: "#B45309", background: "#FEF3C7", padding: "1px 7px", borderRadius: 999 }}>NEW</span>}
                           </div>
-                          {open && <div className="sv-folder-body">{fs.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12 }}>No files here yet.</p> : fs.map((f, fi) => rowA(f, fi === 0))}</div>}
+                          {open && <div className="sv-folder-body">{g.files.map((f, fi) => rowA(f, fi === 0))}</div>}
                         </div>
                       );
                     });
-                    // Loose = files with no folder OR whose folder no longer exists (so a deleted folder
-                    // can never make a file vanish — it just falls back to the loose list).
-                    const folderIdSet = new Set(allFolders.map((fo) => fo.id));
-                    const loose = all.filter((f) => visible(f) && !folderIdSet.has(ff[f.id] || "")).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-                    if (loose.length) sections.push(<div key="loose" style={{ display: "flex", flexDirection: "column", gap: 8 }}>{loose.map((f, fi) => rowA(f, fi === 0))}</div>);
                     const newFiles = newFilesFor(detail.id);
                     const latestNewTs = newFiles.reduce((m, f) => (String(f.createdAt || "") > m ? String(f.createdAt) : m), "");
                     return (

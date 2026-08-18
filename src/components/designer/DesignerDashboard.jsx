@@ -452,19 +452,14 @@ export default function DesignerDashboard({
                   <div className="sv-fileadd">
                     <div className={`sv-dropzone${dragOver ? " is-drag" : ""}`}
                       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDropFiles}>
-                      <select className="sv-select" value={uploadKind} onChange={(e) => setUploadKind(e.target.value)} style={{ maxWidth: 160 }}>
+                      <label className="sv-form-label" style={{ margin: 0, whiteSpace: "nowrap" }}>Upload into:</label>
+                      <select className="sv-select" value={uploadKind} onChange={(e) => setUploadKind(e.target.value)} style={{ maxWidth: 170 }} title="Files are filed automatically into this folder">
                         {Object.entries(DZ_KINDS).map(([k, l]) => { const lock = DZ_ONCE.includes(k) && sampleExists && dzCanon(project.status) !== "Sample Design"; return <option key={k} value={k} disabled={lock}>{l}{lock ? " (added)" : ""}</option>; })}
                       </select>
-                      <select className="sv-select" value={uploadFolder} onChange={(e) => setUploadFolder(e.target.value)} style={{ maxWidth: 150 }} title="Optional folder">
-                        <option value="">No folder</option>
-                        {allFolders.map((fo) => <option key={fo.id} value={fo.id}>{fo.name}</option>)}
-                      </select>
                       <input ref={fileRef} type="file" multiple onChange={onUpload} disabled={uploading} accept=".pdf,.ai,.psd,.png,.jpg,.jpeg,.svg,.docx,.zip,image/*" style={{ fontSize: 12.5 }} />
-                      <span className="sv-dropzone-hint">{uploading ? "Uploading…" : "or drag & drop — files stay private until you Submit"}</span>
+                      <span className="sv-dropzone-hint">{uploading ? "Uploading…" : `filed into “${DZ_KINDS[uploadKind] || uploadKind}” · stays private until you Submit`}</span>
                     </div>
                     <div className="sv-flex sv-gap-2" style={{ marginTop: 10, flexWrap: "wrap" }}>
-                      <input className="sv-input" placeholder="New folder name…" value={newFolder} onChange={(e) => setNewFolder(e.target.value)} style={{ maxWidth: 200, fontSize: 12.5 }} />
-                      <button className="sv-btn sv-btn--sm sv-btn--ghost" disabled={!newFolder.trim()} onClick={async () => { await addDesignFolder(project.id, newFolder, "designer"); setNewFolder(""); }}><Plus size={13} /> Create folder</button>
                       {hasPendingDrafts && (
                         <button
                           className="sv-btn sv-btn--sm sv-btn--primary"
@@ -479,33 +474,28 @@ export default function DesignerDashboard({
                   <div style={{ height: 14 }} />
                   {(() => {
                     const draftReleased = project.status !== "Draft";
-                    const sections = [];
-                    allFolders.forEach((fo) => {
-                      const fs = projFiles.filter((f) => visible(f) && inFolder(f, fo.id)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-                      const open = !!openFolders[fo.id];
-                      const mine = fo.side === "designer";
-                      sections.push(
-                        <div key={"fo-" + fo.id} className={`sv-folder${open ? " is-open" : ""}`}>
-                          <div className="sv-folder-head" onClick={() => toggleFolder(fo.id)}>
+                    // Clean auto-folders by kind — same premium structure the admin sees.
+                    const KIND_COLOR = { draft: "#F59E0B", reference: "#0EA5E9", images: "#14B8A6", sample: "#7C3AED", cp: "#2563EB", cs: "#8B5CF6", index: "#0891B2", magazine: "#4F46E5", revised: "#EA580C", final: "#16A34A", other: "#64748B" };
+                    const known = new Set(FILE_FOLDERS.map(([k]) => k));
+                    const groups = FILE_FOLDERS
+                      .filter(([kind]) => draftReleased || !ADMIN_DRAFT_KINDS.includes(kind))
+                      .map(([kind, label]) => ({ kind, label, files: projFiles.filter((f) => visible(f) && f.kind === kind).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)) }))
+                      .filter((g) => g.files.length);
+                    const otherFiles = projFiles.filter((f) => visible(f) && !known.has(f.kind)).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+                    if (otherFiles.length) groups.push({ kind: "other", label: "Other", files: otherFiles });
+                    const sections = groups.map((g) => {
+                      const key = "kind:" + g.kind;
+                      const open = !openFolders[key]; // default OPEN; click collapses
+                      const col = KIND_COLOR[g.kind] || "#64748B";
+                      return (
+                        <div key={g.kind} className={`sv-folder${open ? " is-open" : ""}`} style={{ borderLeft: `3px solid ${col}` }}>
+                          <div className="sv-folder-head" onClick={() => toggleFolder(key)}>
                             <span className="sv-folder-caret">{open ? "▾" : "▸"}</span>
-                            <FolderOpen size={15} className="sv-folder-ic" />
-                            <span className="sv-folder-name">{fo.name}</span>
-                            <span className="sv-folder-count">{fs.length} file{fs.length !== 1 ? "s" : ""}</span>
-                            {!fo.released && mine && <span className="sv-file-draft">private</span>}
-                            {mine && <button className="sv-btn sv-btn--sm sv-btn--ghost sv-folder-del" onClick={(e) => { e.stopPropagation(); ask(`Delete folder "${fo.name}"? Files inside are kept (just un-foldered).`, () => deleteDesignFolder(project.id, fo.id)); }}><Trash2 size={12} /></button>}
+                            <FolderOpen size={15} className="sv-folder-ic" style={{ color: col }} />
+                            <span className="sv-folder-name">{g.label}</span>
+                            <span className="sv-folder-count">{g.files.length} file{g.files.length !== 1 ? "s" : ""}</span>
                           </div>
-                          {open && <div className="sv-folder-body">{fs.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12 }}>No files here yet.</p> : fs.map((f, fi) => fileRow(f, !ADMIN_DRAFT_KINDS.includes(f.kind), fi === 0))}</div>}
-                        </div>
-                      );
-                    });
-                    FILE_FOLDERS.forEach(([kind, label]) => {
-                      if (!draftReleased && ADMIN_DRAFT_KINDS.includes(kind)) return;
-                      const fs = projFiles.filter((f) => visible(f) && f.kind === kind && !(fileFolders[f.id])).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-                      if (fs.length === 0) return;
-                      sections.push(
-                        <div key={kind} style={{ marginBottom: 12 }}>
-                          <div className="sv-section-label">{label} <span className="sv-text-muted">({fs.length})</span></div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 6 }}>{fs.map((f, fi) => fileRow(f, !ADMIN_DRAFT_KINDS.includes(kind), fi === 0))}</div>
+                          {open && <div className="sv-folder-body">{g.files.map((f, fi) => fileRow(f, !ADMIN_DRAFT_KINDS.includes(g.kind), fi === 0))}</div>}
                         </div>
                       );
                     });

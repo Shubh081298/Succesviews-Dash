@@ -2810,7 +2810,7 @@ const designPriorityStyle = (p) => ({
 // Message screenshots: stored in activity.meta as a JSON array of URLs (or a bare URL for old rows).
 const parseMsgImgs = (meta) => { const mm = meta || ""; if (!mm) return []; if (mm[0] === "[") { try { return (JSON.parse(mm) || []).filter(Boolean); } catch (e) { return []; } } return /^https?:\/\//.test(mm) ? [mm] : []; };
 
-export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision, designWork = [], saveDesignWork, pushNotification, captureExpense, designArchive = [], saveDesignArchive, addProjectComment, uploadMessageImage, brandDomains = [], saveBrandDomains, designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink }) {
+export function DesignsTab({ designProjects = [], addDesignProject, updateDesignProject, deleteDesignProject, employees = [], designFiles = [], uploadDesignFile, deleteDesignFile, designActivity = [], changeProjectStatus, requestRevision, designWork = [], saveDesignWork, pushNotification, captureExpense, designArchive = [], saveDesignArchive, addProjectComment, uploadMessageImage, brandDomains = [], saveBrandDomains, designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {}, seen: {} }, releaseDesign, acknowledgeDesign, markDesignSeen, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink }) {
   const [search, setSearch] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [fPriority, setFPriority] = useState("");
@@ -2872,6 +2872,8 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
   const [brandMgr, setBrandMgr] = useState(false);
   const [brandRows, setBrandRows] = useState([]);
   const [brandSaving, setBrandSaving] = useState(false);
+  const [designNotifOpen, setDesignNotifOpen] = useState(false);
+  const notifAgo = (ts) => { const s = Math.floor((Date.now() - new Date(ts).getTime()) / 1000); if (s < 60) return "just now"; const m = Math.floor(s / 60); if (m < 60) return m + "m ago"; const h = Math.floor(m / 60); if (h < 24) return h + "h ago"; return new Date(ts).toLocaleDateString(); };
   const openBrandMgr = () => { setBrandRows((brandDomains || []).map((b) => ({ ...b }))); setBrandMgr(true); };
   const addBrandRow = () => setBrandRows((r) => [...r, { id: `br${Date.now()}`, name: "", website: "", color: "#2563EB", logo: "", logoZoom: 120 }]);
   const updBrandRow = (i, patch) => setBrandRows((r) => r.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
@@ -2915,6 +2917,28 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
 
   const archivedIds = new Set((designArchive || []).map((a) => a.id));
   const archivedProjects = designProjects.filter((p) => archivedIds.has(p.id));
+  // Design-section notification feed (admin) — from shared data (designer messages, status changes,
+  // released designer files). Reliable across devices; unread = anything newer than "last seen".
+  const designFeed = (() => {
+    const nameOf = {}; (designProjects || []).forEach((p) => { nameOf[p.id] = p.clientName; });
+    const live = new Set((designProjects || []).filter((p) => !archivedIds.has(p.id)).map((p) => p.id));
+    const ev = [];
+    (designActivity || []).forEach((a) => {
+      if (!live.has(a.projectId) || a.actorRole === "admin") return;
+      if (!["message", "status", "revision"].includes(a.type)) return;
+      const kind = a.type === "message" ? "💬 Message" : a.type === "status" ? `→ ${a.meta || "Status"}` : "🔄 Revision";
+      ev.push({ id: a.id, ts: a.createdAt, projectId: a.projectId, client: nameOf[a.projectId] || "", actor: a.actorName || "", kind, text: (a.comment || a.meta || "").replace(/^🔄\s*Changes requested:\s*/i, "").slice(0, 90) });
+    });
+    (designFiles || []).forEach((f) => {
+      if (!live.has(f.projectId) || f.uploadedByName === "Admin" || isDraftFile(f.id)) return;
+      ev.push({ id: "f" + f.id, ts: f.createdAt, projectId: f.projectId, client: nameOf[f.projectId] || "", actor: f.uploadedByName || "", kind: "📎 New file", text: f.fileName });
+    });
+    ev.sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+    return ev.slice(0, 40);
+  })();
+  const designSeenTs = (designExtra.seen || {}).admin || "";
+  const designUnread = designFeed.filter((e) => String(e.ts || "") > String(designSeenTs)).length;
+  const openDesignNotif = () => { const willOpen = !designNotifOpen; setDesignNotifOpen(willOpen); if (willOpen && markDesignSeen) markDesignSeen("admin"); };
   // KPI counts reflect only active projects — archived ones are excluded so the
   // stat cards always agree with the project list below them.
   const activeProjects = designProjects.filter((p) => !archivedIds.has(p.id));
@@ -3232,6 +3256,34 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
           </div>
           <div className="sv-flex sv-gap-sm">
             {archivedProjects.length > 0 && <button className={`sv-btn sv-btn--outline${showArchived ? " sv-btn--danger" : ""}`} onClick={() => setShowArchived((v) => !v)}>{showArchived ? "← Back to Projects" : `Archived (${archivedProjects.length})`}</button>}
+            <span style={{ position: "relative", display: "inline-flex" }}>
+              <button className="sv-bell-btn" onClick={openDesignNotif} title="Design updates" aria-label="Design updates">
+                <Bell size={18} />
+                {designUnread > 0 ? <span className="sv-bell-dot">{designUnread}</span> : null}
+              </button>
+              {designNotifOpen && (
+                <>
+                  <div className="sv-notif-backdrop" onClick={() => setDesignNotifOpen(false)} />
+                  <div className="sv-notif-panel">
+                    <div className="sv-notif-panel-head"><strong>Design updates</strong><span className="sv-text-muted" style={{ fontSize: 11.5 }}>{designFeed.length} recent</span></div>
+                    {designFeed.length === 0 ? <div className="sv-notif-empty">🔔 No design activity yet.</div> : (
+                      <div className="sv-notif-list">
+                        {designFeed.map((e) => { const unread = String(e.ts || "") > String(designSeenTs); return (
+                          <div key={e.id} className={`sv-notif-card${unread ? "" : " is-read"}`} onClick={() => { setDesignNotifOpen(false); const p = designProjects.find((x) => x.id === e.projectId); if (p) setDetail(p); }} style={{ cursor: "pointer" }}>
+                            <span className="sv-notif-dot" />
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div className="sv-notif-msg"><b>{e.client}</b> · {e.kind}{e.text ? ` — ${e.text}` : ""}</div>
+                              <div className="sv-notif-time">{e.actor ? e.actor + " · " : ""}{e.ts ? notifAgo(e.ts) : ""}</div>
+                            </div>
+                            {unread && <span className="sv-notif-unread" title="New" />}
+                          </div>
+                        ); })}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </span>
             <button className="sv-btn sv-btn--outline" onClick={openBrandMgr} title="Configure domains/brands (colour + logo)">🎨 Manage Brands</button>
             <button className="sv-btn sv-btn--primary" onClick={openAdd}><Plus size={15} /> New Project</button>
           </div>

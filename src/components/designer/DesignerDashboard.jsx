@@ -69,7 +69,7 @@ export default function DesignerDashboard({
   designWork = [], saveDesignWork, pushNotification,
   notifications = [], markNotificationRead, markAllNotificationsRead, clearNotifications,
   brandDomains = [],
-  designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder,
+  designExtra = { drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {}, seen: {} }, releaseDesign, acknowledgeDesign, markDesignSeen, addDesignFolder, deleteDesignFolder,
   expenses = [], addExpense, showToast,
 }) {
   const [tab, setTab] = useState("designs");
@@ -131,6 +131,28 @@ export default function DesignerDashboard({
   const unreadNotifs = (notifications || []).filter((n) => !n.read).length;
   const notifTimeAgo = (ts) => { const s2 = Math.floor((Date.now() - ts) / 1000); if (s2 < 60) return "just now"; const m2 = Math.floor(s2 / 60); if (m2 < 60) return m2 + "m ago"; const h2 = Math.floor(m2 / 60); if (h2 < 24) return h2 + "h ago"; return new Date(ts).toLocaleDateString(); };
   const project = myProjects.find((p) => p.id === openId) || null;
+  // Design notification feed (designer) — from shared data (admin messages, status changes,
+  // released admin files) so the designer reliably sees what the admin did. Unread = newer than seen.
+  const dzSeenTs = (designExtra.seen || {})[emp.id] || "";
+  const dzFeed = (() => {
+    const ids = new Set(myProjects.map((p) => p.id));
+    const nameOf = {}; myProjects.forEach((p) => { nameOf[p.id] = p.clientName; });
+    const ev = [];
+    (designActivity || []).forEach((a) => {
+      if (!ids.has(a.projectId) || a.actorRole !== "admin") return;
+      if (!["message", "status", "revision"].includes(a.type)) return;
+      const kind = a.type === "message" ? (/changes requested/i.test(a.comment || "") ? "🔄 Changes requested" : "💬 Message") : a.type === "status" ? `→ ${a.meta || "Status"}` : "🔄 Changes requested";
+      ev.push({ id: a.id, ts: a.createdAt, projectId: a.projectId, client: nameOf[a.projectId] || "", actor: a.actorName || "Admin", kind, text: (a.comment || a.meta || "").replace(/^🔄\s*Changes requested:\s*/i, "").slice(0, 90) });
+    });
+    (designFiles || []).forEach((f) => {
+      if (!ids.has(f.projectId) || f.uploadedByName !== "Admin" || isDraftFile(f.id)) return;
+      ev.push({ id: "f" + f.id, ts: f.createdAt, projectId: f.projectId, client: nameOf[f.projectId] || "", actor: "Admin", kind: "📎 New file", text: f.fileName });
+    });
+    ev.sort((a, b) => String(b.ts || "").localeCompare(String(a.ts || "")));
+    return ev.slice(0, 40);
+  })();
+  const dzUnread = dzFeed.filter((e) => String(e.ts || "") > String(dzSeenTs)).length;
+  const openDzNotif = () => { const willOpen = !notifOpen; setNotifOpen(willOpen); if (willOpen && markDesignSeen) markDesignSeen(emp.id); };
   const myExpenses = expenses.filter((e) => e.type === "company" && e.details && e.details.submittedBy === emp.id);
   const myWork = useMemo(() => (designWork || []).filter((w) => w.designerId === emp.id), [designWork, emp.id]);
   const projWork = project ? myWork.filter((w) => w.projectId === project.id) : [];
@@ -250,32 +272,26 @@ export default function DesignerDashboard({
           <div className="sv-tab">
             <div className="sv-flex sv-justify-between sv-items-center" style={{ position: "relative" }}>
               <h2 className="sv-tab-title" style={{ margin: 0 }}>My Design Projects</h2>
-              <button className="sv-bell-btn" onClick={() => setNotifOpen((v) => !v)} title="Notifications" aria-label="Notifications">
+              <button className="sv-bell-btn" onClick={openDzNotif} title="Design updates" aria-label="Design updates">
                 <Bell size={18} />
-                {unreadNotifs ? <span className="sv-bell-dot">{unreadNotifs}</span> : null}
+                {dzUnread ? <span className="sv-bell-dot">{dzUnread}</span> : null}
               </button>
               {notifOpen && (
                 <>
                   <div className="sv-notif-backdrop" onClick={() => setNotifOpen(false)} />
                   <div className="sv-notif-panel">
-                    <div className="sv-notif-panel-head">
-                      <strong>Notifications</strong>
-                      <div className="sv-flex sv-gap-2">
-                        <button className="sv-notif-act" onClick={markAllNotificationsRead} disabled={!unreadNotifs}>Mark all read</button>
-                        <button className="sv-notif-act" onClick={clearNotifications} disabled={!(notifications || []).length}>Clear</button>
-                      </div>
-                    </div>
-                    {(notifications || []).length === 0 ? (
+                    <div className="sv-notif-panel-head"><strong>Design updates</strong><span className="sv-text-muted" style={{ fontSize: 11.5 }}>{dzFeed.length} recent</span></div>
+                    {dzFeed.length === 0 ? (
                       <div className="sv-notif-empty">🔔 You're all caught up.</div>
                     ) : (
                       <div className="sv-notif-list">
-                        {(notifications || []).map((n) => (
-                          <div key={n.id} className={`sv-notif-card sv-notif-card--${n.type || "info"}${n.read ? " is-read" : ""}`} onClick={() => markNotificationRead(n.id)}>
+                        {dzFeed.map((e) => { const unread = String(e.ts || "") > String(dzSeenTs); return (
+                          <div key={e.id} className={`sv-notif-card${unread ? "" : " is-read"}`} onClick={() => { setNotifOpen(false); setOpenId(e.projectId); }} style={{ cursor: "pointer" }}>
                             <span className="sv-notif-dot" />
-                            <div style={{ minWidth: 0, flex: 1 }}><div className="sv-notif-msg">{n.msg}</div><div className="sv-notif-time">{notifTimeAgo(n.ts)}</div></div>
-                            {!n.read && <span className="sv-notif-unread" title="Unread" />}
+                            <div style={{ minWidth: 0, flex: 1 }}><div className="sv-notif-msg"><b>{e.client}</b> · {e.kind}{e.text ? ` — ${e.text}` : ""}</div><div className="sv-notif-time">{e.actor ? e.actor + " · " : ""}{e.ts ? notifTimeAgo(e.ts) : ""}</div></div>
+                            {unread && <span className="sv-notif-unread" title="New" />}
                           </div>
-                        ))}
+                        ); })}
                       </div>
                     )}
                   </div>

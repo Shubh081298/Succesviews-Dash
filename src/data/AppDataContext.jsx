@@ -28,8 +28,8 @@ export function AppDataProvider({ children }) {
   const [designWork, setDesignWork]         = useState([]);  // designer client-wise work items
   const [designArchive, setDesignArchive]   = useState([]);  // soft-archived design projects
   const [brandDomains, setBrandDomains]     = useState([]);  // configurable domains/brands: {id,name,website,logo,color}
-  const [designExtra, setDesignExtra]       = useState({ drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }); // submit-gate + custom folders + links + admin acknowledgements (settings-backed)
-  const designExtraRef = useRef({ drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {} }); // synchronous mirror to avoid stale-closure across sequential uploads
+  const [designExtra, setDesignExtra]       = useState({ drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {}, seen: {} }); // submit-gate + custom folders + links + acknowledgements + per-user notification "last seen" (settings-backed)
+  const designExtraRef = useRef({ drafts: [], folders: {}, links: {}, fileFolders: {}, acks: {}, seen: {} }); // synchronous mirror to avoid stale-closure across sequential uploads
   const [customFields, setCustomFields]     = useState([]);
   const [announcements, setAnnouncements]   = useState([]);
   const [messages, setMessages]             = useState([]);
@@ -632,7 +632,7 @@ export function AppDataProvider({ children }) {
           try { const v = JSON.parse(row.value); if (Array.isArray(v)) setBrandDomains(v); } catch {}
         }
         if (row.key === "design_extra") {
-          try { const v = JSON.parse(row.value) || {}; const de = { drafts: v.drafts || [], folders: v.folders || {}, links: v.links || {}, fileFolders: v.fileFolders || {}, acks: v.acks || {} }; designExtraRef.current = de; setDesignExtra(de); } catch {}
+          try { const v = JSON.parse(row.value) || {}; const de = { drafts: v.drafts || [], folders: v.folders || {}, links: v.links || {}, fileFolders: v.fileFolders || {}, acks: v.acks || {}, seen: v.seen || {} }; designExtraRef.current = de; setDesignExtra(de); } catch {}
         }
         // admin_password is verified server-side (admin_login RPC); never loaded to the client.
         if (row.key === "admin_email") setAdminEmailState(row.value || "");
@@ -1112,6 +1112,14 @@ export function AppDataProvider({ children }) {
     acks[`${who}:${projectId}`] = ts || new Date().toISOString();
     await saveDesignExtra({ ...cur, acks });
   }
+  // Design-section notification "last seen" per user (who = "admin" or a designer's employee id).
+  // Anything newer than this timestamp (messages, status changes, released files) counts as unread.
+  async function markDesignSeen(who, ts) {
+    const cur = designExtraRef.current;
+    const seen = { ...(cur.seen || {}) };
+    seen[who] = ts || new Date().toISOString();
+    await saveDesignExtra({ ...cur, seen });
+  }
   async function addDesignFolder(projectId, name, side) {
     const cur = designExtraRef.current;
     const id = genId();
@@ -1473,7 +1481,7 @@ export function AppDataProvider({ children }) {
     designWork, saveDesignWork,
     designArchive, saveDesignArchive,
     brandDomains, saveBrandDomains,
-    designExtra, releaseDesign, acknowledgeDesign, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink,
+    designExtra, releaseDesign, acknowledgeDesign, markDesignSeen, addDesignFolder, deleteDesignFolder, addDesignLink, deleteDesignLink,
     // Pipeline (Employee CRM)
     pipelineClients, pipelineFollowups, pipelineContracts, pipelineSales, pipelinePayments, pipelineNotes, pipelineHistory,
     domains, addDomain, updateDomain, deleteDomain, pipelineStatuses,

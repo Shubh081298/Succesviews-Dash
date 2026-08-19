@@ -115,6 +115,8 @@ export default function DesignerDashboard({
   const brandFor = (name) => { const n = String(name || "").trim().toLowerCase(); return (brandDomains || []).find((b) => String(b.name || "").trim().toLowerCase() === n) || null; };
   const hexToRgba = (hex, a) => { const h = String(hex || "").replace("#", ""); if (h.length !== 6) return `rgba(100,116,139,${a})`; const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); return `rgba(${r},${g},${b},${a})`; };
   const brandStyle = (name) => { const b = brandFor(name); if (b && b.color) return { solid: b.color, bg: hexToRgba(b.color, 0.12), fg: b.color }; return domainColor(name); };
+  const brandZoom = (name) => { const b = brandFor(name); return (b && b.logoZoom) || 120; };
+  const brandLogoStyle = (name) => ({ width: "100%", height: "100%", objectFit: "contain", transform: `scale(${brandZoom(name) / 100})` });
   const dzAckTs = (pid) => (designExtra.acks || {})[`designer:${pid}`] || "";
   const isNewAdminFile = (f) => f.uploadedByName === "Admin" && !isDraftFile(f.id) && String(f.createdAt || "") > String(dzAckTs(f.projectId));
   const ask = (message, onYes, onNo) => setFlowAsk({ message, onYes, onNo });
@@ -301,7 +303,7 @@ export default function DesignerDashboard({
                         <span>📅 {p.dueDate ? fmtDate(p.dueDate) : "No due date"}</span>
                         <span>📎 {files} upload{files !== 1 ? "s" : ""}</span>
                         {rev && <span className="sv-dsn-over">● Revision</span>}
-                        {brandFor(p.companyName) && brandFor(p.companyName).logo && <span title={p.companyName} style={{ marginLeft: "auto", flex: "none", height: 30, width: 92, display: "inline-flex", alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: 6 }}><img src={brandFor(p.companyName).logo} alt={p.companyName} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></span>}
+                        {brandFor(p.companyName) && brandFor(p.companyName).logo && <span title={p.companyName} style={{ marginLeft: "auto", flex: "none", height: 30, width: 92, display: "inline-flex", alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: 6 }}><img src={brandFor(p.companyName).logo} alt={p.companyName} style={brandLogoStyle(p.companyName)} /></span>}
                       </div>
                       <div className="sv-dsn-actions"><button className="sv-chip-btn sv-chip-btn--violet" onClick={(e) => { e.stopPropagation(); setOpenId(p.id); }}>Open project</button></div>
                     </div>
@@ -319,7 +321,7 @@ export default function DesignerDashboard({
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <h2 className="sv-tab-title" style={{ margin: 0 }}>{project.clientName}</h2>
               {project.companyName && <span className="sv-domain-chip" style={{ background: brandStyle(project.companyName).bg, color: brandStyle(project.companyName).fg }}><span className="sv-domain-dot" style={{ background: brandStyle(project.companyName).solid }} />{project.companyName}</span>}
-              {brandFor(project.companyName) && brandFor(project.companyName).logo && <span title={project.companyName} style={{ marginLeft: "auto", flex: "none", height: 48, width: 136, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff", overflow: "hidden" }}><img src={brandFor(project.companyName).logo} alt={project.companyName} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></span>}
+              {brandFor(project.companyName) && brandFor(project.companyName).logo && <span title={project.companyName} style={{ marginLeft: "auto", flex: "none", height: 48, width: 136, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff", overflow: "hidden" }}><img src={brandFor(project.companyName).logo} alt={project.companyName} style={brandLogoStyle(project.companyName)} /></span>}
             </div>
 
             <div className="sv-card" style={project.companyName ? { borderTop: `3px solid ${brandStyle(project.companyName).solid}` } : undefined}>
@@ -380,6 +382,7 @@ export default function DesignerDashboard({
                       statusLabel={own[0] === "You" ? "In Progress" : "Under Review"}
                       brand={project.companyName ? brandStyle(project.companyName).solid : ""}
                       logo={brandFor(project.companyName) && brandFor(project.companyName).logo ? brandFor(project.companyName).logo : ""}
+                      logoZoom={brandZoom(project.companyName)}
                     />
                   </>);
                 })()}

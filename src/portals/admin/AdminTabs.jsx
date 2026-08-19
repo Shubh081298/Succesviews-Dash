@@ -2867,11 +2867,13 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
   const brandFor = (name) => { const n = String(name || "").trim().toLowerCase(); return (brandDomains || []).find((b) => String(b.name || "").trim().toLowerCase() === n) || null; };
   const hexToRgba = (hex, a) => { const h = String(hex || "").replace("#", ""); if (h.length !== 6) return `rgba(100,116,139,${a})`; const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); return `rgba(${r},${g},${b},${a})`; };
   const brandStyle = (name) => { const b = brandFor(name); if (b && b.color) return { solid: b.color, bg: hexToRgba(b.color, 0.12), fg: b.color }; return domainColor(name); };
+  const brandZoom = (name) => { const b = brandFor(name); return (b && b.logoZoom) || 120; };
+  const brandLogoStyle = (name) => ({ width: "100%", height: "100%", objectFit: "contain", transform: `scale(${brandZoom(name) / 100})` });
   const [brandMgr, setBrandMgr] = useState(false);
   const [brandRows, setBrandRows] = useState([]);
   const [brandSaving, setBrandSaving] = useState(false);
   const openBrandMgr = () => { setBrandRows((brandDomains || []).map((b) => ({ ...b }))); setBrandMgr(true); };
-  const addBrandRow = () => setBrandRows((r) => [...r, { id: `br${Date.now()}`, name: "", website: "", color: "#2563EB", logo: "" }]);
+  const addBrandRow = () => setBrandRows((r) => [...r, { id: `br${Date.now()}`, name: "", website: "", color: "#2563EB", logo: "", logoZoom: 120 }]);
   const updBrandRow = (i, patch) => setBrandRows((r) => r.map((b, idx) => (idx === i ? { ...b, ...patch } : b)));
   const delBrandRow = (i) => setBrandRows((r) => r.filter((_, idx) => idx !== i));
   const onBrandLogo = (i, e) => { const file = e.target.files && e.target.files[0]; if (!file) return; const rd = new FileReader(); rd.onload = () => updBrandRow(i, { logo: rd.result }); rd.readAsDataURL(file); e.target.value = ""; };
@@ -3280,7 +3282,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                     <span title="Designer">👤 {p.assignedDesignerName || "Unassigned"}</span>
                     <span className={od ? "sv-dsn-over" : ""}>📅 {p.dueDate ? fmtDate(p.dueDate) : "No due date"}{od ? " ⚠" : ""}</span>
                     <span>📎 {files} file{files !== 1 ? "s" : ""}</span>
-                    {brandFor(p.companyName) && brandFor(p.companyName).logo && <span title={p.companyName} style={{ marginLeft: "auto", flex: "none", height: 30, width: 92, display: "inline-flex", alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: 6 }}><img src={brandFor(p.companyName).logo} alt={p.companyName} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></span>}
+                    {brandFor(p.companyName) && brandFor(p.companyName).logo && <span title={p.companyName} style={{ marginLeft: "auto", flex: "none", height: 30, width: 92, display: "inline-flex", alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: 6 }}><img src={brandFor(p.companyName).logo} alt={p.companyName} style={brandLogoStyle(p.companyName)} /></span>}
                   </div>
                   <div className="sv-dsn-actions">
                     <button className="sv-chip-btn sv-chip-btn--violet" onClick={(e) => { e.stopPropagation(); setDetail(p); }}>Open project</button>
@@ -3375,7 +3377,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                   <div className="sv-ws-hm"><span>Progress</span><b>{pct}%</b></div>
                   <div className="sv-ws-hm"><span>Priority</span><b>{badge(detail.priority, designPriorityStyle(detail.priority))}</b></div>
                 </div>
-                {brandFor(detail.companyName) && brandFor(detail.companyName).logo && <span title={detail.companyName} style={{ flex: "none", height: 48, width: 136, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff", overflow: "hidden" }}><img src={brandFor(detail.companyName).logo} alt={detail.companyName} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></span>}
+                {brandFor(detail.companyName) && brandFor(detail.companyName).logo && <span title={detail.companyName} style={{ flex: "none", height: 48, width: 136, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff", overflow: "hidden" }}><img src={brandFor(detail.companyName).logo} alt={detail.companyName} style={brandLogoStyle(detail.companyName)} /></span>}
               </div>
             </div>
             <div className="sv-ws-actionbar">
@@ -3400,6 +3402,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                     statusLabel={own[0] === "Admin" ? "Action needed" : "Waiting"}
                     brand={detail.companyName ? brandStyle(detail.companyName).solid : ""}
                     logo={brandFor(detail.companyName) && brandFor(detail.companyName).logo ? brandFor(detail.companyName).logo : ""}
+                    logoZoom={brandZoom(detail.companyName)}
                   />
                   <div className="sv-flow-actions">
                     {detail.status === "Draft" && (hasDraft
@@ -3698,12 +3701,22 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
               {brandRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 12.5 }}>No brands yet — add your first below.</p> : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {brandRows.map((b, i) => (
-                    <div key={b.id || i} style={{ display: "grid", gridTemplateColumns: "1.2fr 1.4fr auto auto auto", gap: 8, alignItems: "center", border: "1px solid #E2E8F0", borderRadius: 10, padding: "8px 10px" }}>
-                      <input className="sv-input" placeholder="Brand name (e.g. AWL)" value={b.name} onChange={(e) => updBrandRow(i, { name: e.target.value })} />
-                      <input className="sv-input" placeholder="Website (e.g. www.awl.com)" value={b.website || ""} onChange={(e) => updBrandRow(i, { website: e.target.value })} />
-                      <input type="color" value={b.color || "#2563EB"} onChange={(e) => updBrandRow(i, { color: e.target.value })} title="Brand colour" style={{ width: 40, height: 34, border: "1px solid #E2E8F0", borderRadius: 8, background: "none", cursor: "pointer" }} />
-                      <label className="sv-btn sv-btn--sm sv-btn--ghost" style={{ cursor: "pointer" }}>{b.logo ? <img src={b.logo} alt="" style={{ height: 18, borderRadius: 3 }} /> : "Logo"}<input type="file" accept="image/*" hidden onChange={(e) => onBrandLogo(i, e)} /></label>
-                      <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => delBrandRow(i)}>×</button>
+                    <div key={b.id || i} style={{ border: "1px solid #E2E8F0", borderRadius: 10, padding: "8px 10px" }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.4fr auto auto auto", gap: 8, alignItems: "center" }}>
+                        <input className="sv-input" placeholder="Brand name (e.g. AWL)" value={b.name} onChange={(e) => updBrandRow(i, { name: e.target.value })} />
+                        <input className="sv-input" placeholder="Website (e.g. www.awl.com)" value={b.website || ""} onChange={(e) => updBrandRow(i, { website: e.target.value })} />
+                        <input type="color" value={b.color || "#2563EB"} onChange={(e) => updBrandRow(i, { color: e.target.value })} title="Brand colour" style={{ width: 40, height: 34, border: "1px solid #E2E8F0", borderRadius: 8, background: "none", cursor: "pointer" }} />
+                        <label className="sv-btn sv-btn--sm sv-btn--ghost" style={{ cursor: "pointer" }}>{b.logo ? "Change logo" : "Upload logo"}<input type="file" accept="image/*" hidden onChange={(e) => onBrandLogo(i, e)} /></label>
+                        <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => delBrandRow(i)}>×</button>
+                      </div>
+                      {b.logo && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+                          <span style={{ fontSize: 11.5, color: "#64748B", whiteSpace: "nowrap" }}>Logo size</span>
+                          <input type="range" min="60" max="260" value={b.logoZoom || 120} onChange={(e) => updBrandRow(i, { logoZoom: +e.target.value })} style={{ flex: 1 }} />
+                          <span style={{ fontSize: 11.5, width: 42, textAlign: "right", color: "#334155" }}>{b.logoZoom || 120}%</span>
+                          <span style={{ width: 120, height: 40, border: "1px solid #EEF2F7", borderRadius: 8, overflow: "hidden", display: "inline-flex", alignItems: "center", justifyContent: "center", background: "#fff", flex: "none" }} title="Preview"><img src={b.logo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", transform: `scale(${(b.logoZoom || 120) / 100})` }} /></span>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

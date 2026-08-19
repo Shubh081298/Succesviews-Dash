@@ -20,7 +20,7 @@ const wfHexToRgba = (hex, a) => { const h = String(hex || "").replace("#", ""); 
 
 export default function WorkflowTimeline({
   steps = [], currentIndex = 0, stepMeta = {}, revisionsByStage = {},
-  progress = 0, stageNumber = 1, stageTitle = "", nextAction = "", statusLabel = "", brand = "", logo = "",
+  progress = 0, stageNumber = 1, stageTitle = "", nextAction = "", statusLabel = "", brand = "", logo = "", logoZoom = 120,
 }) {
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
   const brandVars = brand ? { "--brand": brand, "--brand-soft": wfHexToRgba(brand, 0.18), "--brand-bg": wfHexToRgba(brand, 0.12) } : undefined;
@@ -34,7 +34,7 @@ export default function WorkflowTimeline({
         </div>
         {logo && (
           <div style={{ height: 56, width: 148, marginLeft: "auto", flex: "none", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
-            <img src={logo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            <img src={logo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", transform: `scale(${logoZoom / 100})` }} />
           </div>
         )}
         <div className="sv-wf-ring">

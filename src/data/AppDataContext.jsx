@@ -566,6 +566,7 @@ export function AppDataProvider({ children }) {
   async function changeProjectStatus(project, status, actorRole = "admin", actorName = "Admin") {
     await updateDesignProject({ ...project, status });
     await addActivity(project.id, "status", actorRole, actorName, "", status);
+    pushDesignEvent("status", project.id, actorRole, status);
   }
   async function requestRevision(projectId, comment, actorName = "Admin") {
     if (!comment || !comment.trim()) { showToast("Write what needs changing.", "error"); return false; }
@@ -601,6 +602,7 @@ export function AppDataProvider({ children }) {
     const to = actorRole === "admin" ? "the designer" : "the admin";
     const preview = body ? body.slice(0, 50) : (urls.length > 1 ? `📷 ${urls.length} screenshots` : "📷 screenshot");
     pushNotification(`${actorName} messaged ${to} on ${proj ? proj.clientName : "a project"}: ${preview}`, "review");
+    pushDesignEvent("message", projectId, actorRole);
     return true;
   }
 
@@ -1102,6 +1104,7 @@ export function AppDataProvider({ children }) {
     const links = { ...(cur.links || {}) };
     links[projectId] = (links[projectId] || []).map((ln) => (ln.side === role ? { ...ln, released: true } : ln));
     await saveDesignExtra({ ...cur, drafts: (cur.drafts || []).filter((id) => !mineIds.includes(id)), folders, links });
+    if (mineIds.length) pushDesignEvent("files", projectId, role); // notify the other side of newly released files
   }
   // Acknowledge the other side's latest files for a project (per side). Stores the ACK timestamp so any
   // newer file stays highlighted as "NEW" until acknowledged. who = "admin" (acks designer files) or
@@ -1207,6 +1210,21 @@ export function AppDataProvider({ children }) {
   const markNotificationRead = (id) => setNotifications((n) => n.map((x) => (x.id === id ? { ...x, read: true } : x)));
   const markAllNotificationsRead = () => setNotifications((n) => n.map((x) => ({ ...x, read: true })));
   const clearNotifications = () => setNotifications([]);
+
+  // ── Real Web Push (Design module only) ──
+  // Best-effort ping to the serverless sender; the server derives the recipient + content itself.
+  // No-op if push isn't configured. The in-app bell keeps working regardless.
+  function pushDesignEvent(kind, projectId, actorRole, meta, eventId) {
+    if (!projectId) return;
+    try {
+      fetch("/api/design-push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind, projectId, actorRole: actorRole || "", meta: meta || "", eventId: eventId || "" }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch (e) { /* ignore — design bell still covers it */ }
+  }
 
   /* ══════════════════════════════════════════════════════════
      Pipeline (Employee CRM) — additive data layer.

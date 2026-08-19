@@ -22,6 +22,7 @@ import { LayoutDashboard, Receipt, Users as UsersIcon } from "lucide-react";
 import { Layers, TrendingUp, Trash2, UserPlus, CalendarCheck, FileSignature } from "lucide-react";
 import { Users, ShieldCheck, MessageSquare, Globe2, Image as ImageIcon, Briefcase as BriefcaseIcon, UserCog } from "lucide-react";
 import { FolderOpen, BookOpen, Wallet, Bell, ArrowLeft, AlertTriangle } from "lucide-react";
+import DesignPushToggle from "../../components/design/DesignPushToggle";
 import WorkflowTimeline, { buildRevisions } from "../../components/design/WorkflowTimeline";
 import LeadWorkflow from "../../components/crm/LeadWorkflow";
 import LeadTimeline from "../../components/crm/LeadTimeline";
@@ -2939,6 +2940,14 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
   const designSeenTs = (designExtra.seen || {}).admin || "";
   const designUnread = designFeed.filter((e) => String(e.ts || "") > String(designSeenTs)).length;
   const openDesignNotif = () => { const willOpen = !designNotifOpen; setDesignNotifOpen(willOpen); if (willOpen && markDesignSeen) markDesignSeen("admin"); };
+  // Deep-link: a push notification opened /admin?dproject=<id> → open that project's workspace.
+  useEffect(() => {
+    try {
+      const pid = new URLSearchParams(window.location.search).get("dproject");
+      if (pid) { const p = (designProjects || []).find((x) => x.id === pid); if (p) setDetail(p); const u = new URL(window.location.href); u.searchParams.delete("dproject"); window.history.replaceState({}, "", u.pathname + u.search + u.hash); }
+    } catch (e) { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [designProjects.length]);
   // KPI counts reflect only active projects — archived ones are excluded so the
   // stat cards always agree with the project list below them.
   const activeProjects = designProjects.filter((p) => !archivedIds.has(p.id));
@@ -3256,6 +3265,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
           </div>
           <div className="sv-flex sv-gap-sm">
             {archivedProjects.length > 0 && <button className={`sv-btn sv-btn--outline${showArchived ? " sv-btn--danger" : ""}`} onClick={() => setShowArchived((v) => !v)}>{showArchived ? "← Back to Projects" : `Archived (${archivedProjects.length})`}</button>}
+            <DesignPushToggle userId="admin" role="admin" />
             <span style={{ position: "relative", display: "inline-flex" }}>
               <button className="sv-bell-btn" onClick={openDesignNotif} title="Design updates" aria-label="Design updates">
                 <Bell size={18} />

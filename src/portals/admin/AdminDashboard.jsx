@@ -3,7 +3,7 @@
  * with its own sidebar and modules. Reads/writes the same shared data
  * layer (AppDataContext) as the Employee Portal — nothing more.
  */
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { LayoutDashboard, FileText, Trophy, BarChart3, Building2, ScrollText, CreditCard, Palmtree, Wallet, Users, Settings, Search, Bell, ChevronDown, Palette, PanelLeft } from "lucide-react";
 import { useAppData } from "../../data/AppDataContext";
@@ -54,6 +54,8 @@ export default function AdminDashboard() {
 
   /* ── Admin dashboard UI state ─────────────────────────────── */
   const [tab, setTab] = useState("overview");
+  // Deep-link from a push notification (/admin?dproject=…) → jump to the Design section.
+  useEffect(() => { try { if (new URLSearchParams(window.location.search).get("dproject")) setTab("designs"); } catch (e) { /* ignore */ } }, []);
   const [editMode, setEditMode] = useState(false);
   const [viewing, setViewing] = useState(null);
   const [detailModal, setDetailModal] = useState(null);

@@ -6,10 +6,11 @@
  * with amounts (Cover Page, Layout, Ads, Revisions…), and track earnings.
  * Company expenses (subscriptions etc.) remain a separate submission.
  */
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import Sidebar from "../layout/Sidebar";
 import { Palette, CreditCard, User, FileText, ArrowLeft, Wallet, Plus, Pencil, Trash2, IndianRupee, FolderOpen, Bell, AlertTriangle, Search } from "lucide-react";
 import WorkflowTimeline, { buildRevisions } from "../design/WorkflowTimeline";
+import DesignPushToggle from "../design/DesignPushToggle";
 import { fmtDate, domainColor } from "../../utils/helpers";
 
 const STEPS = [
@@ -153,6 +154,14 @@ export default function DesignerDashboard({
   })();
   const dzUnread = dzFeed.filter((e) => String(e.ts || "") > String(dzSeenTs)).length;
   const openDzNotif = () => { const willOpen = !notifOpen; setNotifOpen(willOpen); if (willOpen && markDesignSeen) markDesignSeen(emp.id); };
+  // Deep-link: a push notification opened /?dproject=<id> → open that project.
+  useEffect(() => {
+    try {
+      const pid = new URLSearchParams(window.location.search).get("dproject");
+      if (pid && myProjects.some((p) => p.id === pid)) { setTab("designs"); setOpenId(pid); const u = new URL(window.location.href); u.searchParams.delete("dproject"); window.history.replaceState({}, "", u.pathname + u.search + u.hash); }
+    } catch (e) { /* ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myProjects.length]);
   const myExpenses = expenses.filter((e) => e.type === "company" && e.details && e.details.submittedBy === emp.id);
   const myWork = useMemo(() => (designWork || []).filter((w) => w.designerId === emp.id), [designWork, emp.id]);
   const projWork = project ? myWork.filter((w) => w.projectId === project.id) : [];
@@ -272,6 +281,8 @@ export default function DesignerDashboard({
           <div className="sv-tab">
             <div className="sv-flex sv-justify-between sv-items-center" style={{ position: "relative" }}>
               <h2 className="sv-tab-title" style={{ margin: 0 }}>My Design Projects</h2>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 10, marginLeft: "auto" }}>
+              <DesignPushToggle userId={emp.id} role="designer" />
               <button className="sv-bell-btn" onClick={openDzNotif} title="Design updates" aria-label="Design updates">
                 <Bell size={18} />
                 {dzUnread ? <span className="sv-bell-dot">{dzUnread}</span> : null}
@@ -297,6 +308,7 @@ export default function DesignerDashboard({
                   </div>
                 </>
               )}
+              </span>
             </div>
             {myProjects.length === 0 ? (
               <div className="sv-card"><div className="sv-leave-empty"><Palette size={30} /><span>No projects assigned yet. They'll appear here once an admin assigns you.</span></div></div>

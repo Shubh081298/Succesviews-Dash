@@ -16,19 +16,23 @@ import { FileText, PenTool, Users, ClipboardList, ListOrdered, BookOpen, ShieldC
 const STAGE_ICONS = [FileText, PenTool, Users, ClipboardList, ListOrdered, BookOpen, ShieldCheck, Award];
 const R = 19, C = 2 * Math.PI * R;
 
+const wfHexToRgba = (hex, a) => { const h = String(hex || "").replace("#", ""); if (h.length !== 6) return `rgba(99,102,241,${a})`; const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16); return `rgba(${r},${g},${b},${a})`; };
+
 export default function WorkflowTimeline({
   steps = [], currentIndex = 0, stepMeta = {}, revisionsByStage = {},
-  progress = 0, stageNumber = 1, stageTitle = "", nextAction = "", statusLabel = "", brand = "",
+  progress = 0, stageNumber = 1, stageTitle = "", nextAction = "", statusLabel = "", brand = "", logo = "",
 }) {
   const pct = Math.max(0, Math.min(100, Math.round(progress)));
+  const brandVars = brand ? { "--brand": brand, "--brand-soft": wfHexToRgba(brand, 0.18), "--brand-bg": wfHexToRgba(brand, 0.12) } : undefined;
   return (
-    <div className="sv-wf" style={brand ? { "--brand": brand } : undefined}>
+    <div className="sv-wf" style={brandVars}>
       <div className="sv-wf-head">
         <div className="sv-wf-head-l">
           <div className="sv-wf-eyebrow">Workflow Progress</div>
           <div className="sv-wf-stage">Stage {stageNumber} of {steps.length} <span className="sv-wf-dotsep">•</span> {stageTitle}</div>
           {nextAction && <div className="sv-wf-next"><span className="sv-wf-next-ic">⏳</span> Next up: <strong>{nextAction}</strong></div>}
         </div>
+        {logo && <img src={logo} alt="" style={{ maxHeight: 46, maxWidth: 150, objectFit: "contain", marginLeft: "auto", alignSelf: "center" }} />}
         <div className="sv-wf-ring">
           <svg viewBox="0 0 44 44" aria-hidden="true">
             <circle className="sv-wf-ring-bg" cx="22" cy="22" r={R} />

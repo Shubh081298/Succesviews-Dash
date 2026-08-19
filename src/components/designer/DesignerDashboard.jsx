@@ -301,7 +301,7 @@ export default function DesignerDashboard({
                         <span>📅 {p.dueDate ? fmtDate(p.dueDate) : "No due date"}</span>
                         <span>📎 {files} upload{files !== 1 ? "s" : ""}</span>
                         {rev && <span className="sv-dsn-over">● Revision</span>}
-                        {brandFor(p.companyName) && brandFor(p.companyName).logo && <img src={brandFor(p.companyName).logo} alt={p.companyName} title={p.companyName} style={{ marginLeft: "auto", maxHeight: 22, maxWidth: 74, objectFit: "contain" }} />}
+                        {brandFor(p.companyName) && brandFor(p.companyName).logo && <img src={brandFor(p.companyName).logo} alt={p.companyName} title={p.companyName} style={{ marginLeft: "auto", maxHeight: 28, maxWidth: 92, objectFit: "contain" }} />}
                       </div>
                       <div className="sv-dsn-actions"><button className="sv-chip-btn sv-chip-btn--violet" onClick={(e) => { e.stopPropagation(); setOpenId(p.id); }}>Open project</button></div>
                     </div>
@@ -379,6 +379,7 @@ export default function DesignerDashboard({
                       nextAction={isDone ? "" : `${own[0]} — ${own[1]}`}
                       statusLabel={own[0] === "You" ? "In Progress" : "Under Review"}
                       brand={project.companyName ? brandStyle(project.companyName).solid : ""}
+                      logo={brandFor(project.companyName) && brandFor(project.companyName).logo ? brandFor(project.companyName).logo : ""}
                     />
                   </>);
                 })()}

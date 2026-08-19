@@ -3280,7 +3280,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                     <span title="Designer">👤 {p.assignedDesignerName || "Unassigned"}</span>
                     <span className={od ? "sv-dsn-over" : ""}>📅 {p.dueDate ? fmtDate(p.dueDate) : "No due date"}{od ? " ⚠" : ""}</span>
                     <span>📎 {files} file{files !== 1 ? "s" : ""}</span>
-                    {brandFor(p.companyName) && brandFor(p.companyName).logo && <img src={brandFor(p.companyName).logo} alt={p.companyName} title={p.companyName} style={{ marginLeft: "auto", maxHeight: 22, maxWidth: 74, objectFit: "contain" }} />}
+                    {brandFor(p.companyName) && brandFor(p.companyName).logo && <img src={brandFor(p.companyName).logo} alt={p.companyName} title={p.companyName} style={{ marginLeft: "auto", maxHeight: 28, maxWidth: 92, objectFit: "contain" }} />}
                   </div>
                   <div className="sv-dsn-actions">
                     <button className="sv-chip-btn sv-chip-btn--violet" onClick={(e) => { e.stopPropagation(); setDetail(p); }}>Open project</button>
@@ -3399,6 +3399,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                     nextAction={isDone ? "" : `${own[0]} — ${own[1]}`}
                     statusLabel={own[0] === "Admin" ? "Action needed" : "Waiting"}
                     brand={detail.companyName ? brandStyle(detail.companyName).solid : ""}
+                    logo={brandFor(detail.companyName) && brandFor(detail.companyName).logo ? brandFor(detail.companyName).logo : ""}
                   />
                   <div className="sv-flow-actions">
                     {detail.status === "Draft" && (hasDraft

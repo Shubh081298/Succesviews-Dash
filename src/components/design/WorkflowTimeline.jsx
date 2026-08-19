@@ -33,8 +33,8 @@ export default function WorkflowTimeline({
           {nextAction && <div className="sv-wf-next"><span className="sv-wf-next-ic">⏳</span> Next up: <strong>{nextAction}</strong></div>}
         </div>
         {logo && (
-          <div style={{ height: 52, width: 140, marginLeft: "auto", flex: "none", display: "flex", alignItems: "center", justifyContent: "center", padding: 6, border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff" }}>
-            <img src={logo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          <div style={{ height: 56, width: 148, marginLeft: "auto", flex: "none", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff", overflow: "hidden" }}>
+            <img src={logo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
           </div>
         )}
         <div className="sv-wf-ring">

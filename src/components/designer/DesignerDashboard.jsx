@@ -301,7 +301,7 @@ export default function DesignerDashboard({
                         <span>📅 {p.dueDate ? fmtDate(p.dueDate) : "No due date"}</span>
                         <span>📎 {files} upload{files !== 1 ? "s" : ""}</span>
                         {rev && <span className="sv-dsn-over">● Revision</span>}
-                        {brandFor(p.companyName) && brandFor(p.companyName).logo && <span title={p.companyName} style={{ marginLeft: "auto", flex: "none", height: 26, width: 86, display: "inline-flex", alignItems: "center", justifyContent: "flex-end" }}><img src={brandFor(p.companyName).logo} alt={p.companyName} style={{ width: "100%", height: "100%", objectFit: "contain" }} /></span>}
+                        {brandFor(p.companyName) && brandFor(p.companyName).logo && <span title={p.companyName} style={{ marginLeft: "auto", flex: "none", height: 30, width: 92, display: "inline-flex", alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: 6 }}><img src={brandFor(p.companyName).logo} alt={p.companyName} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></span>}
                       </div>
                       <div className="sv-dsn-actions"><button className="sv-chip-btn sv-chip-btn--violet" onClick={(e) => { e.stopPropagation(); setOpenId(p.id); }}>Open project</button></div>
                     </div>
@@ -319,7 +319,7 @@ export default function DesignerDashboard({
             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
               <h2 className="sv-tab-title" style={{ margin: 0 }}>{project.clientName}</h2>
               {project.companyName && <span className="sv-domain-chip" style={{ background: brandStyle(project.companyName).bg, color: brandStyle(project.companyName).fg }}><span className="sv-domain-dot" style={{ background: brandStyle(project.companyName).solid }} />{project.companyName}</span>}
-              {brandFor(project.companyName) && brandFor(project.companyName).logo && <span title={project.companyName} style={{ marginLeft: "auto", flex: "none", height: 44, width: 128, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 5, border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff" }}><img src={brandFor(project.companyName).logo} alt={project.companyName} style={{ width: "100%", height: "100%", objectFit: "contain" }} /></span>}
+              {brandFor(project.companyName) && brandFor(project.companyName).logo && <span title={project.companyName} style={{ marginLeft: "auto", flex: "none", height: 48, width: 136, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff", overflow: "hidden" }}><img src={brandFor(project.companyName).logo} alt={project.companyName} style={{ width: "100%", height: "100%", objectFit: "cover" }} /></span>}
             </div>
 
             <div className="sv-card" style={project.companyName ? { borderTop: `3px solid ${brandStyle(project.companyName).solid}` } : undefined}>

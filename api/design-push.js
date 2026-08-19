@@ -7,8 +7,8 @@
      VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT (e.g. mailto:you@domain.com)
      SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 */
-const webpush = require("web-push");
-const { createClient } = require("@supabase/supabase-js");
+import webpush from "web-push";
+import { createClient } from "@supabase/supabase-js";
 
 const {
   VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT,
@@ -24,7 +24,7 @@ function init() {
   return true;
 }
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
   if (!init()) { res.status(200).json({ ok: false, reason: "not-configured" }); return; }
 

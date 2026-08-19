@@ -3280,7 +3280,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                     <span title="Designer">👤 {p.assignedDesignerName || "Unassigned"}</span>
                     <span className={od ? "sv-dsn-over" : ""}>📅 {p.dueDate ? fmtDate(p.dueDate) : "No due date"}{od ? " ⚠" : ""}</span>
                     <span>📎 {files} file{files !== 1 ? "s" : ""}</span>
-                    {brandFor(p.companyName) && brandFor(p.companyName).logo && <img src={brandFor(p.companyName).logo} alt={p.companyName} title={p.companyName} style={{ marginLeft: "auto", maxHeight: 28, maxWidth: 92, objectFit: "contain" }} />}
+                    {brandFor(p.companyName) && brandFor(p.companyName).logo && <span title={p.companyName} style={{ marginLeft: "auto", flex: "none", height: 26, width: 86, display: "inline-flex", alignItems: "center", justifyContent: "flex-end" }}><img src={brandFor(p.companyName).logo} alt={p.companyName} style={{ width: "100%", height: "100%", objectFit: "contain" }} /></span>}
                   </div>
                   <div className="sv-dsn-actions">
                     <button className="sv-chip-btn sv-chip-btn--violet" onClick={(e) => { e.stopPropagation(); setDetail(p); }}>Open project</button>
@@ -3375,7 +3375,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                   <div className="sv-ws-hm"><span>Progress</span><b>{pct}%</b></div>
                   <div className="sv-ws-hm"><span>Priority</span><b>{badge(detail.priority, designPriorityStyle(detail.priority))}</b></div>
                 </div>
-                {brandFor(detail.companyName) && brandFor(detail.companyName).logo && <img src={brandFor(detail.companyName).logo} alt={detail.companyName} title={detail.companyName} style={{ maxHeight: 40, maxWidth: 120, objectFit: "contain" }} />}
+                {brandFor(detail.companyName) && brandFor(detail.companyName).logo && <span title={detail.companyName} style={{ flex: "none", height: 46, width: 132, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: 5, border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff" }}><img src={brandFor(detail.companyName).logo} alt={detail.companyName} style={{ width: "100%", height: "100%", objectFit: "contain" }} /></span>}
               </div>
             </div>
             <div className="sv-ws-actionbar">

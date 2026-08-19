@@ -32,7 +32,11 @@ export default function WorkflowTimeline({
           <div className="sv-wf-stage">Stage {stageNumber} of {steps.length} <span className="sv-wf-dotsep">•</span> {stageTitle}</div>
           {nextAction && <div className="sv-wf-next"><span className="sv-wf-next-ic">⏳</span> Next up: <strong>{nextAction}</strong></div>}
         </div>
-        {logo && <img src={logo} alt="" style={{ maxHeight: 46, maxWidth: 150, objectFit: "contain", marginLeft: "auto", alignSelf: "center" }} />}
+        {logo && (
+          <div style={{ height: 52, width: 140, marginLeft: "auto", flex: "none", display: "flex", alignItems: "center", justifyContent: "center", padding: 6, border: "1px solid #EEF2F7", borderRadius: 12, background: "#fff" }}>
+            <img src={logo} alt="" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+          </div>
+        )}
         <div className="sv-wf-ring">
           <svg viewBox="0 0 44 44" aria-hidden="true">
             <circle className="sv-wf-ring-bg" cx="22" cy="22" r={R} />

@@ -145,10 +145,18 @@ export function AppDataProvider({ children }) {
   /* ── Loaders ─────────────────────────────────────────────── */
 
   async function loadEmployees() {
-    const { data, error } = await supabase
+    // Try selecting the termination columns; if the migration hasn't been run
+    // yet, fall back to the legacy column set so the app never breaks.
+    let { data, error } = await supabase
       .from("employees")
-      .select("id, name, department, code, photo, team_lead, email, assigned_ids")
+      .select("id, name, department, code, photo, team_lead, email, assigned_ids, status, terminated_at, terminated_reason, terminated_by")
       .order("created_at");
+    if (error && /status|terminated_/i.test(error.message || "")) {
+      ({ data, error } = await supabase
+        .from("employees")
+        .select("id, name, department, code, photo, team_lead, email, assigned_ids")
+        .order("created_at"));
+    }
     if (error) console.error("loadEmployees failed:", error.message);
     if (data) setEmployees(data.map(normalizeEmployee));
   }
@@ -651,6 +659,11 @@ export function AppDataProvider({ children }) {
       teamLead: e.team_lead || "",
       email: e.email || "",
       assignedIds: Array.isArray(e.assigned_ids) ? e.assigned_ids : [],
+      // Employment status — 'active' by default (also covers pre-migration rows).
+      status: e.status === "terminated" ? "terminated" : "active",
+      terminatedAt: e.terminated_at || null,
+      terminatedReason: e.terminated_reason || "",
+      terminatedBy: e.terminated_by || "",
     };
   }
 
@@ -722,7 +735,7 @@ export function AppDataProvider({ children }) {
         code: emp.code, photo: emp.photo || "",
         team_lead: emp.teamLead || "", email: emp.email || "", password_hash,
       })
-      .select("id, name, department, code, photo, team_lead, email, assigned_ids")
+      .select("id, name, department, code, photo, team_lead, email, assigned_ids, status, terminated_at, terminated_reason, terminated_by")
       .single();
     if (!error && data) {
       setEmployees((prev) => [...prev, normalizeEmployee(data)]);
@@ -745,6 +758,62 @@ export function AppDataProvider({ children }) {
     const { error } = await supabase.from("employees").delete().eq("id", id);
     if (!error) { setEmployees((prev) => prev.filter((e) => e.id !== id)); logAudit("employee.delete", "employee", id, { name: target?.name }); }
     else showToast("Failed to delete employee.", "error");
+  }
+
+  // Terminate / End Employment — SOFT + reversible. Never deletes data: the row,
+  // its submissions, salary and history all stay. The employee just becomes
+  // 'terminated' (drops out of live counts/rosters/selectors and can no longer
+  // sign in). Reactivate flips it back. Optimistic UI, then persist.
+  async function terminateEmployee(id, reason = "", by = "admin") {
+    const target = employees.find((e) => e.id === id);
+    if (!target) return false;
+    const terminatedAt = new Date().toISOString();
+    setEmployees((prev) => prev.map((e) => (e.id === id
+      ? { ...e, status: "terminated", terminatedAt, terminatedReason: reason || "", terminatedBy: by || "admin" }
+      : e)));
+    const { error } = await supabase
+      .from("employees")
+      .update({ status: "terminated", terminated_at: terminatedAt, terminated_reason: reason || "", terminated_by: by || "admin" })
+      .eq("id", id);
+    if (error) {
+      // Roll back optimistic change and warn (likely the migration wasn't run yet).
+      setEmployees((prev) => prev.map((e) => (e.id === id ? { ...target } : e)));
+      showToast(/status|terminated_/i.test(error.message || "")
+        ? "Run the employee-termination.sql migration first."
+        : "Failed to terminate employee.", "error");
+      return false;
+    }
+    logAudit("employee.terminate", "employee", id, { name: target.name, reason });
+    // Best-effort: disable the Supabase Auth login too (Edge Function may not be deployed).
+    if (target.email) {
+      try { await supabase.functions.invoke("admin-users", { body: { action: "disable", email: target.email } }); } catch (e) { /* client-side gate still blocks login */ }
+    }
+    showToast(`${target.name} moved to Former Employees.`, "success");
+    return true;
+  }
+
+  // Reactivate a former employee — restores them to the active roster.
+  async function reactivateEmployee(id, by = "admin") {
+    const target = employees.find((e) => e.id === id);
+    if (!target) return false;
+    setEmployees((prev) => prev.map((e) => (e.id === id
+      ? { ...e, status: "active", terminatedAt: null, terminatedReason: "", terminatedBy: "" }
+      : e)));
+    const { error } = await supabase
+      .from("employees")
+      .update({ status: "active", terminated_at: null, terminated_reason: null, terminated_by: null })
+      .eq("id", id);
+    if (error) {
+      setEmployees((prev) => prev.map((e) => (e.id === id ? { ...target } : e)));
+      showToast("Failed to reactivate employee.", "error");
+      return false;
+    }
+    logAudit("employee.reactivate", "employee", id, { name: target.name });
+    if (target.email) {
+      try { await supabase.functions.invoke("admin-users", { body: { action: "enable", email: target.email } }); } catch (e) { /* ignore */ }
+    }
+    showToast(`${target.name} reactivated.`, "success");
+    return true;
   }
 
   // Assign / update the mail IDs for one employee (auto-saved). These show up
@@ -1486,10 +1555,19 @@ export function AppDataProvider({ children }) {
 
   /* ── Context value ───────────────────────────────────────── */
 
+  // Live roster vs. former staff. `employees` stays the FULL list (so historical
+  // reports and name-resolution keep working); live counts / rosters / new-work
+  // selectors use `activeEmployees`, and the Former Employees section uses
+  // `formerEmployees`.
+  const activeEmployees = employees.filter((e) => e.status !== "terminated");
+  const formerEmployees = employees.filter((e) => e.status === "terminated");
+
   const value = {
     loading,
     theme, toggleTheme,
-    employees, saveEmployees, addEmployee, deleteEmployee, updateEmployee, resetEmployeePassword, assignEmployeeIds, logAudit,
+    employees, activeEmployees, formerEmployees,
+    saveEmployees, addEmployee, deleteEmployee, updateEmployee, resetEmployeePassword, assignEmployeeIds, logAudit,
+    terminateEmployee, reactivateEmployee,
     submissions, saveSubs, upsertSubmission,
     departments, saveDepartments,
     websites, saveWebsites,

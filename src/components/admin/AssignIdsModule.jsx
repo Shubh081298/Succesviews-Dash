@@ -25,8 +25,11 @@ export default function AssignIdsModule({ employees, assignEmployeeIds, teamMeta
   const [editVal, setEditVal] = useState("");
   const [confirm, setConfirm] = useState(null); // { message, onYes }
 
+  // Active roster only — terminated employees drop out of ID assignment.
+  const activeEmployees = employees.filter((e) => e.status !== "terminated");
+
   // One entry per employee that has at least one mail ID.
-  const groups = useMemo(() => employees
+  const groups = useMemo(() => activeEmployees
     .map((emp) => ({ emp, ids: (emp.assignedIds || []).map(normAssignedId) }))
     .filter((g) => g.ids.length > 0), [employees]);
 
@@ -160,7 +163,7 @@ export default function AssignIdsModule({ employees, assignEmployeeIds, teamMeta
                 <span>Employee</span>
                 <select className="sv-select" value={addEmp} onChange={(e) => setAddEmp(e.target.value)}>
                   <option value="">Select employee…</option>
-                  {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  {activeEmployees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </select>
               </label>
               <label className="sv-team-ctl">

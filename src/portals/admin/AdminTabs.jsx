@@ -22,6 +22,7 @@ import { LayoutDashboard, Receipt, Users as UsersIcon } from "lucide-react";
 import { Layers, TrendingUp, Trash2, UserPlus, CalendarCheck, FileSignature } from "lucide-react";
 import { Users, ShieldCheck, MessageSquare, Globe2, Image as ImageIcon, Briefcase as BriefcaseIcon, UserCog } from "lucide-react";
 import { FolderOpen, BookOpen, Wallet, Bell, ArrowLeft, AlertTriangle } from "lucide-react";
+import { UserX, UserCheck, RotateCcw, History as HistoryIcon } from "lucide-react";
 import DesignPushToggle from "../../components/design/DesignPushToggle";
 import WorkflowTimeline, { buildRevisions } from "../../components/design/WorkflowTimeline";
 import LeadWorkflow from "../../components/crm/LeadWorkflow";
@@ -950,13 +951,16 @@ export function DepartmentsTab({ departments, employees, submissions, newDept, s
   // used by employees — so e.g. "Design" (designers) always shows, and any
   // case-variant duplicates ("Sales"/"sales") collapse into one.
   const lc = (x) => (x || "").trim().toLowerCase();
+  // Department counts + rosters reflect ACTIVE staff only (terminated employees
+  // drop out of live department lists). Their historical records stay elsewhere.
+  const activeEmps = employees.filter((e) => e.status !== "terminated");
   const map = new Map();
   departments.forEach((d) => { const k = lc(d); if (d && !map.has(k)) map.set(k, d.trim()); });
   employees.forEach((e) => { const d = (e.department || "").trim(); const k = lc(d); if (d && !map.has(k)) map.set(k, d); });
   const allDepts = [...map.values()];
   const configuredLc = new Set(departments.map(lc));
   const autoDetected = allDepts.filter((d) => !configuredLc.has(lc(d)));
-  const countFor = (d) => employees.filter((e) => lc(e.department) === lc(d)).length;
+  const countFor = (d) => activeEmps.filter((e) => lc(e.department) === lc(d)).length;
 
   return (
     <div className="sv-tab">
@@ -1017,7 +1021,7 @@ export function DepartmentsTab({ departments, employees, submissions, newDept, s
 
       <div className="sv-dept-grid">
         {allDepts.map((d, i) => {
-          const deptEmps = employees.filter((e) => lc(e.department) === lc(d));
+          const deptEmps = activeEmps.filter((e) => lc(e.department) === lc(d));
           const deptSubsToday = submissions.filter((s) => s.date === todayStr && s.status === "Submitted" && deptEmps.some((e) => e.id === s.empId));
           const deptSubmittedNames = deptSubsToday.map((s) => s.empName);
           const deptPendingNames = deptEmps.filter((e) => !deptSubsToday.some((s) => s.empId === e.id));
@@ -1189,8 +1193,18 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
           return "none";
         };
         let workingDays = 0; for (let d = 1; d <= daysInMonth; d++) { const dw = dowOf(d); if (dw !== 0 && dw !== 6) workingDays++; }
+        // Terminated staff appear ONLY in months they were actually employed:
+        // active employees always show; a terminated employee shows if they have
+        // any record (present/leave/absent/half) that month or were still on staff
+        // when the month began. Keeps historical months intact, hides them afterward.
+        const monthEmps = employees.filter((e) => {
+          if (e.status !== "terminated") return true;
+          if (e.terminatedAt && new Date(e.terminatedAt) >= new Date(y, m, 1)) return true;
+          for (let d = 1; d <= daysInMonth; d++) { const st = statusOf(e.id, d); if (st !== "none" && st !== "weekend") return true; }
+          return false;
+        });
         let totLeave = 0, totAbsent = 0;
-        employees.forEach((e) => { for (let d = 1; d <= daysInMonth; d++) { const st = statusOf(e.id, d); if (st === "leave") totLeave++; else if (st === "absent") totAbsent++; } });
+        monthEmps.forEach((e) => { for (let d = 1; d <= daysInMonth; d++) { const st = statusOf(e.id, d); if (st === "leave") totLeave++; else if (st === "absent") totAbsent++; } });
         const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
         const NAMEW = 170, COLW = 24, ROWH = 40;
         const totalW = NAMEW + daysInMonth * COLW;
@@ -1205,7 +1219,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
                 <span className="sv-mod-icon" style={{ background: "rgba(37,99,235,.12)", color: "#2563EB" }}><CalendarDays size={16} /></span>
                 <div style={{ minWidth: 0 }}>
                   <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>Attendance</p>
-                  <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>{employees.length} employees · {workingDays} working days · {totLeave} leaves{totAbsent ? ` · ${totAbsent} absent` : ""}</p>
+                  <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>{monthEmps.length} employees · {workingDays} working days · {totLeave} leaves{totAbsent ? ` · ${totAbsent} absent` : ""}</p>
                 </div>
               </div>
               <div className="sv-flex sv-items-center" style={{ gap: 4, border: "1px solid #E9EEF4", borderRadius: 10, padding: 3 }}>
@@ -1216,7 +1230,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
               </div>
             </div>
 
-            {employees.length === 0 ? (
+            {monthEmps.length === 0 ? (
               <div className="sv-leave-empty"><Inbox size={26} /><span>No employees to show.</span></div>
             ) : (
               <div style={{ overflowX: "auto", border: "1px solid #EEF2F7", borderRadius: 12 }}>
@@ -1233,7 +1247,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
                   </div>
                   {/* body: max 5 rows visible, rest scroll */}
                   <div style={{ maxHeight: ROWH * 5, overflowY: "auto" }}>
-                    {employees.map((e, ri) => (
+                    {monthEmps.map((e, ri) => (
                       <div key={e.id} onClick={() => setCalDetail(e.id)} title="Open detailed calendar"
                         style={{ display: "grid", gridTemplateColumns: `${NAMEW}px repeat(${daysInMonth}, ${COLW}px)`, alignItems: "center", cursor: "pointer", borderTop: ri ? "1px solid #F1F5F9" : "none" }}>
                         <div style={{ ...stickyName, display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", height: ROWH, borderRight: "1px solid #EEF2F7" }}>
@@ -1258,7 +1272,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
             )}
             <div className="sv-flex sv-items-center" style={{ gap: 14, flexWrap: "wrap", marginTop: 10 }}>
               {legendItem("present")}{legendItem("leave")}{legendItem("absent")}{legendItem("half")}{legendItem("holiday")}{legendItem("weekend")}
-              {employees.length > 5 && <span style={{ marginLeft: "auto", fontSize: 11.5, color: "#94A3B8" }}>Scroll for all {employees.length} employees · click a row for details</span>}
+              {monthEmps.length > 5 && <span style={{ marginLeft: "auto", fontSize: 11.5, color: "#94A3B8" }}>Scroll for all {monthEmps.length} employees · click a row for details</span>}
             </div>
 
             {/* ── Employee detail modal ── */}
@@ -1500,7 +1514,12 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
  * SettingsTab — employee management (incl. email), two-step admin
  * password, messaging, targets, branding, website list.
  * ──────────────────────────────────────────────────────────────*/
-export function SettingsTab({ employees, setEmployees, departments = [], freelancers = [], teamMeta = {}, onUpdateEmp, onDeleteEmp, onResetPwd, newEmp, setNewEmp, addEmployeeQuick, newEmpEmail, setNewEmpEmail, newEmpPwd, setNewEmpPwd, adminPwd, setAdminPwd, msgEmpId, setMsgEmpId, msgText, setMsgText, sendMessage, messages, deleteMessage, targets, setTargets, logo, onLogoChange, onLogoRemove, websites, newWebsite, setNewWebsite, addWebsite, removeWebsite, domains = [], addDomain, updateDomain, deleteDomain, pushNotification, showToast, editMode = false, setEditMode, settingsPwd = "Settings@123", setSettingsPwd }) {
+export function SettingsTab({ employees, setEmployees, submissions = [], departments = [], freelancers = [], teamMeta = {}, onUpdateEmp, onDeleteEmp, onResetPwd, onTerminateEmp, onReactivateEmp, newEmp, setNewEmp, addEmployeeQuick, newEmpEmail, setNewEmpEmail, newEmpPwd, setNewEmpPwd, adminPwd, setAdminPwd, msgEmpId, setMsgEmpId, msgText, setMsgText, sendMessage, messages, deleteMessage, targets, setTargets, logo, onLogoChange, onLogoRemove, websites, newWebsite, setNewWebsite, addWebsite, removeWebsite, domains = [], addDomain, updateDomain, deleteDomain, pushNotification, showToast, editMode = false, setEditMode, settingsPwd = "Settings@123", setSettingsPwd }) {
+  // Live roster vs. former staff. The `employees` prop is the FULL list; the
+  // active roster / KPI counts use only active staff, and terminated employees
+  // move to the Former Employees section (their data is preserved).
+  const activeEmps = employees.filter((e) => e.status !== "terminated");
+  const formerEmps = employees.filter((e) => e.status === "terminated");
   const [newDomain, setNewDomain] = useState("");
   const [editDomainId, setEditDomainId] = useState(null);
   const [editDomainVal, setEditDomainVal] = useState("");
@@ -1551,11 +1570,11 @@ export function SettingsTab({ employees, setEmployees, departments = [], freelan
     showToast("Admin password updated.", "success");
   };
 
-  const deptCount = new Set(employees.map((e) => (e.department || "").trim().toLowerCase()).filter(Boolean)).size || departments.length;
-  const managerCount = new Set(employees.map((e) => e.teamLead).filter(Boolean)).size;
-  const designerCount = employees.filter((e) => (e.department || "").toLowerCase() === "design").length;
+  const deptCount = new Set(activeEmps.map((e) => (e.department || "").trim().toLowerCase()).filter(Boolean)).size || departments.length;
+  const managerCount = new Set(activeEmps.map((e) => e.teamLead).filter(Boolean)).size;
+  const designerCount = activeEmps.filter((e) => (e.department || "").toLowerCase() === "design").length;
   const stats = [
-    { icon: <Users size={18} />, label: "Employees", value: employees.length, color: "#3B82F6" },
+    { icon: <Users size={18} />, label: "Employees", value: activeEmps.length, color: "#3B82F6" },
     { icon: <Building2 size={18} />, label: "Departments", value: deptCount, color: "#8B5CF6" },
     { icon: <UserCog size={18} />, label: "Managers", value: managerCount, color: "#0EA5E9" },
     { icon: <Palette size={18} />, label: "Designers", value: designerCount, color: "#EC4899" },
@@ -1592,8 +1611,12 @@ export function SettingsTab({ employees, setEmployees, departments = [], freelan
             <input className="sv-input" placeholder="Password (default 1234)" value={newEmpPwd} onChange={(e) => setNewEmpPwd(e.target.value)} style={{ flex: "1 1 150px" }} />
             <button className="sv-btn sv-btn--primary" onClick={addEmployeeQuick}><Plus size={14} /> Add</button>
           </div>
-          {/* Compact employee list — shows 4, scrollable, View All toggle */}
-          <EmployeeListCompact employees={employees} onUpdateEmp={onUpdateEmp} onDeleteEmp={onDeleteEmp} onResetPwd={onResetPwd} departments={departments} />
+          {/* Compact employee list — ACTIVE staff only; shows 4, scrollable, View All toggle */}
+          <EmployeeListCompact employees={activeEmps} onUpdateEmp={onUpdateEmp} onTerminate={onTerminateEmp} onResetPwd={onResetPwd} departments={departments} />
+        </div>
+
+        <div className="sv-card">
+          <FormerEmployeesCard formerEmps={formerEmps} submissions={submissions} onReactivate={onReactivateEmp} onDeleteEmp={onDeleteEmp} showToast={showToast} />
         </div>
 
         <div className="sv-card">
@@ -1611,7 +1634,7 @@ export function SettingsTab({ employees, setEmployees, departments = [], freelan
           <SecHead icon={<MessageSquare size={16} />} color="#7C3AED" bg="rgba(124,58,237,.12)" title="Message an Employee" desc="Send a direct message to any employee" />
           <select className="sv-select" value={msgEmpId} onChange={(e) => setMsgEmpId(e.target.value)}>
             <option value="">Select employee...</option>
-            {employees.map((e) => <option key={e.id} value={e.id}>{empLabel(e)}</option>)}
+            {activeEmps.map((e) => <option key={e.id} value={e.id}>{empLabel(e)}</option>)}
           </select>
           <textarea className="sv-textarea" placeholder="Message..." value={msgText} onChange={(e) => setMsgText(e.target.value)} style={{ marginTop: 8 }} />
           <button className="sv-btn sv-btn--primary" style={{ marginTop: 8 }} onClick={sendMessage}>Send</button>
@@ -1704,11 +1727,20 @@ export function SettingsTab({ employees, setEmployees, departments = [], freelan
 
 /* Single employee row in admin Settings. Holds a local draft and persists
    text edits on blur (avoids per-keystroke writes & save races). */
-function EmployeeRow({ emp, onUpdateEmp, onDeleteEmp, onResetPwd, departments = [] }) {
+function EmployeeRow({ emp, onUpdateEmp, onTerminate, onResetPwd, departments = [] }) {
   const [draft, setDraft] = useState(emp);
   const [open, setOpen] = useState(false);
+  const [terming, setTerming] = useState(false);   // reason panel open?
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
   useEffect(() => { setDraft(emp); }, [emp.id]);
   const set = (field, val) => setDraft((d) => ({ ...d, [field]: val }));
+  const doTerminate = async () => {
+    setBusy(true);
+    const ok = await onTerminate?.(emp.id, reason.trim());
+    setBusy(false);
+    if (ok !== false) { setTerming(false); setReason(""); }
+  };
   return (
     <li className={`sv-emp-row${open ? " sv-emp-row--open" : ""}`}>
       <div className="sv-emp-head" onClick={() => setOpen((v) => !v)}>
@@ -1718,12 +1750,23 @@ function EmployeeRow({ emp, onUpdateEmp, onDeleteEmp, onResetPwd, departments = 
           <span className="sv-emp-dept">{draft.department}</span>
         </span>
         <span className="sv-flex sv-items-center sv-gap-2">
-          <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={(ev) => { ev.stopPropagation(); if (window.confirm(`Remove ${emp.name}?`)) onDeleteEmp(emp.id); }}>Remove</button>
+          <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ color: "#B45309", borderColor: "#FDE68A" }} title="End employment — preserves all data & history; the employee can no longer sign in and moves to Former Employees." onClick={(ev) => { ev.stopPropagation(); setOpen(true); setTerming((v) => !v); }}><UserX size={13} /> Terminate</button>
           <span className="sv-emp-chevron">{open ? "▲" : "▼"}</span>
         </span>
       </div>
       {open && (
       <div className="sv-emp-body">
+      {terming && (
+        <div style={{ marginBottom: 10, padding: "10px 12px", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginBottom: 6 }}>End employment for {emp.name}?</div>
+          <div style={{ fontSize: 11, color: "#B45309", marginBottom: 8 }}>Their data, DSRs, salary and history are kept. They can no longer sign in and will move to Former Employees. You can Reactivate them later.</div>
+          <input className="sv-input" placeholder="Reason (optional) — e.g. Resigned, Contract ended" value={reason} onChange={(e) => setReason(e.target.value)} style={{ marginBottom: 8 }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="sv-btn sv-btn--sm" style={{ background: "#D97706", color: "#fff" }} disabled={busy} onClick={doTerminate}>{busy ? "Terminating…" : "Confirm Terminate"}</button>
+            <button className="sv-btn sv-btn--sm sv-btn--outline" disabled={busy} onClick={() => { setTerming(false); setReason(""); }}>Cancel</button>
+          </div>
+        </div>
+      )}
       <div className="sv-emp-grid">
         <label className="sv-field"><span>Department</span>
           <select className="sv-select" value={draft.department || ""} onChange={(e) => { const v = e.target.value; const next = { ...draft, department: v }; setDraft(next); onUpdateEmp(next); }}>
@@ -1821,18 +1864,142 @@ function ResetPasswordInline({ empId, empName, onResetPwd }) {
 
 // ── EmployeeListCompact ──────────────────────────────────────
 // Shows 4 employees by default with a scrollable "View All" expansion
-function EmployeeListCompact({ employees, onUpdateEmp, onDeleteEmp, onResetPwd, departments = [] }) {
+function EmployeeListCompact({ employees, onUpdateEmp, onTerminate, onResetPwd, departments = [] }) {
   return (
     <div style={{ marginTop: 12 }}>
-      <div className="sv-emp-count">{employees.length} employee{employees.length === 1 ? "" : "s"} — click a name to view details</div>
+      <div className="sv-emp-count">{employees.length} active employee{employees.length === 1 ? "" : "s"} — click a name to view details</div>
       <div className="sv-emp-list">
         <ul className="sv-list" style={{ margin: 0, padding: 0 }}>
           {employees.map((e) => (
-            <EmployeeRow key={e.id} emp={e} onUpdateEmp={onUpdateEmp} onDeleteEmp={onDeleteEmp} onResetPwd={onResetPwd} departments={departments} />
+            <EmployeeRow key={e.id} emp={e} onUpdateEmp={onUpdateEmp} onTerminate={onTerminate} onResetPwd={onResetPwd} departments={departments} />
           ))}
         </ul>
       </div>
     </div>
+  );
+}
+
+// ── FormerEmployeesCard ──────────────────────────────────────
+// History section for terminated staff. Their data is fully preserved — from
+// here the admin can review each person's DSR history, Reactivate them, or (as a
+// separate, guarded action) Delete Permanently after a typed confirmation.
+function FormerEmployeesCard({ formerEmps = [], submissions = [], onReactivate, onDeleteEmp, showToast }) {
+  const [q, setQ] = useState("");
+  const list = formerEmps
+    .filter((e) => { const s = q.trim().toLowerCase(); return !s || [e.name, e.id, e.department, e.email, e.terminatedReason].some((v) => (v || "").toLowerCase().includes(s)); })
+    .sort((a, b) => String(b.terminatedAt || "").localeCompare(String(a.terminatedAt || "")));
+  return (
+    <div>
+      <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 12 }}>
+        <span className="sv-mod-icon" style={{ background: "rgba(100,116,139,.12)", color: "#475569" }}><HistoryIcon size={16} /></span>
+        <div>
+          <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 15.5 }}>Former Employees</p>
+          <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>Terminated staff — data & history preserved. Reactivate or permanently delete.</p>
+        </div>
+        <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "#475569", background: "#F1F5F9", borderRadius: 999, padding: "2px 10px" }}>{formerEmps.length}</span>
+      </div>
+      {formerEmps.length === 0 ? (
+        <div style={{ padding: "18px 12px", textAlign: "center", color: "#94A3B8", fontSize: 13, border: "1px dashed #E2E8F0", borderRadius: 8 }}>
+          No former employees. Terminated staff will appear here.
+        </div>
+      ) : (
+        <>
+          <div style={{ position: "relative", marginBottom: 8 }}>
+            <SearchIcon size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#94A3B8" }} />
+            <input className="sv-input" placeholder="Search former employees…" value={q} onChange={(e) => setQ(e.target.value)} style={{ paddingLeft: 30 }} />
+          </div>
+          <div className="sv-emp-list">
+            <ul className="sv-list" style={{ margin: 0, padding: 0 }}>
+              {list.map((e) => (
+                <FormerEmployeeRow key={e.id} emp={e} submissions={submissions} onReactivate={onReactivate} onDeleteEmp={onDeleteEmp} showToast={showToast} />
+              ))}
+            </ul>
+            {list.length === 0 && <div style={{ padding: 12, color: "#94A3B8", fontSize: 12.5 }}>No matches.</div>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function FormerEmployeeRow({ emp, submissions = [], onReactivate, onDeleteEmp, showToast }) {
+  const [open, setOpen] = useState(false);
+  const [confirmDel, setConfirmDel] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const mine = submissions.filter((s) => s.empId === emp.id).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const lastActive = mine[0]?.date || "—";
+  const termDate = emp.terminatedAt ? new Date(emp.terminatedAt).toLocaleDateString() : "—";
+  const doReactivate = async (ev) => { ev.stopPropagation(); setBusy(true); await onReactivate?.(emp.id); setBusy(false); };
+  const doDelete = async () => {
+    if (typed.trim() !== emp.name) { showToast?.("Type the exact name to confirm permanent deletion.", "error"); return; }
+    setBusy(true);
+    await onDeleteEmp?.(emp.id);
+    setBusy(false);
+  };
+  return (
+    <li className={`sv-emp-row${open ? " sv-emp-row--open" : ""}`}>
+      <div className="sv-emp-head" onClick={() => setOpen((v) => !v)}>
+        <span className="sv-flex sv-items-center sv-gap-2">
+          <Avatar name={emp.name} photo={emp.photo} size={30} />
+          <span className="sv-emp-name" style={{ textDecoration: "none" }}>{emp.name}</span>
+          <span className="sv-emp-dept">{emp.department}</span>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 999, padding: "1px 8px" }}>Former</span>
+        </span>
+        <span className="sv-flex sv-items-center sv-gap-2">
+          <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ color: "#16A34A", borderColor: "#86EFAC" }} disabled={busy} title="Restore to active roster" onClick={doReactivate}><RotateCcw size={13} /> Reactivate</button>
+          <span className="sv-emp-chevron">{open ? "▲" : "▼"}</span>
+        </span>
+      </div>
+      {open && (
+        <div className="sv-emp-body">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12, marginBottom: 10 }}>
+            <div><span className="sv-text-muted">Employee ID:</span> <b>{emp.id}</b></div>
+            <div><span className="sv-text-muted">Code:</span> <b>{emp.code || "—"}</b></div>
+            <div><span className="sv-text-muted">Email:</span> <b>{emp.email || "—"}</b></div>
+            <div><span className="sv-text-muted">Team Lead:</span> <b>{emp.teamLead || "—"}</b></div>
+            <div><span className="sv-text-muted">Terminated:</span> <b>{termDate}</b></div>
+            <div><span className="sv-text-muted">Last active DSR:</span> <b>{lastActive}</b></div>
+            <div style={{ gridColumn: "1 / -1" }}><span className="sv-text-muted">Reason:</span> <b>{emp.terminatedReason || "—"}</b></div>
+          </div>
+
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#334155", marginBottom: 6 }}>DSR / Activity History ({mine.length})</div>
+          {mine.length === 0 ? (
+            <div style={{ fontSize: 12, color: "#94A3B8", marginBottom: 10 }}>No submissions on record.</div>
+          ) : (
+            <div style={{ maxHeight: 160, overflowY: "auto", border: "1px solid #E2E8F0", borderRadius: 8, marginBottom: 10 }}>
+              <table style={{ width: "100%", fontSize: 11.5, borderCollapse: "collapse" }}>
+                <thead><tr style={{ background: "#F8FAFC", color: "#64748B", textAlign: "left" }}><th style={{ padding: "5px 8px" }}>Date</th><th style={{ padding: "5px 8px" }}>Attendance</th><th style={{ padding: "5px 8px" }}>Status</th><th style={{ padding: "5px 8px" }}>Hours</th></tr></thead>
+                <tbody>
+                  {mine.map((s) => (
+                    <tr key={s.id} style={{ borderTop: "1px solid #F1F5F9" }}>
+                      <td style={{ padding: "5px 8px" }}>{s.date}</td>
+                      <td style={{ padding: "5px 8px" }}>{s.attendance || "—"}</td>
+                      <td style={{ padding: "5px 8px" }}>{s.status || "—"}</td>
+                      <td style={{ padding: "5px 8px" }}>{s.workingHours || 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {!confirmDel ? (
+            <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ color: "#DC2626", borderColor: "#FCA5A5" }} onClick={() => setConfirmDel(true)}><Trash2 size={13} /> Delete Permanently</button>
+          ) : (
+            <div style={{ padding: "10px 12px", background: "#FEE2E2", border: "1px solid #FCA5A5", borderRadius: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#991B1B", marginBottom: 4 }}>⚠️ Permanently delete {emp.name}?</div>
+              <div style={{ fontSize: 11, color: "#B91C1C", marginBottom: 8 }}>This erases the employee and cascades to their submissions and related records. This cannot be undone. Type <b>{emp.name}</b> to confirm.</div>
+              <input className="sv-input" placeholder={`Type "${emp.name}"`} value={typed} onChange={(e) => setTyped(e.target.value)} style={{ marginBottom: 8 }} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="sv-btn sv-btn--sm" style={{ background: "#DC2626", color: "#fff" }} disabled={busy || typed.trim() !== emp.name} onClick={doDelete}>{busy ? "Deleting…" : "Delete Forever"}</button>
+                <button className="sv-btn sv-btn--sm sv-btn--outline" disabled={busy} onClick={() => { setConfirmDel(false); setTyped(""); }}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -3727,8 +3894,8 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
               {field("Edition *", <input className="sv-input" value={form.edition} onChange={(e) => upd("edition", e.target.value)} placeholder="e.g. Jan 2026" />)}
               {field("Assign Designer *", (
                 <select className="sv-select" value={form.assignedDesigner} onChange={(e) => setDesigner(e.target.value)}>
-                  <option value="">Select designer…</option>{employees.filter((e) => (e.department || "").toLowerCase() === "design").map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                  {employees.filter((e) => (e.department || "").toLowerCase() !== "design").map((e) => <option key={e.id} value={e.id}>{e.name}{e.department ? ` (${e.department})` : ""}</option>)}
+                  <option value="">Select designer…</option>{employees.filter((e) => e.status !== "terminated" && (e.department || "").toLowerCase() === "design").map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                  {employees.filter((e) => e.status !== "terminated" && (e.department || "").toLowerCase() !== "design").map((e) => <option key={e.id} value={e.id}>{e.name}{e.department ? ` (${e.department})` : ""}</option>)}
                 </select>
               ))}
               {!isNew && <>

@@ -87,6 +87,16 @@ export default function EmployeePortal() {
     const found = employees.find((e) => e.id === empId);
     if (!found) { showToast("No employee profile found. Contact your admin.", "error"); setBusy(false); return; }
 
+    // Terminated / deactivated accounts cannot sign in (their data is preserved;
+    // only the admin can open their DSR history from the Former Employees section).
+    if (found.status === "terminated") {
+      try { await employeeSignOut(); } catch (e) { /* ignore */ }
+      try { localStorage.removeItem("svd_emp_session"); sessionStorage.removeItem("svd_emp_session"); } catch (e) { /* ignore */ }
+      showToast("This account has been deactivated. Please contact your administrator.", "error");
+      setLoginPwd(""); setBusy(false);
+      return;
+    }
+
     try {
       const store = remember ? localStorage : sessionStorage;
       const other = remember ? sessionStorage : localStorage;
@@ -131,6 +141,12 @@ export default function EmployeePortal() {
       try { sid = localStorage.getItem("svd_emp_session") || sessionStorage.getItem("svd_emp_session"); } catch (e) { /* ignore */ }
       if (sid) {
         const f = employees.find((e) => e.id === sid);
+        // A session that belongs to a since-terminated employee is dropped.
+        if (f && f.status === "terminated") {
+          try { localStorage.removeItem("svd_emp_session"); sessionStorage.removeItem("svd_emp_session"); } catch (e) { /* ignore */ }
+          try { await employeeSignOut(); } catch (e) { /* ignore */ }
+          return;
+        }
         if (active && f) { setEmp(f); setLoggedIn(true); return; }
       }
       // b) Supabase Auth session (for provisioned accounts).
@@ -138,6 +154,10 @@ export default function EmployeePortal() {
       const sessEmail = data?.session?.user?.email;
       if (!active || !sessEmail) return;
       const found = employees.find((e) => (e.email || "").toLowerCase() === sessEmail.toLowerCase());
+      if (found && found.status === "terminated") {
+        try { await employeeSignOut(); } catch (e) { /* ignore */ }
+        return;
+      }
       if (found) { setEmp(found); setLoggedIn(true); }
     })();
     return () => { active = false; };

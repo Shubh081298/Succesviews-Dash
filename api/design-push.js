@@ -26,7 +26,16 @@ function init() {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") { res.status(405).json({ error: "Method not allowed" }); return; }
-  if (!init()) { res.status(200).json({ ok: false, reason: "not-configured" }); return; }
+  if (!init()) {
+    // Presence-only diagnostics (booleans, never values) so we can see which var is missing at runtime.
+    res.status(200).json({ ok: false, reason: "not-configured", present: {
+      VAPID_PUBLIC_KEY: !!VAPID_PUBLIC_KEY,
+      VAPID_PRIVATE_KEY: !!VAPID_PRIVATE_KEY,
+      SUPABASE_URL: !!SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY: !!SUPABASE_SERVICE_ROLE_KEY,
+    } });
+    return;
+  }
 
   let body = req.body;
   if (typeof body === "string") { try { body = JSON.parse(body); } catch (e) { body = {}; } }

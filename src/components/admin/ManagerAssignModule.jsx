@@ -48,11 +48,14 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
     return m;
   }, [submissions, monthPrefix]);
 
+  // Live team management uses ACTIVE staff only. Persist maps below still operate
+  // on the FULL `employees` list so terminated rows are never dropped on save.
+  const activeEmployees = employees.filter((e) => e.status !== "terminated");
   const leadNames = [...new Set([
-    ...employees.map((e) => e.teamLead).filter(Boolean),
+    ...activeEmployees.map((e) => e.teamLead).filter(Boolean),
     ...Object.keys(teamMeta || {}),
   ])];
-  const grouped = leadNames.map((lead) => ({ lead, members: employees.filter((e) => e.teamLead === lead) }));
+  const grouped = leadNames.map((lead) => ({ lead, members: activeEmployees.filter((e) => e.teamLead === lead) }));
 
   const persist = async (list) => { setEmployees(list); await storageSet("svd_emps", JSON.stringify(list)); };
   const assign = async (empId, lead) => {
@@ -102,7 +105,7 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
   const askDeleteTeam = (lead) => setConfirm({ message: `Delete team "${lead}"? Its members will no longer belong to a team.`, onYes: () => doDeleteTeam(lead) });
   const askRemoveMember = (m, lead) => setConfirm({ message: `Remove ${m.name} from team "${lead}"?`, onYes: () => assign(m.id, "") });
 
-  if (employees.length === 0) {
+  if (activeEmployees.length === 0) {
     return (
       <div className="sv-card">
         <p className="sv-text-muted" style={{ fontSize: 13, textAlign: "center", padding: "24px 0" }}>No employees yet. Add employees in Settings first.</p>
@@ -156,7 +159,7 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
               <span>Add member</span>
               <select className="sv-select" value="" onChange={(e) => e.target.value && assign(e.target.value, lead)}>
                 <option value="">Select employee…</option>
-                {employees.filter((e) => e.teamLead !== lead && e.name !== lead).map((e) => <option key={e.id} value={e.id}>{e.name}{e.teamLead ? ` (in ${e.teamLead})` : ""}</option>)}
+                {activeEmployees.filter((e) => e.teamLead !== lead && e.name !== lead).map((e) => <option key={e.id} value={e.id}>{e.name}{e.teamLead ? ` (in ${e.teamLead})` : ""}</option>)}
               </select>
             </label>
           )}
@@ -189,7 +192,7 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
           <div className="sv-flex sv-items-center sv-gap-2">
             <select className="sv-select" value={newLead} onChange={(e) => setNewLead(e.target.value)} style={{ minWidth: 160 }}>
               <option value="">Pick team lead…</option>
-              {employees.map((e) => <option key={e.id} value={e.name}>{e.name}</option>)}
+              {activeEmployees.map((e) => <option key={e.id} value={e.name}>{e.name}</option>)}
             </select>
             <button className="sv-btn sv-btn--primary sv-btn--sm" onClick={createTeam} disabled={!newLead}>Create</button>
             <button className="sv-btn sv-btn--outline sv-btn--sm" onClick={() => { setAdding(false); setNewLead(""); }}>Cancel</button>
@@ -214,7 +217,7 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
               <label className="sv-team-ctl">
                 <span>Team lead (rename)</span>
                 <select className="sv-select" value={form.lead} onChange={(e) => setForm({ ...form, lead: e.target.value })}>
-                  {[...new Set([form.lead, ...employees.map((e) => e.name)])].filter(Boolean).map((n) => <option key={n} value={n}>{n}</option>)}
+                  {[...new Set([form.lead, ...activeEmployees.map((e) => e.name)])].filter(Boolean).map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
               </label>
               <div className="sv-team-ctl-row">

@@ -27,6 +27,10 @@ const PTYPES = ["Monthly", "Per Project", "Hourly"];
 
 export default function SalaryModule({ employees, salaries, setSalaries, showToast, pushNotification, addMessage, captureExpense, editMode = false, setEditMode, settingsPwd = "Settings@123", logo = "", freelancers = [], saveFreelancers, bankDetails = {}, saveBankDetails, deleteEmployee }) {
   const [view, setView] = useState("payroll"); // payroll | freelancers | history | bank
+  // Current payroll / roster / bank views show ACTIVE staff only. The Salary
+  // HISTORY list still resolves terminated employees' names (their past pay
+  // records are preserved), so `employees` (full) is used there via .find().
+  const activeEmployees = employees.filter((e) => e.status !== "terminated");
   const [search, setSearch] = useState("");
   // The Full-Time / Freelancers / Bank tabs share one search box — clear it when
   // switching tabs so a filter typed on one tab can't silently hide people on another.
@@ -366,8 +370,8 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
     (freelancers || []).forEach((f) => (f.payments || []).forEach((p) => { if (mKey(p.date) === payMonth) { freePaid += p.amount || 0; freePaidIds.add(f.id); } }));
     // Pending / net payable = the selected month's records that are NOT released yet.
     let pendingInc = 0, pendingDed = 0, netPayable = 0;
-    employees.forEach((e) => { const rec = getMonthRec(e.id, payMonth); if (!pcResolved(rec.status)) { pendingInc += sumAmt(rec.incentives); pendingDed += sumAmt(rec.deductions); netPayable += (rec.fixed || 0) + sumAmt(rec.incentives) - sumAmt(rec.deductions); } });
-    const withSalary = employees.filter((e) => (getMonthRec(e.id, payMonth).fixed || 0) > 0).length;
+    activeEmployees.forEach((e) => { const rec = getMonthRec(e.id, payMonth); if (!pcResolved(rec.status)) { pendingInc += sumAmt(rec.incentives); pendingDed += sumAmt(rec.deductions); netPayable += (rec.fixed || 0) + sumAmt(rec.incentives) - sumAmt(rec.deductions); } });
+    const withSalary = activeEmployees.filter((e) => (getMonthRec(e.id, payMonth).fixed || 0) > 0).length;
     const completion = withSalary > 0 ? Math.round((empPaidIds.size / withSalary) * 100) : 0;
     return { empPaid, freePaid, total: empPaid + freePaid, incPaid, dedPaid, pendingInc, pendingDed, netPayable, empPaidCount: empPaidIds.size, freePaidCount: freePaidIds.size, pending: Math.max(0, withSalary - empPaidIds.size), completion };
   }, [salaries, freelancers, employees, payMonth]);
@@ -402,7 +406,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
     return true;
   });
 
-  const empFiltered = employees.filter((e) => !search || [e.name, e.id, e.department].some((v) => (v || "").toLowerCase().includes(search.toLowerCase())));
+  const empFiltered = activeEmployees.filter((e) => !search || [e.name, e.id, e.department].some((v) => (v || "").toLowerCase().includes(search.toLowerCase())));
   const frFiltered = (freelancers || []).filter((f) => !search || [f.name, f.company, f.role].some((v) => (v || "").toLowerCase().includes(search.toLowerCase())));
 
   const Kpi = ({ icon, label, value, color, note }) => (
@@ -691,7 +695,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
         {/* ── Bank Details ── */}
         {view === "bank" && (() => {
           const q = search.trim().toLowerCase();
-          const rows = employees.filter((e) => {
+          const rows = activeEmployees.filter((e) => {
             const b = bankDetails[e.id] || {};
             return !q || `${e.name} ${e.id} ${b.recipientName || ""} ${b.accountNumber || ""} ${b.ifscCode || ""} ${b.upiId || ""}`.toLowerCase().includes(q);
           });

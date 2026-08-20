@@ -21,7 +21,7 @@ import { genCode, getTodayStr, fmtCurr, fmtDate, sum, downloadCSV } from "../../
 
 export default function AdminDashboard() {
   const {
-    employees, saveEmployees, addEmployee, deleteEmployee, updateEmployee, resetEmployeePassword, assignEmployeeIds,
+    employees, activeEmployees, formerEmployees, saveEmployees, addEmployee, deleteEmployee, updateEmployee, resetEmployeePassword, assignEmployeeIds, terminateEmployee, reactivateEmployee,
     submissions, saveSubs,
     departments, saveDepartments,
     websites, saveWebsites,
@@ -168,7 +168,9 @@ export default function AdminDashboard() {
     const salesByEmp = {}, payByEmp = {};
     for (const s of (pipelineSales || [])) if (liveIds.has(s.clientId)) salesByEmp[s.employeeId] = (salesByEmp[s.employeeId] || 0) + (Number(s.amount) || 0);
     for (const p of (pipelinePayments || [])) if (liveIds.has(p.clientId)) payByEmp[p.employeeId] = (payByEmp[p.employeeId] || 0) + (Number(p.amount) || 0);
-    return employees.map((e) => {
+    // Live dashboard / leaderboard / analytics show ACTIVE staff only — terminated
+    // employees drop out of active-employee statistics (their history stays in Reports).
+    return activeEmployees.map((e) => {
     const mine = submissions.filter((s) => s.empId === e.id);
     return {
       ...e,
@@ -190,7 +192,7 @@ export default function AdminDashboard() {
       todayAttendance: (mine.find((s) => s.date === todayStr) || {}).attendance || null,
     };
   });
-  }, [employees, submissions, todayStr, pipelineClients, pipelineSales, pipelinePayments]);
+  }, [activeEmployees, submissions, todayStr, pipelineClients, pipelineSales, pipelinePayments]);
 
   const reportsFiltered = useMemo(() => submissions
     .filter((s) => !reportEmpSearch || s.empName?.toLowerCase().includes(reportEmpSearch.toLowerCase()))
@@ -492,9 +494,10 @@ export default function AdminDashboard() {
         )}
         {tab === "settings" && (
           <SettingsTab
-            employees={employees} setEmployees={saveEmployees}
+            employees={employees} setEmployees={saveEmployees} submissions={submissions}
             departments={departments} freelancers={freelancers} teamMeta={teamMeta}
             onUpdateEmp={updateEmployee} onDeleteEmp={deleteEmployee} onResetPwd={resetEmployeePassword}
+            onTerminateEmp={terminateEmployee} onReactivateEmp={reactivateEmployee}
             newEmp={newEmp} setNewEmp={setNewEmp} addEmployeeQuick={addEmployeeQuick}
             newEmpEmail={newEmpEmail} setNewEmpEmail={setNewEmpEmail} newEmpPwd={newEmpPwd} setNewEmpPwd={setNewEmpPwd}
             adminPwd={adminPwd} setAdminPwd={setAdminPwd}

@@ -421,21 +421,22 @@ export function AppDataProvider({ children }) {
   // Auto-capture (upsert by source_key so re-download / re-pay updates the
   // same record instead of creating duplicates). Silent — used by modules.
   async function captureExpense(rec) {
-    if (!rec || !rec.sourceKey) return;
+    if (!rec || !rec.sourceKey) return false;
     try {
       const { data, error } = await supabase
         .from("expenses")
         .upsert(expenseToRow(rec), { onConflict: "source_key" })
         .select("*")
         .single();
-      if (error || !data) return;
+      if (error || !data) return false;
       const mapped = rowToExpense(data);
       setExpenses((prev) => {
         const i = prev.findIndex((x) => x.sourceKey === mapped.sourceKey || x.id === mapped.id);
         if (i === -1) return [mapped, ...prev];
         const copy = prev.slice(); copy[i] = mapped; return copy;
       });
-    } catch (e) { /* table may not be migrated yet — ignore silently */ }
+      return true;                       // callers can now confirm the DB write succeeded
+    } catch (e) { return false; }        // table missing / offline — caller keeps a local copy
   }
 
   /* ── Design Projects (Design Management module) ── */

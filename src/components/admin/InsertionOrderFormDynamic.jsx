@@ -110,12 +110,26 @@ const todayStr = () => {
 const esc = (s = '') =>
   String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+// Drop unquestionably-broken/junk entries only:
+//  • no name at all (can't be selected), or
+//  • a pristine "New Magazine" placeholder left over from clicking Add without filling anything
+//    (default name AND no contact AND no logo/watermark).
+// Any magazine the user actually customised (renamed, added a rep, or a logo) is never touched.
+const sanitizeMagazines = (arr) => {
+  if (!Array.isArray(arr)) return [];
+  const pristineNew = (m) =>
+    String(m.name || '').trim() === 'New Magazine' &&
+    !String(m.repName || '').trim() && !String(m.repEmail || '').trim() &&
+    !m.logoDataUrl && !m.watermarkDataUrl;
+  return arr.filter((m) => m && String(m.name || '').trim() !== '' && !pristineNew(m));
+};
+
 const loadMagazines = () => {
   try {
     const raw = localStorage.getItem(LS_MAGS);
     if (raw) {
-      const arr = JSON.parse(raw);
-      if (Array.isArray(arr) && arr.length) return arr;
+      const arr = sanitizeMagazines(JSON.parse(raw));
+      if (arr.length) return arr;
     }
   } catch (e) {
     /* fall back to defaults */
@@ -238,15 +252,20 @@ function genOrderHtml(m, data, preview = false) {
   const watermarkHtml = m.watermarkDataUrl
     ? `<div class="wm"><img src="${m.watermarkDataUrl}" style="width:${wmSize}%;max-width:66%;max-height:55%;opacity:${wmOpacity};" alt="" /></div>`
     : `<div class="wm"><div class="wmtext" style="opacity:${wmOpacity};color:${accent};">${esc(D(m.logoText, 'CIO'))} ${esc(D(m.logoSubText, 'VISIONARIES'))}</div></div>`;
-  return `<!doctype html><html><head><meta charset="utf-8" /><title>${esc(docTitle)}</title>
+  return `<!doctype html><html><head><meta charset="utf-8" />
+<meta name="viewport" content="width=794, initial-scale=1, maximum-scale=1" />
+<title>${esc(docTitle)}</title>
 <style>
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  /* Lock mobile font inflation — without this, mobile browsers auto-enlarge the small
+     print fonts, overflowing the A4 box onto a 2nd page. Keeps the PDF device-independent. */
+  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   html,body{margin:0;padding:0}
   body{font-family:Arial,Helvetica,sans-serif;color:#1f2937;font-size:10px;line-height:1.4;background:#fff}
   .wm{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:0;pointer-events:none}
   .wm img{max-width:66%;max-height:55%;height:auto;object-fit:contain}
   .wmtext{font-family:Georgia,'Times New Roman',serif;font-size:66px;font-weight:800;letter-spacing:5px;transform:rotate(-18deg);white-space:nowrap;text-align:center}
-  .doc{position:relative;z-index:1;max-width:800px;min-height:100vh;margin:0 auto;padding:16px 22px 10px;display:flex;flex-direction:column}
+  .doc{position:relative;z-index:1;width:100%;max-width:794px;min-height:100vh;margin:0 auto;padding:16px 22px 10px;display:flex;flex-direction:column}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
   .co-title{font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:700;letter-spacing:1px;text-align:right;color:#111;margin-bottom:6px;white-space:nowrap}
   .meta{display:grid;grid-template-columns:auto auto;column-gap:16px;row-gap:2px;justify-content:end;font-size:10px}
@@ -292,7 +311,16 @@ function genOrderHtml(m, data, preview = false) {
   .foot-wrap{margin-top:auto}
   .footer{border-top:2px solid ${accent};margin-top:12px;padding-top:7px;text-align:center;font-size:10.5px;font-weight:600;color:#374151}
   .bline{height:3px;background:${accent};border-radius:2px;margin-top:7px}
+  /* Never split a section across pages. */
+  .hdr,.cols,.sec,.panel,.accept,.foot-wrap,.ctable{break-inside:avoid;page-break-inside:avoid}
   @page{size:A4;margin:8mm}
+  /* Print = fixed A4 box in millimetres, independent of screen/device width, so desktop and
+     mobile produce the exact same single-page document. Screen keeps the responsive layout above. */
+  @media print{
+    html,body{width:210mm;background:#fff}
+    .doc{width:194mm;max-width:194mm;min-height:273mm;margin:0;padding:0}
+    .wm{position:fixed;inset:0}
+  }
 </style></head><body>
   ${watermarkHtml}
   <div class="doc">
@@ -384,7 +412,8 @@ function genOrderHtml(m, data, preview = false) {
 }
 
 export default function InsertionOrderForm({ onCapture, sharedMagazines = null, onSaveMagazines } = {}) {
-  const { expenses = [], showToast, deleteExpense } = useAppData();
+  const { expenses = [], showToast, deleteExpense, loading } = useAppData();
+  const reconciledRef = useRef(false);   // ensures the offline-queue flush runs only once per mount
   // Local mirror of saved orders so they always appear immediately and survive even if the
   // DB write is unavailable. Merged with any DB-backed insertion_order expenses (dedup by key).
   const [localSaved, setLocalSaved] = useState(() => {
@@ -392,6 +421,22 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     return [];
   });
   useEffect(() => { try { localStorage.setItem(LS_SAVED, JSON.stringify(localSaved)); } catch (e) { /* ignore */ } }, [localSaved]);
+
+  // Reconciliation / offline-queue flush — runs once after the DB has loaded. Any locally-saved
+  // order that isn't in the database yet (a previous save that failed, or was made offline) is
+  // pushed to the DB now, so the database is the single source of truth across every browser/session.
+  useEffect(() => {
+    if (reconciledRef.current || loading || typeof onCapture !== 'function') return;
+    reconciledRef.current = true;
+    const dbKeys = new Set((expenses || []).filter((e) => e.type === 'insertion_order').map((e) => e.sourceKey).filter(Boolean));
+    const pending = (localSaved || []).filter((r) => r && r.sourceKey && !dbKeys.has(r.sourceKey));
+    if (!pending.length) return;
+    (async () => {
+      const okKeys = [];
+      for (const r of pending) { try { if ((await onCapture(r)) === true) okKeys.push(r.sourceKey); } catch (e) { /* keep queued */ } }
+      if (okKeys.length) setLocalSaved((prev) => (prev || []).map((x) => (okKeys.includes(x.sourceKey) ? { ...x, synced: true } : x)));
+    })();
+  }, [loading, expenses]);
   const savedOrders = (() => {
     const byKey = new Map();
     (localSaved || []).forEach((r) => { if (r) byKey.set(r.sourceKey || r.id, r); });
@@ -410,7 +455,8 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     if (!hydratedRef.current && Array.isArray(sharedMagazines) && sharedMagazines.length) {
       hydratedRef.current = true;
       skipSaveRef.current = true; // don't immediately echo this back to the DB
-      setMagazines(sharedMagazines);
+      const clean = sanitizeMagazines(sharedMagazines);
+      setMagazines(clean.length ? clean : sharedMagazines);
     }
   }, [sharedMagazines]);
 
@@ -436,10 +482,19 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
   // download time (contact person, logo, perks, terms) so the document reproduces
   // as downloaded even if the magazine template changed afterwards.
   const [orderSnap, setOrderSnap] = useState(null);
+  // Identity of the saved order currently being edited (empty = composing a brand-new order).
+  // While set, every form change auto-saves back to THIS record.
+  const [editingKey, setEditingKey] = useState('');
+  const [autoSaveState, setAutoSaveState] = useState('');   // '' | 'saving' | 'saved'
+  const editMetaRef = useRef({ url: '', name: '', createdAt: '' }); // preserve file + created date across auto-saves
   const liveMag = magazines.find((m) => m.id === currentId) || magazines[0];
   const mag = orderSnap || liveMag;
 
   const BLANK_FORM = {
+    // Stable, unique identity for THIS order. Generated once when a new order is first saved
+    // and reused on every edit, so each order maps to exactly one DB row (source_key) —
+    // new orders never collide/overwrite, and edits update in place.
+    orderKey: '',
     date: todayStr(),
     orderId: '', edition: '',
     featureTitle: '',
@@ -617,6 +672,8 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     const dd = rec.details || {};
     const snap = dd.magSnapshot || {};
     setForm({
+      // Reuse the saved order's stable identity so editing updates the SAME row (never a duplicate).
+      orderKey: dd.orderKey || rec.sourceKey || '',
       date: rec.paymentDate || (dd.generatedAt ? String(dd.generatedAt).slice(0, 10) : todayStr()),
       orderId: dd.orderId || '',
       edition: dd.edition || '',
@@ -631,15 +688,21 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
       currency: rec.currency || dd.currency || 'USD',
       paymentTerms: dd.paymentTerms || '',
       paymentMethod: dd.paymentMethod || '',
-      repName: dd.repName || snap.repName || '',
-      repTitle: dd.repTitle || snap.repTitle || '',
-      repEmail: dd.repEmail || snap.repEmail || '',
+      // Show the Publisher Information exactly as saved on this order (editable). Prefer the raw
+      // per-order override the user typed; otherwise the value shown on the saved document.
+      repName: dd.repOverrideName || dd.repName || snap.repName || '',
+      repTitle: dd.repOverrideTitle || dd.repTitle || snap.repTitle || '',
+      repEmail: dd.repOverrideEmail || dd.repEmail || snap.repEmail || '',
     });
     const mm = magazines.find((x) => x.name === dd.magazine);
     if (mm) setCurrentId(mm.id);
     // Freeze the magazine exactly as it was on this saved order (contact person, logo,
     // perks, terms) so the edited copy keeps the same details unless the user switches magazine.
     setOrderSnap(dd.magSnapshot || null);
+    // From now on, edits to THIS order auto-save back to the same record (no re-click needed).
+    setEditingKey(dd.orderKey || rec.sourceKey || '');
+    editMetaRef.current = { url: dd.invoiceUrl || '', name: dd.invoiceName || '', createdAt: rec.createdAt || dd.generatedAt || '' };
+    setAutoSaveState('');
     setShowSaved(false);
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch (e) { /* ignore */ }
   };
@@ -655,22 +718,78 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
   });
 
   // Build the order document + its identifiers (shared by Download and Save-to-memory).
+  const genOrderKey = () => `io_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const buildOrder = () => {
     const dt0 = new Date(form.date || Date.now());
     const fyStart0 = dt0.getMonth() >= 3 ? dt0.getFullYear() : dt0.getFullYear() - 1;
     const fy0 = `${String(fyStart0).slice(2)}-${String(fyStart0 + 1).slice(2)}`;
-    const src = `io:${(form.clientName || '').trim()}:${form.date || ''}:${mag.name || ''}`;
-    let hash = 0; for (let i = 0; i < src.length; i++) hash = (hash * 31 + src.charCodeAt(i)) & 0xffff;
-    const confNo = `SV/${fy0}/${String((hash % 900) + 100)}`;
-    const orderId = (form.orderId || '').trim() || confNo;
+    // Stable, unique identity for THIS order. Generated once, then reused on every edit so the
+    // order maps to exactly one DB row — new orders never overwrite each other and edits update
+    // in place. Replaces the old client+date+magazine key that caused collisions/overwrites.
+    let orderKey = (form.orderKey || '').trim();
+    if (!orderKey) { orderKey = genOrderKey(); setForm((p) => ({ ...p, orderKey })); }
+    const src = orderKey;
+    // Confirmation number: keep the existing one on edit; otherwise derive a stable value from the
+    // unique key (stable across edits, unique across orders — no more duplicate SV/.. numbers).
+    let hash = 0; for (let i = 0; i < orderKey.length; i++) hash = (hash * 31 + orderKey.charCodeAt(i)) & 0xffff;
+    const confNo = (form.orderId || '').trim() || `SV/${fy0}/${String((hash % 900) + 100)}`;
+    const orderId = confNo;
     const html = genOrderHtml(docMag, orderData(orderId));
-    return { html, confNo, src, orderId };
+    return { html, confNo, src, orderId, orderKey };
   };
 
-  // Persist a generated order to storage + the Saved Insertion Orders list (memory).
-  // Always mirrors to localStorage (so it shows instantly and never gets lost) and also
-  // pushes to the DB via onCapture when available.
-  const persistOrder = async ({ html, confNo, src, orderId }) => {
+  // Build the saved-order record from the CURRENT form + resolved doc magazine. Shared by the
+  // explicit Save/Download path and the edit auto-save path so both persist identical data —
+  // in particular the exact Publisher Information the user sees (docMag = per-order override,
+  // else the magazine default) is what gets stored, and restored verbatim on the next edit.
+  const buildRecord = ({ confNo, orderId, orderKey, fileUrl, fileName, createdAt }) => ({
+    id: orderKey || `io_${Date.now()}`,
+    createdAt: createdAt || new Date().toISOString(),
+    type: 'insertion_order',
+    sourceKey: orderKey,
+    title: form.featureTitle || form.clientName || 'Insertion Order',
+    category: 'Insertion Order',
+    clientName: form.clientName || '',
+    contractOrder: confNo,
+    paymentStatus: 'Pending',
+    paymentDate: form.date || '',
+    amount: form.cost === '' ? null : Number(form.cost),
+    currency: form.currency || 'USD',
+    details: {
+      orderKey: orderKey,          // stable identity, mirrored into details for reopen/edit
+      confirmationNo: confNo,
+      contractNo: confNo,
+      orderId,
+      clientName: form.clientName || '',
+      companyName: form.clientCompany || '',
+      clientTitle: form.clientTitle || '',
+      clientEmail: form.clientEmail || '',
+      featureTitle: form.featureTitle || '',
+      edition: form.edition || '',
+      participationType: form.participationType || '',
+      publication: form.publication || '',
+      paymentTerms: form.paymentTerms || '',
+      paymentMethod: form.paymentMethod || '',
+      magazine: mag.name || '',
+      generatedAt: new Date().toISOString(),
+      contractValue: form.cost || '',
+      currency: form.currency || 'USD',
+      orderStatus: 'Downloaded',
+      paymentStatus: 'Pending',
+      invoiceUrl: fileUrl || '',
+      invoiceName: fileName || (`Confirmation Order ${confNo}`),
+      // Persist BOTH the raw per-order override (so a blank stays blank on the next edit) and the
+      // resolved value actually shown on the document.
+      repOverrideName: (form.repName || '').trim(),
+      repOverrideTitle: (form.repTitle || '').trim(),
+      repOverrideEmail: (form.repEmail || '').trim(),
+      repName: docMag.repName || '', repTitle: docMag.repTitle || '', repEmail: docMag.repEmail || '',
+      magSnapshot: magSnap(docMag),
+    },
+  });
+
+  // Persist a generated order to storage + the Saved Insertion Orders list (DB source of truth).
+  const persistOrder = async ({ html, confNo, src, orderId, orderKey }) => {
     let fileUrl = '', fileName = '';
     try {
       setBusyDl(true);
@@ -680,51 +799,42 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
       if (!error) { fileUrl = supabase.storage.from('design-files').getPublicUrl(path).data.publicUrl; fileName = `Confirmation Order ${confNo}.html`; }
     } catch (e) { /* upload optional — record still captured */ }
     finally { setBusyDl(false); }
-    const rec = {
-      id: `io_${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      type: 'insertion_order',
-      sourceKey: src,
-      title: form.featureTitle || form.clientName || 'Insertion Order',
-      category: 'Insertion Order',
-      clientName: form.clientName || '',
-      contractOrder: confNo,
-      paymentStatus: 'Pending',
-      paymentDate: form.date || '',
-      amount: form.cost === '' ? null : Number(form.cost),
-      currency: form.currency || 'USD',
-      details: {
-        confirmationNo: confNo,
-        contractNo: confNo,
-        orderId,
-        clientName: form.clientName || '',
-        companyName: form.clientCompany || '',
-        clientTitle: form.clientTitle || '',
-        clientEmail: form.clientEmail || '',
-        featureTitle: form.featureTitle || '',
-        edition: form.edition || '',
-        participationType: form.participationType || '',
-        publication: form.publication || '',
-        paymentTerms: form.paymentTerms || '',
-        paymentMethod: form.paymentMethod || '',
-        magazine: mag.name || '',
-        generatedAt: new Date().toISOString(),
-        contractValue: form.cost || '',
-        currency: form.currency || 'USD',
-        orderStatus: 'Downloaded',
-        paymentStatus: 'Pending',
-        invoiceUrl: fileUrl,
-        invoiceName: fileName || (`Confirmation Order ${confNo}`),
-        repName: docMag.repName || '', repTitle: docMag.repTitle || '', repEmail: docMag.repEmail || '',
-        magSnapshot: magSnap(docMag),
-      },
-    };
-    // 1) Local mirror — instant + reliable (dedup by sourceKey).
-    setLocalSaved((prev) => [rec, ...(prev || []).filter((x) => (x.sourceKey || '') !== src)]);
-    // 2) DB (best-effort) — keeps it in sync across devices / with the expenses ledger.
-    if (typeof onCapture === 'function') { try { await onCapture(rec); } catch (e) { /* local copy already saved */ } }
-    showToast && showToast('Saved to Insertion Orders.', 'success');
+    const rec = buildRecord({ confNo, orderId, orderKey: orderKey || src, fileUrl, fileName });
+    // DB write is the SOURCE OF TRUTH — await it and know whether it actually persisted.
+    let synced = false;
+    if (typeof onCapture === 'function') {
+      try { synced = (await onCapture(rec)) === true; } catch (e) { synced = false; }
+    }
+    // Local mirror doubles as an offline queue; dedup by the stable orderKey (no duplicates).
+    setLocalSaved((prev) => [{ ...rec, synced }, ...(prev || []).filter((x) => (x.sourceKey || '') !== rec.sourceKey)]);
+    // Editing this order from now on auto-saves silently to the same record.
+    setEditingKey(rec.sourceKey);
+    editMetaRef.current = { url: fileUrl, name: fileName, createdAt: rec.createdAt };
+    if (synced) showToast && showToast('Saved to Insertion Orders.', 'success');
+    else showToast && showToast('Saved locally — could not reach the database. It will sync automatically when the connection is back.', 'error');
   };
+
+  // ── Auto-save while editing a saved order ──
+  // Any change to the form is debounced and written back to the SAME record (by its stable
+  // orderKey) — no need to click Save again. Skips the HTML re-upload (reuses the saved file);
+  // Download still regenerates the document when the user wants a fresh copy.
+  useEffect(() => {
+    if (!editingKey) return;
+    setAutoSaveState('saving');
+    const t = setTimeout(async () => {
+      const dt0 = new Date(form.date || Date.now());
+      const fyStart0 = dt0.getMonth() >= 3 ? dt0.getFullYear() : dt0.getFullYear() - 1;
+      const fy0 = `${String(fyStart0).slice(2)}-${String(fyStart0 + 1).slice(2)}`;
+      let hash = 0; for (let i = 0; i < editingKey.length; i++) hash = (hash * 31 + editingKey.charCodeAt(i)) & 0xffff;
+      const confNo = (form.orderId || '').trim() || `SV/${fy0}/${String((hash % 900) + 100)}`;
+      const rec = buildRecord({ confNo, orderId: confNo, orderKey: editingKey, fileUrl: editMetaRef.current.url, fileName: editMetaRef.current.name, createdAt: editMetaRef.current.createdAt });
+      let ok = false;
+      if (typeof onCapture === 'function') { try { ok = (await onCapture(rec)) === true; } catch (e) { ok = false; } }
+      setLocalSaved((prev) => [{ ...rec, synced: ok }, ...(prev || []).filter((x) => (x.sourceKey || '') !== editingKey)]);
+      setAutoSaveState(ok ? 'saved' : 'error');
+    }, 900);
+    return () => clearTimeout(t);
+  }, [form, editingKey]);
 
   /* ── Download: open the print dialog, then ask whether to save to memory ── */
   const handleDownload = async () => {
@@ -753,7 +863,14 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
           <select
             className="sv-input"
             value={liveMag.id}
-            onChange={(e) => { setCurrentId(e.target.value); setOrderSnap(null); }}
+            onChange={(e) => {
+              const id = e.target.value;
+              setCurrentId(id); setOrderSnap(null);
+              // Seed the per-order Publisher fields from the chosen magazine so what shows on the
+              // document is an explicit, editable value (not a hidden fallback) that saves as-is.
+              const nm = magazines.find((m) => m.id === id);
+              if (nm) setForm((p) => ({ ...p, repName: nm.repName || '', repTitle: nm.repTitle || '', repEmail: nm.repEmail || '' }));
+            }}
           >
             {magazines.map((m) => (
               <option key={m.id} value={m.id}>
@@ -1237,10 +1354,17 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
             <button
               type="button"
               className="sv-btn-outline sv-io-download-btn"
-              onClick={() => { if (window.confirm('Start a new blank order? The current draft will be cleared.')) { setForm(BLANK_FORM); setOrderSnap(null); } }}
+              onClick={() => { if (window.confirm('Start a new blank order? The current draft will be cleared.')) { const dm = magazines.find((m) => m.id === currentId) || magazines[0] || {}; setForm({ ...BLANK_FORM, repName: dm.repName || '', repTitle: dm.repTitle || '', repEmail: dm.repEmail || '' }); setOrderSnap(null); setEditingKey(''); setAutoSaveState(''); } }}
             >
               New order
             </button>
+            {editingKey && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, alignSelf: 'center',
+                color: autoSaveState === 'error' ? '#DC2626' : autoSaveState === 'saving' ? '#B45309' : '#16A34A' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: autoSaveState === 'error' ? '#DC2626' : autoSaveState === 'saving' ? '#F59E0B' : '#16A34A' }} />
+                {autoSaveState === 'error' ? 'Edit not saved — will retry' : autoSaveState === 'saving' ? 'Editing — auto-saving…' : 'Editing — all changes saved'}
+              </span>
+            )}
           </div>
         </div>
       </div>

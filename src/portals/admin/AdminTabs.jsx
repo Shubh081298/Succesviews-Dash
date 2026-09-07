@@ -14,6 +14,7 @@ import {
   CHART_COLORS, TT, LEG, TICK, NAVY, BLUE, GREEN, ORANGE, PURPLE, AMBER,
 } from "../../utils/constants";
 import { fmtDate, fmtCurr, fmtSalary, sum, empLabel, humanizeKey, downloadCSV, domainColor } from "../../utils/helpers";
+import { formatINR } from "../../utils/currency";
 import { supabase } from "../../utils/supabaseClient";
 import { Mail, Send, Target, Handshake, CheckCircle2, Phone, Megaphone, IndianRupee, FileText, Banknote } from "lucide-react";
 import { Download, Plus, Pencil, KeyRound, Eye, EyeOff, X, Palette, Building2 } from "lucide-react";
@@ -25,6 +26,7 @@ import { FolderOpen, BookOpen, Wallet, Bell, ArrowLeft, AlertTriangle } from "lu
 import { UserX, UserCheck, RotateCcw, History as HistoryIcon } from "lucide-react";
 import DesignPushToggle from "../../components/design/DesignPushToggle";
 import WorkflowTimeline, { buildRevisions } from "../../components/design/WorkflowTimeline";
+import { ClientHub } from "../../components/employee/Pipeline";
 import LeadWorkflow from "../../components/crm/LeadWorkflow";
 import LeadTimeline from "../../components/crm/LeadTimeline";
 import LeadReverseActions from "../../components/crm/LeadReverseActions";
@@ -34,8 +36,11 @@ import { NURTURE_STATUSES, WORKFLOW_STEPS, stageColour, progressOf, isClosed } f
  * OverviewTab — 5 primary + 5 secondary KPI cards (period-filtered)
  * + analytics charts + today's submission grid + recent pending.
  * ──────────────────────────────────────────────────────────────*/
-export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {}, hardDeletePipelineClient = () => {} }) {
+export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {}, hardDeletePipelineClient = () => {}, updatePipelineClient = () => {}, uploadPipelineFile = () => {}, addPipelineClient = () => {}, domains = [], showToast = () => {} }) {
   const [clpOpen, setClpOpen] = useState(false);
+  const [clpAddOpen, setClpAddOpen] = useState(false);   // Admin "Add Client" modal
+  const [clpAdd, setClpAdd] = useState({ clientName: "", projectName: "", assignedEmailId: "", domainName: "", region: "", employeeId: "", manualEmployeeName: "", notes: "" });
+  const [clpAddSaving, setClpAddSaving] = useState(false);
   const [clpPanel, setClpPanel] = useState(null); // inline expandable KPI panel (quick key)
   const [clpSearch, setClpSearch] = useState("");
   const [clpFilter, setClpFilter] = useState({ employee: "", status: "", domain: "" });
@@ -83,8 +88,20 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
     const head = `${CUR_SYM[c] || c + " "}${Number(v).toLocaleString()}`;
     return ents.length > 1 ? `${head} +${ents.length - 1}` : head; // never mixes; extra currencies flagged
   };
-  const salesByCur = groupByCur(pipelineSales, "salesDate");
-  const payByCur = groupByCur(pipelinePayments, "paymentDate");
+  // Pipeline v2: Sales = SIGNED contracts, Payments = PAID payments, read from the client record
+  // itself (one per client, so no double-counting), grouped by currency and within the period.
+  const clientAmtByCur = (statusField, statusVal, amtField, curField, dateField) => {
+    const m = {};
+    (pipelineClients || []).forEach((c) => {
+      if (c.isDeleted || c[statusField] !== statusVal) return;
+      const amt = Number(c[amtField]); if (!amt) return;
+      if (c[dateField] && !_inRange(String(c[dateField]))) return; // respect the period when a date exists
+      const cur = c[curField] || "USD"; m[cur] = (m[cur] || 0) + amt;
+    });
+    return m;
+  };
+  const salesByCur = clientAmtByCur("contractStatus", "Signed", "signedAmount", "contractCurrency", "signedDate");
+  const payByCur = clientAmtByCur("paymentStatus", "Paid", "paymentAmount", "paymentCurrency", "paymentDate");
   // Outstanding = Sales − Payments, computed strictly within each currency (never mixed).
   const outstandingByCur = (() => {
     const m = {};
@@ -173,9 +190,10 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
         const byStatus = {}; live.forEach((c) => { byStatus[c.status] = (byStatus[c.status] || 0) + 1; });
         const segments = statusList.filter((s) => byStatus[s.name]);
         const rank = (c) => (isDue(c) ? 0 : isOver(c) ? 1 : 2);
-        const recent = [...live].sort((a, b) => (rank(a) - rank(b)) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, 12);
+        const recent = [...live].sort((a, b) => (rank(a) - rank(b)) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, 200);
         const empMapAll = Object.fromEntries((employees || []).map((e) => [e.id, e]));
-        const empName = (id) => (empMapAll[id] || {}).name || "—";
+        const empName = (id) => (empMapAll[id] || {}).name || (id ? "—" : "Unassigned");
+        const empLabel = (c) => (c.employeeId ? empName(c.employeeId) : (c.manualEmployeeName || "Unassigned"));
         const codeOf = (id) => "SV-" + String(id || "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toUpperCase();
         const hasRec = (cid, arr) => (arr || []).some((x) => x.clientId === cid);
         const lastActivityOf = (cid) => {
@@ -187,15 +205,12 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
         const domainOpts = [...new Set(live.map((c) => c.domainName).filter(Boolean))];
         const q = clpSearch.trim().toLowerCase();
         const matchesQuick = (c) => !clpFilter.quick
-          || (clpFilter.quick === "active" ? !["Not Interested", "Lost", "Payment Received"].includes(c.status)
-            : clpFilter.quick === "today" ? isDue(c)
-              : clpFilter.quick === "overdue" ? isOver(c)
-                : clpFilter.quick === "interested" ? c.status === "Interested"
-                  : clpFilter.quick === "contracts" ? hasRec(c.id, pipelineContracts)
-                    : clpFilter.quick === "sales" ? hasRec(c.id, pipelineSales)
-                      : clpFilter.quick === "payments" ? hasRec(c.id, pipelinePayments) : true);
+          || (clpFilter.quick === "sent" ? !!c.contractSent
+            : clpFilter.quick === "signed" ? c.contractStatus === "Signed"
+              : clpFilter.quick === "pendingPay" ? (c.contractStatus === "Signed" && c.paymentStatus !== "Paid")
+                : clpFilter.quick === "paid" ? c.paymentStatus === "Paid" : true);
         const filtered = live.filter((c) =>
-          (!q || `${c.clientName} ${c.companyName} ${c.clientEmail} ${c.domainName} ${codeOf(c.id)} ${empName(c.employeeId)}`.toLowerCase().includes(q)) &&
+          (!q || `${c.clientName} ${c.projectName} ${c.assignedEmailId} ${c.domainName} ${codeOf(c.id)} ${empName(c.employeeId)}`.toLowerCase().includes(q)) &&
           (!clpFilter.employee || c.employeeId === clpFilter.employee) &&
           (!clpFilter.status || c.status === clpFilter.status) &&
           (!clpFilter.domain || c.domainName === clpFilter.domain) && matchesQuick(c)
@@ -221,28 +236,22 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
           ) : (
             <div className="sv-mailids-scroll">
               <table className="sv-mailids-table" style={{ minWidth: 1240 }}>
-                <thead><tr>{["Client", "Project", "Employee", "Assigned Email", "Region", "Status", "Next Follow-up", "Last Activity", "Contract", "Sale", "Payment", "Outstanding"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                <thead><tr>{["Client", "Project", "Employee", "Contact Person ID", "Contract Status", "Sales (Signed)", "Payment", "Payment Amount"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                 <tbody>
                   {filtered.slice(0, 300).map((c) => {
-                    const over = isOver(c); const due = isDue(c); const col = colourOf(c.status); const la = lastActivityOf(c.id);
-                    const pill = (on, label, onCol, tip) => <span className="sv-clp-pill" title={tip} style={{ background: on ? onCol + "1A" : "#F1F5F9", color: on ? onCol : "#94A3B8" }}>{on ? label : "—"}</span>;
-                    const _exp = Number(c.expectedAmount) || 0; const _cur = c.expectedCurrency || "USD";
-                    const _paid = (pipelinePayments || []).filter((p) => p.clientId === c.id && (p.currency || "USD") === _cur).reduce((a, b) => a + (Number(b.amount) || 0), 0);
-                    const _out = _exp > 0 ? Math.max(0, _exp - _paid) : 0;
+                    const ccol = c.contractStatus === "Signed" ? "#16A34A" : c.contractStatus === "Not Signed" ? "#DC2626" : c.contractStatus === "Contract Sent" ? "#2563EB" : "#94A3B8";
+                    const pcol = c.paymentStatus === "Paid" ? "#16A34A" : c.paymentStatus === "Pending" ? "#D97706" : "#94A3B8";
+                    const amt = (a, cur) => (a === "" || a == null ? "—" : `${Number(a).toLocaleString()} ${cur || ""}`.trim());
                     return (
                       <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer" }}>
                         <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{c.clientName}</td>
                         <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{c.projectName || "—"}</td>
-                        <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{empName(c.employeeId)}</td>
+                        <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{empLabel(c)}</td>
                         <td className="sv-text-muted" style={{ fontSize: 12 }}>{c.assignedEmailId || "—"}</td>
-                        <td className="sv-text-muted" style={{ fontSize: 12 }}>{c.region || "—"}</td>
-                        <td><span className="sv-clp-badge" style={{ background: col + "1A", color: col }}>{c.status}</span></td>
-                        <td className={over ? "sv-clp-over" : due ? "sv-clp-due" : "sv-text-muted"} style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{over ? "Overdue · " : due ? "Today · " : ""}{c.nextFollowUp ? fmtDate(c.nextFollowUp) : "—"}</td>
-                        <td className="sv-text-muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{la ? fmtDate(String(la).slice(0, 10)) : "—"}</td>
-                        <td>{pill(hasRec(c.id, pipelineContracts), "Sent", "#7C3AED", "Contract sent")}</td>
-                        <td>{pill(hasRec(c.id, pipelineSales), "Done", "#0D9488", "Sale generated")}</td>
-                        <td>{pill(hasRec(c.id, pipelinePayments), "Paid", "#15803D", "Payment received")}</td>
-                        <td style={{ fontSize: 12.5, whiteSpace: "nowrap", fontWeight: 700, color: _out > 0 ? "#B91C1C" : "#15803D" }}>{_exp > 0 ? (_out > 0 ? `${CUR_SYM[_cur] || _cur + " "}${_out.toLocaleString()}` : "Paid") : "—"}</td>
+                        <td><span className="sv-clp-badge" style={{ background: ccol + "1A", color: ccol }}>{c.contractStatus || "No contract"}</span></td>
+                        <td className="sv-font-700" style={{ fontSize: 12.5, whiteSpace: "nowrap", color: c.contractStatus === "Signed" ? "#0D9488" : "#94A3B8" }}>{c.contractStatus === "Signed" ? amt(c.signedAmount, c.contractCurrency) : "—"}</td>
+                        <td><span className="sv-clp-badge" style={{ background: pcol + "1A", color: pcol }}>{c.paymentStatus || "—"}</span></td>
+                        <td className="sv-font-700" style={{ fontSize: 12.5, whiteSpace: "nowrap", color: c.paymentStatus === "Paid" ? "#15803D" : "#94A3B8" }}>{c.paymentStatus === "Paid" ? amt(c.paymentAmount, c.paymentCurrency) : "—"}</td>
                       </tr>
                     );
                   })}
@@ -253,14 +262,11 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
           )
         );
         const KPIS = [
-          ["", "Total Leads", live.length, "#475569", "#64748B", Layers],
-          ["active", "Active", active, "#2563EB", "#3B82F6", Users],
-          ["today", "Today's Follow-ups", dueToday, "#16A34A", "#22C55E", CalendarDays],
-          ["overdue", "Overdue", overdue, "#DC2626", "#F05252", AlertTriangle],
-          ["interested", "Interested", byStatus["Interested"] || 0, "#EA580C", "#F97316", Target],
-          ["contracts", "Contracts", (pipelineContracts || []).filter((x) => live.some((c) => c.id === x.clientId)).length, "#7C3AED", "#8B5CF6", FileText],
-          ["sales", "Sales", (pipelineSales || []).filter((x) => live.some((c) => c.id === x.clientId)).length, "#0D9488", "#14B8A6", TrendingUp],
-          ["payments", "Payments", (pipelinePayments || []).filter((x) => live.some((c) => c.id === x.clientId)).length, "#059669", "#10B981", Banknote],
+          ["", "Total Clients", live.length, "#475569", "#64748B", Layers],
+          ["sent", "Contract Sent", live.filter((c) => c.contractSent).length, "#2563EB", "#3B82F6", FileSignature],
+          ["signed", "Signed (Sales)", live.filter((c) => c.contractStatus === "Signed").length, "#0D9488", "#14B8A6", TrendingUp],
+          ["pendingPay", "Payment Pending", live.filter((c) => c.contractStatus === "Signed" && c.paymentStatus !== "Paid").length, "#D97706", "#F59E0B", FileText],
+          ["paid", "Paid", live.filter((c) => c.paymentStatus === "Paid").length, "#059669", "#10B981", Banknote],
         ];
         const panelMeta = KPIS.find((x) => x[0] === clpPanel) || ["", "All Leads", 0, "#475569", "#64748B", Layers];
         const panelLabel = panelMeta[1];
@@ -268,8 +274,11 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
         return (<>
           <div className="sv-card">
             <div className="sv-flex sv-justify-between sv-items-center" style={{ flexWrap: "wrap", gap: 10 }}>
-              <div><h3 style={{ margin: 0 }}>Client Pipeline</h3><p className="sv-text-muted" style={{ fontSize: 12.5, margin: "2px 0 0" }}>Live status of every client your team is working — updated in real time.</p></div>
-              {live.length > 0 && <button className="sv-btn sv-btn--sm sv-btn--primary" onClick={() => openClp("")}>View all clients</button>}
+              <div><h3 style={{ margin: 0 }}>Client Pipeline</h3><p className="sv-text-muted" style={{ fontSize: 12.5, margin: "2px 0 0" }}>Track the current status of clients your team is working with.</p></div>
+              <div className="sv-flex sv-gap-2" style={{ flexWrap: "wrap" }}>
+                {live.length > 0 && <button className="sv-btn sv-btn--sm sv-btn--outline" onClick={() => openClp("")}>View all clients</button>}
+                <button className="sv-btn sv-btn--sm sv-btn--primary" onClick={() => { setClpAdd({ clientName: "", projectName: "", assignedEmailId: "", domainName: "", region: "", employeeId: "", manualEmployeeName: "", notes: "" }); setClpAddOpen(true); }}><Plus size={14} /> Add Client</button>
+              </div>
             </div>
             {/* Full-colour KPI cards — click to expand an inline panel below */}
             <div className="sv-clp-kpigrid">
@@ -301,31 +310,36 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
             </div>
 
             {live.length === 0 ? (
-              <p className="sv-text-muted" style={{ fontSize: 13, marginTop: 12 }}>No clients in the pipeline yet — they appear here as employees add them from their Pipeline module.</p>
+              <p className="sv-text-muted" style={{ fontSize: 13, marginTop: 12 }}>No clients in the pipeline yet. They appear here as your team adds them, or use Add Client above.</p>
             ) : (
               <>
-                <div className="sv-section-label" style={{ marginTop: 16 }}>Recent clients {overdue > 0 && <span className="sv-clp-flag">{overdue} need follow-up</span>}</div>
-                <div className="sv-mailids-scroll">
-                  <table className="sv-mailids-table" style={{ minWidth: 760 }}>
-                    <thead><tr>{["Client", "Project", "Domain", "Employee", "Status", "Next Follow-up"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
-                    <tbody>
-                      {recent.map((c) => {
-                        const over = isOver(c);
-                        const due = isDue(c);
-                        const col = colourOf(c.status);
-                        return (
-                          <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer" }}>
-                            <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{c.clientName}</td>
-                            <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{c.projectName || "—"}</td>
-                            <td className="sv-text-muted" style={{ fontSize: 12 }}>{c.domainName || "—"}</td>
-                            <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{(employees.find((e) => e.id === c.employeeId) || {}).name || "—"}</td>
-                            <td><span className="sv-clp-badge" style={{ background: col + "1A", color: col }}>{c.status}</span></td>
-                            <td className={over ? "sv-clp-over" : due ? "sv-clp-due" : "sv-text-muted"} style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{over ? "Overdue · " : due ? "Today · " : ""}{c.nextFollowUp ? fmtDate(c.nextFollowUp) : "—"}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
+                <div className="sv-section-label" style={{ marginTop: 16 }}>Recent clients <span className="sv-text-muted" style={{ fontWeight: 500, fontSize: 12 }}>({live.length})</span></div>
+                <div className="sv-clp-recent">
+                  <table className="sv-clp-rtable sv-clp-rhead">
+                    <colgroup><col style={{ width: "18%" }} /><col style={{ width: "28%" }} /><col style={{ width: "16%" }} /><col style={{ width: "18%" }} /><col style={{ width: "12%" }} /><col style={{ width: "8%" }} /></colgroup>
+                    <thead><tr>{["Client", "Project", "Domain", "Employee", "Contract", "Payment"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                   </table>
+                  <div className="sv-clp-rbody">
+                    <table className="sv-clp-rtable">
+                      <colgroup><col style={{ width: "18%" }} /><col style={{ width: "28%" }} /><col style={{ width: "16%" }} /><col style={{ width: "18%" }} /><col style={{ width: "12%" }} /><col style={{ width: "8%" }} /></colgroup>
+                      <tbody>
+                        {recent.map((c) => {
+                          const ccol = c.contractStatus === "Signed" ? "#16A34A" : c.contractStatus === "Not Signed" ? "#DC2626" : c.contractStatus === "Contract Sent" ? "#2563EB" : "#94A3B8";
+                          const pcol = c.paymentStatus === "Paid" ? "#16A34A" : c.paymentStatus === "Pending" ? "#D97706" : "#94A3B8";
+                          return (
+                            <tr key={c.id} onClick={() => setClpDetail(c.id)}>
+                              <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }} title={c.clientName}>{c.clientName}</td>
+                              <td className="sv-text-muted" title={c.projectName || ""}>{c.projectName || "—"}</td>
+                              <td className="sv-text-muted" title={c.domainName || ""}>{c.domainName || "—"}</td>
+                              <td className="sv-text-muted" title={empLabel(c)}>{empLabel(c)}</td>
+                              <td><span className="sv-clp-badge" style={{ background: ccol + "1A", color: ccol }}>{c.contractStatus || "No contract"}</span></td>
+                              <td><span className="sv-clp-badge" style={{ background: pcol + "1A", color: pcol }}>{c.paymentStatus || "—"}</span></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </>
             )}
@@ -383,27 +397,24 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
                 <div style={{ overflowY: "auto", padding: "10px 20px 18px" }}>
                   {filtered.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No clients match your search / filters.</p> : (
                     <div className="sv-mailids-scroll">
-                      <table className="sv-mailids-table" style={{ minWidth: 1180 }}>
-                        <thead><tr>{["Client ID", "Client", "Company", "Employee", "Assigned Email", "Region", "Status", "Next Follow-up", "Last Activity", "Contract", "Sale", "Payment"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
+                      <table className="sv-mailids-table" style={{ minWidth: 1120 }}>
+                        <thead><tr>{["Client ID", "Client", "Project", "Employee", "Contact Person ID", "Contract Status", "Sales (Signed)", "Payment", "Payment Amount"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                         <tbody>
                           {filtered.map((c) => {
-                            const over = isOver(c); const due = isDue(c); const col = colourOf(c.status);
-                            const la = lastActivityOf(c.id);
-                            const dot = (on, onCol) => <span className="sv-clp-dot" style={{ background: on ? onCol : "#E2E8F0", color: on ? "#fff" : "#94A3B8" }}>{on ? "✓" : "—"}</span>;
+                            const ccol = c.contractStatus === "Signed" ? "#16A34A" : c.contractStatus === "Not Signed" ? "#DC2626" : c.contractStatus === "Contract Sent" ? "#2563EB" : "#94A3B8";
+                            const pcol = c.paymentStatus === "Paid" ? "#16A34A" : c.paymentStatus === "Pending" ? "#D97706" : "#94A3B8";
+                            const amt = (a, cur) => (a === "" || a == null ? "—" : `${Number(a).toLocaleString()} ${cur || ""}`.trim());
                             return (
                               <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer" }}>
                                 <td><span className="sv-clp-code">{codeOf(c.id)}</span></td>
                                 <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{c.clientName}</td>
-                                <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{c.companyName || "—"}</td>
-                                <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{empName(c.employeeId)}</td>
+                                <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{c.projectName || "—"}</td>
+                                <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{empLabel(c)}</td>
                                 <td className="sv-text-muted" style={{ fontSize: 12 }}>{c.assignedEmailId || "—"}</td>
-                                <td className="sv-text-muted" style={{ fontSize: 12 }}>{c.region || "—"}</td>
-                                <td><span className="sv-clp-badge" style={{ background: col + "1A", color: col }}>{c.status}</span></td>
-                                <td className={over ? "sv-clp-over" : due ? "sv-clp-due" : "sv-text-muted"} style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{over ? "Overdue · " : due ? "Today · " : ""}{c.nextFollowUp ? fmtDate(c.nextFollowUp) : "—"}</td>
-                                <td className="sv-text-muted" style={{ fontSize: 12, whiteSpace: "nowrap" }}>{la ? fmtDate(String(la).slice(0, 10)) : "—"}</td>
-                                <td>{dot(hasRec(c.id, pipelineContracts), "#7C3AED")}</td>
-                                <td>{dot(hasRec(c.id, pipelineSales), "#0D9488")}</td>
-                                <td>{dot(hasRec(c.id, pipelinePayments), "#15803D")}</td>
+                                <td><span className="sv-clp-badge" style={{ background: ccol + "1A", color: ccol }}>{c.contractStatus || "No contract"}</span></td>
+                                <td className="sv-font-700" style={{ fontSize: 12.5, whiteSpace: "nowrap", color: c.contractStatus === "Signed" ? "#0D9488" : "#94A3B8" }}>{c.contractStatus === "Signed" ? amt(c.signedAmount, c.contractCurrency) : "—"}</td>
+                                <td><span className="sv-clp-badge" style={{ background: pcol + "1A", color: pcol }}>{c.paymentStatus || "—"}</span></td>
+                                <td className="sv-font-700" style={{ fontSize: 12.5, whiteSpace: "nowrap", color: c.paymentStatus === "Paid" ? "#15803D" : "#94A3B8" }}>{c.paymentStatus === "Paid" ? amt(c.paymentAmount, c.paymentCurrency) : "—"}</td>
                               </tr>
                             );
                           })}
@@ -416,55 +427,68 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
             </div>
           )}
 
-          {dc && (() => {
-            const dcol = colourOf(dc.status);
-            const cell = (l, v) => <div className="sv-meta-cell"><div className="sv-meta-label">{l}</div><div className="sv-meta-value">{v || "—"}</div></div>;
-            return (
-              <div className="sv-modal-overlay" style={{ zIndex: 320 }} onClick={() => setClpDetail(null)}>
-                <div className="sv-modal" style={{ maxWidth: 680, maxHeight: "92vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
-                  <div className="sv-modal-header" style={{ flexShrink: 0 }}>
-                    <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>{dc.clientName} <span className="sv-clp-badge" style={{ background: dcol + "1A", color: dcol, marginLeft: 6 }}>{dc.status}</span></span>
-                    <button className="sv-modal-close" onClick={() => setClpDetail(null)}>×</button>
+          {dc && (
+            <ClientHub
+              client={dc}
+              actorId="admin"
+              ownerName={empName(dc.employeeId)}
+              onClose={() => setClpDetail(null)}
+              toast={showToast}
+              updatePipelineClient={updatePipelineClient}
+              uploadPipelineFile={uploadPipelineFile}
+              extraFooter={(
+                clpDelete === dc.id ? (
+                  <div className="sv-flex sv-gap-2 sv-items-center" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <span className="sv-text-muted" style={{ fontSize: 12.5 }}>Remove this client and its contract &amp; payment details? You can restore it later from Recently deleted.</span>
+                    <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => setClpDelete(null)}>Cancel</button>
+                    <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={async () => { await softDeletePipelineClient(dc.id, dc.employeeId); setClpDelete(null); setClpDetail(null); }}><Trash2 size={13} /> Delete Client</button>
                   </div>
-                  <div style={{ overflowY: "auto", padding: "16px 20px" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      {cell("Project", dc.projectName)}
-                      {cell("Client Email", dc.clientEmail)}
-                      {cell("Domain", dc.domainName)}
-                      {cell("Region", dc.region)}
-                      {cell("Assigned Email", dc.assignedEmailId)}
-                      {cell("Employee", empName(dc.employeeId))}
-                      {cell("Last Follow-up", dc.lastFollowUp ? fmtDate(dc.lastFollowUp) : "—")}
-                      {cell("Next Follow-up", dc.nextFollowUp ? fmtDate(dc.nextFollowUp) : "—")}
-                    </div>
-                    {dc.notes && <p className="sv-text-muted" style={{ fontSize: 12.5, marginTop: 10, whiteSpace: "pre-wrap" }}>{dc.notes}</p>}
+                ) : (
+                  <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => setClpDelete(dc.id)}><Trash2 size={13} /> Delete Client</button>
+                )
+              )}
+            />
+          )}
 
-                    <div className="sv-section-label" style={{ marginTop: 14 }}>Production Workflow</div>
-                    <LeadWorkflow client={dc} actorId={dc.employeeId} onToast={() => {}} />
-
-                    <div className="sv-section-label" style={{ marginTop: 16 }}>Reverse / Cancel</div>
-                    <LeadReverseActions client={dc} actorId={dc.employeeId} onToast={() => {}} />
-
-                    <div className="sv-section-label" style={{ marginTop: 16 }}>Activity Timeline</div>
-                    <LeadTimeline clientId={dc.id} />
-
-                    <div className="sv-flex sv-justify-between sv-items-center" style={{ marginTop: 18, borderTop: "1px solid #F1F5F9", paddingTop: 14 }}>
-                      <span className="sv-text-muted" style={{ fontSize: 11.5 }}>Admin action</span>
-                      {clpDelete === dc.id ? (
-                        <div className="sv-flex sv-gap-2 sv-items-center">
-                          <span className="sv-text-muted" style={{ fontSize: 12.5 }}>Delete this project?</span>
-                          <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => setClpDelete(null)}>Cancel</button>
-                          <button className="sv-btn sv-btn--sm" style={{ background: "#DC2626", color: "#fff" }} onClick={async () => { await softDeletePipelineClient(dc.id, dc.employeeId); setClpDelete(null); setClpDetail(null); }}>Delete</button>
-                        </div>
-                      ) : (
-                        <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ color: "#DC2626", borderColor: "#FCA5A5" }} onClick={() => setClpDelete(dc.id)}><Trash2 size={13} /> Delete Project</button>
-                      )}
-                    </div>
+          {clpAddOpen && (
+            <div className="sv-modal-overlay" style={{ zIndex: 320 }} onClick={() => setClpAddOpen(false)}>
+              <div className="sv-modal" style={{ maxWidth: 520, maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+                <div className="sv-modal-header" style={{ flexShrink: 0 }}>
+                  <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>Add Client</span>
+                  <button className="sv-modal-close" onClick={() => setClpAddOpen(false)}>×</button>
+                </div>
+                <div style={{ overflowY: "auto", padding: "16px 20px", display: "grid", gap: 12 }}>
+                  <label className="sv-pl-field"><span>Client Name <b>*</b></span><input className="sv-input" value={clpAdd.clientName} onChange={(e) => setClpAdd({ ...clpAdd, clientName: e.target.value })} /></label>
+                  <label className="sv-pl-field"><span>Project Name</span><input className="sv-input" value={clpAdd.projectName} onChange={(e) => setClpAdd({ ...clpAdd, projectName: e.target.value })} placeholder="e.g. Q3 Feature Campaign" /></label>
+                  <label className="sv-pl-field"><span>Contact Person ID</span><input className="sv-input" value={clpAdd.assignedEmailId} onChange={(e) => setClpAdd({ ...clpAdd, assignedEmailId: e.target.value })} placeholder="Assigned mail ID / contact" /></label>
+                  <div className="sv-pl-2col">
+                    <label className="sv-pl-field"><span>Domain <b>*</b></span><input className="sv-input" list="clp-add-domains" value={clpAdd.domainName} onChange={(e) => setClpAdd({ ...clpAdd, domainName: e.target.value })} placeholder="Type or pick…" /><datalist id="clp-add-domains">{[...new Set([...(domains || []).map((d) => d.name), ...domainOpts])].filter(Boolean).map((d) => <option key={d} value={d} />)}</datalist></label>
+                    <label className="sv-pl-field"><span>Region</span><input className="sv-input" value={clpAdd.region} onChange={(e) => setClpAdd({ ...clpAdd, region: e.target.value })} placeholder="e.g. UAE" /></label>
                   </div>
+                  <label className="sv-pl-field"><span>Assign Employee <span style={{ color: "#94A3B8", fontWeight: 500 }}>(optional)</span></span>
+                    <select className="sv-select" value={clpAdd.employeeId} onChange={(e) => setClpAdd({ ...clpAdd, employeeId: e.target.value })}>
+                      <option value="">Unassigned</option>
+                      {(employees || []).filter((e) => e.status !== "terminated").map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+                    </select>
+                  </label>
+                  {!clpAdd.employeeId && (
+                    <label className="sv-pl-field"><span>Employee Name <span style={{ color: "#94A3B8", fontWeight: 500 }}>(manual, if not in list)</span></span><input className="sv-input" value={clpAdd.manualEmployeeName} onChange={(e) => setClpAdd({ ...clpAdd, manualEmployeeName: e.target.value })} placeholder="Type employee name" /></label>
+                  )}
+                  <label className="sv-pl-field"><span>Notes</span><textarea className="sv-input" rows={3} value={clpAdd.notes} onChange={(e) => setClpAdd({ ...clpAdd, notes: e.target.value })} placeholder="Any notes about this client…" style={{ resize: "vertical" }} /></label>
+                  <p className="sv-text-muted" style={{ fontSize: 11.5, margin: 0 }}>Add the contract and payment details after saving.</p>
+                  <button className="sv-btn sv-btn--primary" style={{ marginTop: 4 }} disabled={clpAddSaving} onClick={async () => {
+                    if (!clpAdd.clientName.trim()) return showToast("Client Name is required.", "error");
+                    if (!clpAdd.domainName.trim()) return showToast("Domain is required.", "error");
+                    setClpAddSaving(true);
+                    const domainId = ((domains || []).find((d) => d.name === clpAdd.domainName) || {}).id || null;
+                    const rec = await addPipelineClient({ clientName: clpAdd.clientName.trim(), projectName: clpAdd.projectName.trim(), assignedEmailId: clpAdd.assignedEmailId.trim(), domainName: clpAdd.domainName.trim(), domainId, region: clpAdd.region.trim(), employeeId: clpAdd.employeeId || null, manualEmployeeName: clpAdd.employeeId ? "" : clpAdd.manualEmployeeName.trim(), notes: clpAdd.notes.trim(), status: "Active" });
+                    setClpAddSaving(false);
+                    if (rec) { setClpAddOpen(false); showToast("Client added to the pipeline.", "success"); }
+                  }}>{clpAddSaving ? "Saving…" : "Save Client"}</button>
                 </div>
               </div>
-            );
-          })()}
+            </div>
+          )}
         </>);
       })()}
 
@@ -1072,9 +1096,14 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
   const [attType, setAttType] = useState("All"); // All | Absent | Half Day
   const [attPeriod, setAttPeriod] = useState("Month"); // Month | Year | All
 
-  const empById = Object.fromEntries(employees.map((e) => [e.id, e]));
-  const pending = leaves.filter((l) => l.status === "Pending");
-  const decided = leaves.filter((l) => l.status !== "Pending");
+  const empById = Object.fromEntries(employees.map((e) => [e.id, e]));   // full list — for name resolution
+  // The Leave Board is a LIVE roster view: terminated/removed employees drop out of the attendance
+  // grid, the pending/decided leave lists and the self-marked attendance list. (Their history stays
+  // in Former Employees.) empById above still resolves any legacy name.
+  const terminatedIds = new Set(employees.filter((e) => e.status === "terminated").map((e) => e.id));
+  const activeEmps = employees.filter((e) => e.status !== "terminated");
+  const pending = leaves.filter((l) => l.status === "Pending" && !terminatedIds.has(l.empId));
+  const decided = leaves.filter((l) => l.status !== "Pending" && !terminatedIds.has(l.empId));
   const approvedCount = decided.filter((l) => l.status === "Approved").length;
   const rejectedCount = decided.filter((l) => l.status === "Rejected").length;
 
@@ -1193,16 +1222,9 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
           return "none";
         };
         let workingDays = 0; for (let d = 1; d <= daysInMonth; d++) { const dw = dowOf(d); if (dw !== 0 && dw !== 6) workingDays++; }
-        // Terminated staff appear ONLY in months they were actually employed:
-        // active employees always show; a terminated employee shows if they have
-        // any record (present/leave/absent/half) that month or were still on staff
-        // when the month began. Keeps historical months intact, hides them afterward.
-        const monthEmps = employees.filter((e) => {
-          if (e.status !== "terminated") return true;
-          if (e.terminatedAt && new Date(e.terminatedAt) >= new Date(y, m, 1)) return true;
-          for (let d = 1; d <= daysInMonth; d++) { const st = statusOf(e.id, d); if (st !== "none" && st !== "weekend") return true; }
-          return false;
-        });
+        // Only current (active) staff appear on the Leave Board attendance grid — removed/terminated
+        // employees are excluded here (their attendance history remains under Former Employees).
+        const monthEmps = activeEmps;
         let totLeave = 0, totAbsent = 0;
         monthEmps.forEach((e) => { for (let d = 1; d <= daysInMonth; d++) { const st = statusOf(e.id, d); if (st === "leave") totLeave++; else if (st === "absent") totAbsent++; } });
         const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
@@ -1411,6 +1433,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
       {(() => {
         const attPrefix = attPeriod === "Month" ? nowIso.slice(0, 7) : attPeriod === "Year" ? nowIso.slice(0, 4) : "";
         const attRecords = (submissions || [])
+          .filter((s) => !terminatedIds.has(s.empId))   // hide removed/terminated employees
           .filter((s) => s.attendance === "Absent" || s.attendance === "Half Day")
           .filter((s) => attType === "All" || s.attendance === attType)
           .filter((s) => !attPrefix || String(s.date || "").startsWith(attPrefix))
@@ -2171,7 +2194,38 @@ function expFmtBag(bag) {
   if (!k.length) return "—";
   return k.map((c) => expMoney(bag[c], c)).join(" · ");
 }
+// INR (reporting currency) value for a record: the snapshot if present, else the amount when it's
+// already INR, else null (conversion pending — shown in original currency until it syncs).
+function inrOf(e) {
+  const d = e.details || {};
+  // Manual final bank credit wins over the live auto-conversion when present.
+  if (d.finalInr != null && d.finalInr !== "") return Number(d.finalInr) || 0;
+  if (d.inrAmount != null && d.inrAmount !== "") return Number(d.inrAmount) || 0;
+  if (String(e.currency || "INR").toUpperCase() === "INR") return Number(e.amount) || 0;
+  return null;
+}
+function inrTotal(list) { return (list || []).reduce((a, e) => a + (inrOf(e) || 0), 0); }
 function expEsc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+// Select with a built-in "Other…" option that reveals a manual-entry input. Used for Payment
+// Method and Currency so users can record values outside the preset list without leaving the form.
+function OtherSelect({ value, onChange, options, placeholder = "Select…", className = "sv-select", inputPlaceholder = "Enter value" }) {
+  const base = options.filter((o) => o !== "Other");
+  const isKnown = base.includes(value);
+  const [picked, setPicked] = useState(!isKnown && !!value);
+  const other = picked || (!isKnown && !!value);
+  return (
+    <>
+      <select className={className} value={other ? "Other" : (value || "")}
+        onChange={(e) => { const v = e.target.value; if (v === "Other") { setPicked(true); onChange(""); } else { setPicked(false); onChange(v); } }}>
+        <option value="">{placeholder}</option>
+        {base.map((o) => <option key={o} value={o}>{o}</option>)}
+        <option value="Other">Other…</option>
+      </select>
+      {other && <input className="sv-input" style={{ marginTop: 6 }} value={value} placeholder={inputPlaceholder} onChange={(e) => onChange(e.target.value)} autoFocus />}
+    </>
+  );
+}
 
 export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExpense, logo = "", domains = [] }) {
   const domainOptions = (domains || []).filter((d) => d && d.status !== false).map((d) => d.name);
@@ -2183,9 +2237,9 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
   const [fCur, setFCur] = useState("");
   const [fStatus, setFStatus] = useState("");
   const [fCat, setFCat] = useState("");
-  const [dashCur, setDashCur] = useState(""); // dashboard currency scope (charts never mix currencies)
   const [detail, setDetail] = useState(null);
   const [detailEdit, setDetailEdit] = useState(null); // { paymentStatus, notes } while editing a captured record
+  const [editing, setEditing] = useState(false);      // pencil gate: saved records open read-only until the user clicks Edit
   const [form, setForm] = useState(null);             // company add/edit form
   const [isNew, setIsNew] = useState(false);
   const [confirmDel, setConfirmDel] = useState(null);
@@ -2197,6 +2251,7 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
   const [insForm, setInsForm] = useState(null);   // Insertion Order form (Name + mandatory file)
   const [insSaving, setInsSaving] = useState(false);
   const [insUploading, setInsUploading] = useState(false);
+  const [addFilesBusy, setAddFilesBusy] = useState(false); // adding files to an already-saved order
 
   const io = expenses.filter((e) => e.type === "insertion_order");
   const pay = expenses.filter((e) => e.type === "payment_received");
@@ -2253,7 +2308,8 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
   // ── Payment Received (income) ──
   const openAddIO = () => setIoForm({
     id: "", clientName: "", invoice: "", invoiceUrl: "", invoiceName: "",
-    amount: "", currency: "USD", paymentDate: todayStr, paymentStatus: "Received", notes: "",
+    amount: "", currency: "USD", paymentMethod: "", conversionFee: "", finalInr: "",
+    paymentDate: todayStr, paymentStatus: "Received", notes: "",
   });
   const updIO = (k, v) => setIoForm((f) => ({ ...f, [k]: v }));
   const uploadInvoiceFile = async (file) => {
@@ -2273,6 +2329,7 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
       contractOrder: ioForm.id.trim(),
       amount: +ioForm.amount,
       currency: ioForm.currency,
+      paymentMethod: ioForm.paymentMethod || "",
       paymentDate: ioForm.paymentDate || new Date().toISOString().slice(0, 10),
       paymentStatus: ioForm.paymentStatus,
       notes: ioForm.notes || "",
@@ -2281,6 +2338,11 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
         invoice: ioForm.invoice.trim(),
         invoiceUrl: ioForm.invoiceUrl || "",
         invoiceName: ioForm.invoiceName || "",
+        // Third-party/processor conversion fee, and the ACTUAL INR credited to the bank. When a
+        // final received INR is entered, it becomes the authoritative INR figure everywhere
+        // (dashboard, charts, history) — overriding the live auto-conversion.
+        conversionFee: ioForm.conversionFee === "" ? null : +ioForm.conversionFee,
+        finalInr: ioForm.finalInr === "" ? null : +ioForm.finalInr,
         manual: true,
       },
     };
@@ -2289,18 +2351,26 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
     if (ok !== false) { setIoForm(null); setSection("payment"); }
   };
 
-  // ── Insertion Order (name + mandatory file) ──
-  const openAddInsertion = () => setInsForm({ clientName: "", paymentDate: todayStr, fileUrl: "", fileName: "", notes: "" });
+  // ── Insertion Order (name + one or more attached files) ──
+  const openAddInsertion = () => setInsForm({ clientName: "", paymentDate: todayStr, files: [], notes: "" });
   const updIns = (k, v) => setInsForm((f) => ({ ...f, [k]: v }));
-  const uploadInsertionFile = async (file) => {
-    if (!file) return;
+  // Upload one or many selected files and append them to the order's file list.
+  const uploadInsertionFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
     setInsUploading(true);
-    try { const r = await uploadFile(file); if (r) setInsForm((f) => ({ ...f, fileUrl: r.url, fileName: r.name })); }
-    catch (e) { alert("Could not upload the file: " + (e.message || "unknown error")); }
+    try {
+      for (const file of files) {
+        const r = await uploadFile(file);
+        if (r) setInsForm((f) => ({ ...f, files: [...(f.files || []), { url: r.url, name: r.name }] }));
+      }
+    } catch (e) { alert("Could not upload a file: " + (e.message || "unknown error")); }
     finally { setInsUploading(false); }
   };
+  const removeInsertionFile = (idx) => setInsForm((f) => ({ ...f, files: (f.files || []).filter((_, i) => i !== idx) }));
   const saveInsertion = async () => {
-    if (!insForm.clientName.trim() || !insForm.fileUrl) return; // file is mandatory
+    const files = (insForm.files || []).filter((x) => x && x.url);
+    if (!insForm.clientName.trim() || !files.length) return; // at least one file is mandatory
     setInsSaving(true);
     const rec = {
       type: "insertion_order",
@@ -2308,14 +2378,39 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
       clientName: insForm.clientName.trim(),
       paymentDate: insForm.paymentDate || new Date().toISOString().slice(0, 10),
       notes: insForm.notes || "",
-      details: { invoiceUrl: insForm.fileUrl, invoiceName: insForm.fileName, manual: true },
+      // Keep the first file in the legacy invoiceUrl/Name fields for backward-compatibility with
+      // existing views, and store the full list in details.files.
+      details: { files, invoiceUrl: files[0].url, invoiceName: files[0].name, manual: true },
     };
     const ok = await addExpense(rec);
     setInsSaving(false);
     if (ok !== false) { setInsForm(null); setSection("insertion"); }
   };
 
-  const openDetail = (rec) => { setDetail(rec); setDetailEdit({ paymentStatus: rec.paymentStatus || "", notes: rec.notes || "", paymentDate: rec.paymentDate || "" }); };
+  const openDetail = (rec) => { setDetail(rec); setDetailEdit({ paymentStatus: rec.paymentStatus || "", notes: rec.notes || "", paymentDate: rec.paymentDate || "" }); setEditing(false); };
+
+  // Normalise a record's attached files to an array (handles legacy single-file records).
+  const recFiles = (rec) => { const d = (rec && rec.details) || {}; return (d.files && d.files.length) ? d.files : (d.invoiceUrl ? [{ url: d.invoiceUrl, name: d.invoiceName }] : []); };
+  // Add more files to an ALREADY-SAVED insertion order (or any record), persisting immediately.
+  const addFilesToRecord = async (rec, fileList) => {
+    const files = Array.from(fileList || []); if (!files.length) return;
+    setAddFilesBusy(true);
+    try {
+      const uploaded = [];
+      for (const f of files) { const r = await uploadFile(f); if (r) uploaded.push({ url: r.url, name: r.name }); }
+      const merged = [...recFiles(rec), ...uploaded];
+      const updated = { ...rec, details: { ...(rec.details || {}), files: merged, invoiceUrl: merged[0]?.url || "", invoiceName: merged[0]?.name || "" } };
+      const ok = await updateExpense(updated);
+      if (ok !== false) setDetail(updated);
+    } catch (e) { alert("Could not add files: " + (e.message || "unknown error")); }
+    finally { setAddFilesBusy(false); }
+  };
+  const removeFileFromRecord = async (rec, idx) => {
+    const merged = recFiles(rec).filter((_, i) => i !== idx);
+    const updated = { ...rec, details: { ...(rec.details || {}), files: merged, invoiceUrl: merged[0]?.url || "", invoiceName: merged[0]?.name || "" } };
+    const ok = await updateExpense(updated);
+    if (ok !== false) setDetail(updated);
+  };
   const saveDetailEdit = async () => {
     setSaving(true);
     await updateExpense({ ...detail, paymentStatus: detailEdit.paymentStatus, notes: detailEdit.notes, paymentDate: detailEdit.paymentDate || detail.paymentDate });
@@ -2454,52 +2549,46 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
       {/* ── Monthly dashboard (CA review) ── */}
       {section === "dashboard" && (() => {
         const dashKeys = fYear ? monthKeys.filter((k) => k.slice(0, 4) === fYear) : monthKeys;
-        const curOK = (e) => !dashCur || (e.currency || "INR") === dashCur;
-        const scope = dashKeys.flatMap((k) => monthMap[k]).filter(curOK);
+        // The dashboard reports in INR (the standard reporting currency). Every record is converted
+        // to INR — the final bank credit if entered, else the live conversion — and currencies are
+        // never mixed on the INR charts. Original amounts drive the separate currency-wise chart.
+        const scope = dashKeys.flatMap((k) => monthMap[k]);
         const isFree = (e) => e.type === "salary" && e.category === "Freelancer";
-        const ordersBag = expBag(scope.filter((e) => e.type === "payment_received"));
-        const empSalBag = expBag(scope.filter((e) => e.type === "salary" && !isFree(e)));
-        const freeBag = expBag(scope.filter(isFree));
-        const coBag = expBag(scope.filter((e) => e.type === "company"));
-        const outBag = {}; [empSalBag, freeBag, coBag].forEach((b) => Object.entries(b).forEach(([c, v]) => outBag[c] = (outBag[c] || 0) + v));
-        const bagSum = (bag) => Object.values(bag).reduce((a, b) => a + b, 0);
+        const fPay = (e) => e.type === "payment_received", fEmp = (e) => e.type === "salary" && !isFree(e), fCo = (e) => e.type === "company";
+        const inrSum = (f) => scope.filter(f).reduce((s, e) => s + (inrOf(e) || 0), 0);
+        const incomeInr = inrSum(fPay), empSalInr = inrSum(fEmp), freeInr = inrSum(isFree), coInr = inrSum(fCo);
+        const outInr = empSalInr + freeInr + coInr;
+        const ordersBag = expBag(scope.filter(fPay)); // original per-currency amounts (for subtext + chart)
         const barData = dashKeys.slice().reverse().map((k) => {
-          const list = monthMap[k].filter(curOK);
-          const n = (f) => list.filter(f).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-          const cur = (f) => [...new Set(list.filter(f).map((e) => e.currency).filter(Boolean))].join(" / ");
-          const fPay = (e) => e.type === "payment_received", fEmp = (e) => e.type === "salary" && !isFree(e), fCo = (e) => e.type === "company";
+          const list = monthMap[k];
+          const s = (f) => Math.round(list.filter(f).reduce((a, e) => a + (inrOf(e) || 0), 0));
           return {
             label: (EXP_MONTHS[(+k.slice(5, 7)) - 1] || "").slice(0, 3) + " " + k.slice(2, 4),
-            Orders: n(fPay), OrdersCur: cur(fPay),
-            Salary: n(fEmp), SalaryCur: cur(fEmp),
-            Freelancer: n(isFree), FreelancerCur: cur(isFree),
-            Company: n(fCo), CompanyCur: cur(fCo),
+            Orders: s(fPay), Salary: s(fEmp), Freelancer: s(isFree), Company: s(fCo),
           };
         });
+        // Currency-wise payments — auto-detected from whatever original currencies were used.
+        const currencyData = Object.entries(ordersBag).map(([currency, amount]) => ({ currency, amount: Math.round(amount) })).sort((a, b) => b.amount - a.amount);
         const donutData = [
-          { name: "Employee Salary", value: bagSum(empSalBag), color: "#16A34A" },
-          { name: "Freelancer", value: bagSum(freeBag), color: "#F59E0B" },
-          { name: "Company", value: bagSum(coBag), color: "#8B5CF6" },
+          { name: "Employee Salary", value: Math.round(empSalInr), color: "#16A34A" },
+          { name: "Freelancer", value: Math.round(freeInr), color: "#F59E0B" },
+          { name: "Company", value: Math.round(coInr), color: "#8B5CF6" },
         ].filter((d) => d.value > 0);
-        const card = (label, bag, color, sub) => (
+        const card = (label, valueInr, color, sub) => (
           <div style={{ flex: "1 1 160px", minWidth: 160, background: "#fff", border: "1px solid #E9EEF4", borderTop: `3px solid ${color}`, borderRadius: 12, padding: "14px 16px" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</div>
-            <div style={{ fontSize: 17, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{expFmtBag(bag)}</div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{formatINR(valueInr)}</div>
             {sub && <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{sub}</div>}
           </div>
         );
         return (
         <div className="sv-card">
           <div className="sv-flex sv-justify-between" style={{ alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-            <h3 style={{ margin: 0 }}>Financial Summary{fYear ? ` · ${fYear}` : ""}{dashCur ? ` · ${dashCur}` : ""}</h3>
+            <h3 style={{ margin: 0 }}>Financial Summary{fYear ? ` · ${fYear}` : ""} <span style={{ fontSize: 12, fontWeight: 600, color: "#64748B" }}>· reported in INR</span></h3>
             <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", alignItems: "center" }}>
               <select className="sv-select" value={fYear} onChange={(e) => setFYear(e.target.value)} style={{ maxWidth: 130 }}>
                 <option value="">All years</option>
                 {years.map((y) => <option key={y} value={y}>{y}</option>)}
-              </select>
-              <select className="sv-select" value={dashCur} onChange={(e) => setDashCur(e.target.value)} style={{ maxWidth: 150 }} title="Charts calculate only the selected currency">
-                <option value="">All currencies</option>
-                {[...new Set(expenses.map((e) => e.currency).filter(Boolean))].sort().map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
               <button className="sv-btn sv-btn--ghost" onClick={() => doExportLedger("csv")} disabled={expenses.length === 0}><Download size={15} /> Full Ledger CSV</button>
               <button className="sv-btn sv-btn--ghost" onClick={() => doExportLedger("excel")} disabled={expenses.length === 0}><Download size={15} /> Full Ledger Excel</button>
@@ -2510,22 +2599,22 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
             <p className="sv-text-muted" style={{ padding: "24px 0", textAlign: "center" }}>No financial records yet. Records are created automatically when a Confirmation Order is downloaded, a salary is released, or a freelancer is paid — and you can add company expenses manually. If this stays empty after those actions, run <b>supabase/expenses-fix.sql</b> once in Supabase.</p>
           ) : (<>
             <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", margin: "14px 0 4px" }}>
-              {card("Payments Received (Income)", ordersBag, "#3B82F6", "Client payments")}
-              {card("Employee Salary", empSalBag, "#16A34A", "Released payroll")}
-              {card("Freelancer Payments", freeBag, "#F59E0B", "Contractors")}
-              {card("Company Expenses", coBag, "#8B5CF6", "Operating costs")}
-              {card("Total Outflow", outBag, "#DC2626", "Salary + Freelancer + Company")}
+              {card("Payments Received (Income)", incomeInr, "#3B82F6", ordersBag && Object.keys(ordersBag).length ? `By currency: ${expFmtBag(ordersBag)}` : "Client payments")}
+              {card("Employee Salary", empSalInr, "#16A34A", "Released payroll")}
+              {card("Freelancer Payments", freeInr, "#F59E0B", "Contractors")}
+              {card("Company Expenses", coInr, "#8B5CF6", "Operating costs")}
+              {card("Total Outflow", outInr, "#DC2626", "Salary + Freelancer + Company")}
             </div>
 
             {/* Charts */}
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)", gap: 16, marginTop: 18, alignItems: "stretch" }}>
               <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", minHeight: 320 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 8 }}>Income vs Outflow by Month</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 8 }}>Income vs Outflow by Month <span style={{ fontWeight: 600, color: "#64748B" }}>(INR)</span></div>
                 <ResponsiveContainer width="100%" height={260}>
                   <BarChart data={barData} barGap={2} barCategoryGap="22%">
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="label" tick={TICK} /><YAxis tick={TICK} width={64} tickFormatter={(v) => v >= 1000 ? (v / 1000) + "k" : v} />
-                    <Tooltip {...TT} formatter={(v, n, item) => [`${Number(v).toLocaleString("en-IN")} ${(item && item.payload && item.payload[(item.dataKey || "") + "Cur"]) || ""}`.trim(), n]} />
+                    <XAxis dataKey="label" tick={TICK} /><YAxis tick={TICK} width={64} tickFormatter={(v) => v >= 1000 ? "₹" + (v / 1000) + "k" : "₹" + v} />
+                    <Tooltip {...TT} formatter={(v, n) => [formatINR(v), n]} />
                     <Legend {...LEG} />
                     <Bar dataKey="Orders" name="Payments Received" stackId="in" fill="#3B82F6" radius={[4, 4, 0, 0]} />
                     <Bar dataKey="Salary" stackId="out" fill="#16A34A" />
@@ -2535,7 +2624,7 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                 </ResponsiveContainer>
               </div>
               <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", minHeight: 320 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 8 }}>Outflow Composition</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 8 }}>Outflow Composition <span style={{ fontWeight: 600, color: "#64748B" }}>(INR)</span></div>
                 {donutData.length === 0 ? (
                   <p className="sv-text-muted" style={{ fontSize: 12, textAlign: "center", margin: "auto" }}>No outflow yet.</p>
                 ) : (
@@ -2544,12 +2633,32 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                       <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={52} outerRadius={84} paddingAngle={2}>
                         {donutData.map((d, i) => <Cell key={i} fill={d.color} />)}
                       </Pie>
-                      <Tooltip {...TT} formatter={(v, n) => [Number(v).toLocaleString("en-IN"), n]} />
+                      <Tooltip {...TT} formatter={(v, n) => [formatINR(v), n]} />
                       <Legend {...LEG} />
                     </PieChart>
                   </ResponsiveContainer>
                 )}
               </div>
+            </div>
+
+            {/* Currency-wise Payments — auto-detects whichever original currencies were used. */}
+            <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "14px 16px", marginTop: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 8 }}>Payments by Currency <span style={{ fontWeight: 600, color: "#64748B" }}>(original amounts received)</span></div>
+              {currencyData.length === 0 ? (
+                <p className="sv-text-muted" style={{ fontSize: 12, textAlign: "center", padding: "24px 0" }}>No payments recorded yet.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={currencyData} barCategoryGap="30%">
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="currency" tick={TICK} /><YAxis tick={TICK} width={64} tickFormatter={(v) => v >= 1000 ? (v / 1000) + "k" : v} />
+                    <Tooltip {...TT} formatter={(v, n, item) => [`${Number(v).toLocaleString("en-US")} ${(item && item.payload && item.payload.currency) || ""}`.trim(), "Received"]} />
+                    <Bar dataKey="amount" name="Amount Received" radius={[4, 4, 0, 0]}>
+                      {currencyData.map((d, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+              <p className="sv-text-muted" style={{ fontSize: 11, marginTop: 6 }}>Each bar is that currency's own total (currencies are not summed together). The INR-converted totals are in the Income vs Outflow chart above.</p>
             </div>
 
             <div style={{ overflowX: "auto", marginTop: 12 }}>
@@ -2559,36 +2668,33 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                 </thead>
                 <tbody>
                   {dashKeys.map((k) => {
-                    const list = monthMap[k].filter(curOK);
-                    const rev = expBag(list.filter((e) => e.type === "payment_received"));
-                    const emp = expBag(list.filter((e) => e.type === "salary" && !isFree(e)));
-                    const fre = expBag(list.filter(isFree));
-                    const co = expBag(list.filter((e) => e.type === "company"));
-                    const tot = {}; [emp, fre, co].forEach((b) => Object.entries(b).forEach(([c, v]) => tot[c] = (tot[c] || 0) + v));
+                    const list = monthMap[k];
+                    const s = (f) => list.filter(f).reduce((a, e) => a + (inrOf(e) || 0), 0);
+                    const rev = s(fPay), emp = s(fEmp), fre = s(isFree), co = s(fCo);
                     return (
                       <tr key={k}>
                         <td style={{ fontWeight: 700 }}>{expMonthLabel(k)}</td>
-                        <td style={{ color: "#2563EB", fontWeight: 600 }}>{expFmtBag(rev)}</td>
-                        <td style={{ color: "#16A34A", fontWeight: 600 }}>{expFmtBag(emp)}</td>
-                        <td style={{ color: "#B45309", fontWeight: 600 }}>{expFmtBag(fre)}</td>
-                        <td style={{ color: "#7C3AED", fontWeight: 600 }}>{expFmtBag(co)}</td>
-                        <td style={{ fontWeight: 700, color: "#DC2626" }}>{expFmtBag(tot)}</td>
+                        <td style={{ color: "#2563EB", fontWeight: 600 }}>{formatINR(rev)}</td>
+                        <td style={{ color: "#16A34A", fontWeight: 600 }}>{formatINR(emp)}</td>
+                        <td style={{ color: "#B45309", fontWeight: 600 }}>{formatINR(fre)}</td>
+                        <td style={{ color: "#7C3AED", fontWeight: 600 }}>{formatINR(co)}</td>
+                        <td style={{ fontWeight: 700, color: "#DC2626" }}>{formatINR(emp + fre + co)}</td>
                         <td>{list.length}</td>
                       </tr>
                     );
                   })}
                   <tr style={{ borderTop: "2px solid #E2E8F0", background: "#F8FAFC" }}>
                     <td style={{ fontWeight: 800 }}>Grand Total</td>
-                    <td style={{ fontWeight: 800 }}>{expFmtBag(ordersBag)}</td>
-                    <td style={{ fontWeight: 800 }}>{expFmtBag(empSalBag)}</td>
-                    <td style={{ fontWeight: 800 }}>{expFmtBag(freeBag)}</td>
-                    <td style={{ fontWeight: 800 }}>{expFmtBag(coBag)}</td>
-                    <td style={{ fontWeight: 800, color: "#DC2626" }}>{expFmtBag(outBag)}</td>
+                    <td style={{ fontWeight: 800 }}>{formatINR(incomeInr)}</td>
+                    <td style={{ fontWeight: 800 }}>{formatINR(empSalInr)}</td>
+                    <td style={{ fontWeight: 800 }}>{formatINR(freeInr)}</td>
+                    <td style={{ fontWeight: 800 }}>{formatINR(coInr)}</td>
+                    <td style={{ fontWeight: 800, color: "#DC2626" }}>{formatINR(outInr)}</td>
                     <td style={{ fontWeight: 800 }}>{scope.length}</td>
                   </tr>
                 </tbody>
               </table>
-              <p className="sv-text-muted" style={{ fontSize: 11, marginTop: 8 }}>Amounts are grouped by their own currency (orders are often USD, salary/company INR) — no automatic conversion is applied. "Total Outflow" = Employee Salary + Freelancer + Company Expenses.</p>
+              <p className="sv-text-muted" style={{ fontSize: 11, marginTop: 8 }}>All amounts are shown in INR (converted using the final bank credit when entered, otherwise the live exchange rate). Original currencies are preserved on each record and in the Payments-by-Currency chart. "Total Outflow" = Employee Salary + Freelancer + Company Expenses.</p>
             </div>
           </>)}
         </div>
@@ -2645,8 +2751,9 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
           {section === "payment" && (
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
               <div style={{ flex: "1 1 220px", minWidth: 200, borderRadius: 12, padding: "16px 18px", background: "linear-gradient(135deg,#ECFDF5,#D1FAE5)", border: "1px solid #C9F7D8" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#047857", fontWeight: 700, fontSize: 12.5, textTransform: "uppercase", letterSpacing: 0.3 }}><Wallet size={16} /> Total Received</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: "#065F46", marginTop: 6 }}>{expFmtBag(expBag(currentList))}</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#047857", fontWeight: 700, fontSize: 12.5, textTransform: "uppercase", letterSpacing: 0.3 }}><Wallet size={16} /> Total Received (INR)</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "#065F46", marginTop: 6 }}>{formatINR(inrTotal(currentList))}</div>
+                <div style={{ fontSize: 11.5, color: "#047857", marginTop: 4, fontWeight: 500 }}>By currency: {expFmtBag(expBag(currentList))}</div>
               </div>
               <div style={{ flex: "1 1 160px", minWidth: 150, borderRadius: 12, padding: "16px 18px", background: "#fff", border: "1px solid #E9EEF4" }}>
                 <div style={{ color: "#64748B", fontWeight: 700, fontSize: 12.5, textTransform: "uppercase", letterSpacing: 0.3 }}>Payments</div>
@@ -2676,17 +2783,24 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                         {section === "insertion" && <>
                           <td style={{ fontWeight: 600 }}>{e.clientName || e.title || "—"}</td>
                           <td>{e.paymentDate ? fmtDate(e.paymentDate) : "—"}</td>
-                          <td>{d.invoiceUrl ? <a href={d.invoiceUrl} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {d.invoiceName || "View file"}</a> : "—"}</td>
-                          <td><button className="sv-icon-btn" title="Delete" style={{ color: "#DC2626" }} onClick={(ev) => { ev.stopPropagation(); setConfirmDel(e); }}><Trash2 size={15} /></button></td>
+                          <td>{(() => { const files = (d.files && d.files.length) ? d.files : (d.invoiceUrl ? [{ url: d.invoiceUrl, name: d.invoiceName }] : []); if (!files.length) return "—"; return <a href={files[0].url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {files.length > 1 ? `${files.length} files` : (files[0].name || "View file")}</a>; })()}</td>
+                          <td><button className="sv-del-icon" title="Delete" onClick={(ev) => { ev.stopPropagation(); setConfirmDel(e); }}><Trash2 size={15} /></button></td>
                         </>}
                         {section === "payment" && <>
                           <td style={{ fontWeight: 600 }}>{e.clientName || "—"}</td>
                           <td>{d.confirmationNo || e.contractOrder || "—"}</td>
-                          <td style={{ fontWeight: 600, color: "#15803D" }}>{expMoney(e.amount, e.currency)}</td>
+                          <td style={{ fontWeight: 600, color: "#15803D" }}>
+                            {inrOf(e) != null ? formatINR(inrOf(e)) : expMoney(e.amount, e.currency)}
+                            {String(e.currency || "INR").toUpperCase() !== "INR" && (
+                              <div style={{ fontSize: 10.5, color: "#94A3B8", fontWeight: 500 }} title={d.fxRate ? `Rate: 1 ${e.currency} = ₹${d.fxRate}` : ""}>
+                                Original: {expMoney(e.amount, e.currency)}{d.fxDate ? ` · Converted ${fmtDate(d.fxDate)}` : (inrOf(e) == null ? " · conversion pending" : "")}
+                              </div>
+                            )}
+                          </td>
                           <td>{e.paymentDate ? fmtDate(e.paymentDate) : "—"}</td>
                           <td>{d.invoiceUrl ? <a href={d.invoiceUrl} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ color: "#2563EB" }}>File</a> : (d.invoice || "—")}</td>
                           <td><span className={`sv-badge sv-badge--${(e.paymentStatus === "Received" ? "paid" : (e.paymentStatus || "pending")).toLowerCase()}`}>{e.paymentStatus || "Received"}</span></td>
-                          <td><button className="sv-icon-btn" title="Delete" style={{ color: "#DC2626" }} onClick={(ev) => { ev.stopPropagation(); setConfirmDel(e); }}><Trash2 size={15} /></button></td>
+                          <td><button className="sv-del-icon" title="Delete" onClick={(ev) => { ev.stopPropagation(); setConfirmDel(e); }}><Trash2 size={15} /></button></td>
                         </>}
                         {section === "salary" && (() => { const isFree = e.category === "Freelancer"; return <>
                           <td style={{ fontWeight: 600 }}>{d.employeeName || d.freelancerName || e.clientName || "—"}</td>
@@ -2717,20 +2831,31 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
       {detail && (
         <div className="sv-modal-overlay" onClick={() => setDetail(null)}>
           <div className="sv-modal" style={{ maxWidth: 600, maxHeight: "88vh", display: "flex", flexDirection: "column" }} onClick={(ev) => ev.stopPropagation()}>
-            <div className="sv-modal-header" style={{ flexShrink: 0 }}>
+            <div className="sv-modal-header" style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
               <span className="sv-text-navy sv-font-800" style={{ fontSize: 16 }}>{detail.title || detail.clientName || "Record"}</span>
-              <button className="sv-modal-close" onClick={() => setDetail(null)}>×</button>
+              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+                {detail.type !== "salary" && !editing && (
+                  <button className="sv-edit-pencil" onClick={() => setEditing(true)} title="Edit this record"><Pencil size={13} /> Edit</button>
+                )}
+                <button className="sv-modal-close" onClick={() => setDetail(null)}>×</button>
+              </div>
             </div>
             <div style={{ overflowY: "auto", padding: "16px 20px" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                {detail.type === "insertion_order" && (() => { const d = detail.details || {}; return [
+                {detail.type === "insertion_order" && (() => { const d = detail.details || {}; const files = (d.files && d.files.length) ? d.files : (d.invoiceUrl ? [{ url: d.invoiceUrl, name: d.invoiceName }] : []); return [
                   ["Name", detail.clientName || detail.title || "—"], ["Date", detail.paymentDate ? fmtDate(detail.paymentDate) : "—"],
-                  ["File", d.invoiceUrl ? <a href={d.invoiceUrl} target="_blank" rel="noreferrer" style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {d.invoiceName || "View file"}</a> : "—"],
+                  [`Files (${files.length})`, files.length ? <span style={{ display: "grid", gap: 4 }}>{files.map((f, i) => <a key={i} href={f.url} target="_blank" rel="noreferrer" style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {f.name || "File " + (i + 1)}</a>)}</span> : "—"],
                   ["Notes", detail.notes || "—"],
                 ].map(([l, v]) => metaCell(l, v)); })()}
                 {detail.type === "payment_received" && (() => { const d = detail.details || {}; return [
                   ["Client", detail.clientName || "—"], ["ID / Confirmation No", d.confirmationNo || detail.contractOrder || "—"],
-                  ["Price", expMoney(detail.amount, detail.currency)], ["Currency", detail.currency || "—"],
+                  ["Original Amount", expMoney(detail.amount, detail.currency)], ["Original Currency", detail.currency || "—"],
+                  ["Exchange Rate", d.fxRate ? `1 ${detail.currency} = ₹${d.fxRate}` : (String(detail.currency || "INR").toUpperCase() === "INR" ? "1.00" : "—")],
+                  ["Auto-Converted (INR)", d.inrAmount != null ? formatINR(d.inrAmount) : (String(detail.currency || "INR").toUpperCase() === "INR" ? formatINR(detail.amount) : "pending")],
+                  ["Third-Party / Conversion Fee", d.conversionFee != null && d.conversionFee !== "" ? expMoney(d.conversionFee, detail.currency) : "—"],
+                  ["Final Received (INR)", formatINR(inrOf(detail))],
+                  ["Conversion Date", d.fxDate ? fmtDate(d.fxDate) : "—"],
+                  ["Payment Method", detail.paymentMethod || "—"],
                   ["Payment Date", detail.paymentDate ? fmtDate(detail.paymentDate) : "—"], ["Status", detail.paymentStatus || "—"],
                   ["Invoice", d.invoiceUrl ? <a href={d.invoiceUrl} target="_blank" rel="noreferrer" style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {d.invoiceName || "View file"}</a> : (d.invoice || "—")],
                 ].map(([l, v]) => metaCell(l, v)); })()}
@@ -2749,8 +2874,8 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                 ].map(([l, v]) => metaCell(l, v)); })()}
               </div>
 
-              {/* Editable date + status + notes */}
-              {detailEdit && (
+              {/* Editable date + status + notes — revealed only after clicking the pencil (Edit). */}
+              {detailEdit && editing && (
                 <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                   <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>Month / Date
                     <input className="sv-input" type="date" value={detailEdit.paymentDate || ""} onChange={(e) => setDetailEdit((s) => ({ ...s, paymentDate: e.target.value }))} />
@@ -2768,13 +2893,34 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                   <p className="sv-text-muted" style={{ fontSize: 11, gridColumn: "1 / -1", margin: 0 }}>Changing the date moves this record to that month across the dashboard and charts.</p>
                 </div>
               )}
+
+              {/* Manage files on a saved Insertion Order — add more or remove, saved instantly. */}
+              {editing && detail.type === "insertion_order" && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: "#475569", marginBottom: 8 }}>Files</div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {recFiles(detail).map((f, i) => (
+                      <div key={i} className="sv-flex" style={{ alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8 }}>
+                        <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}><FileText size={13} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name || "File " + (i + 1)}</span></a>
+                        <button type="button" className="sv-chip-btn sv-chip-btn--red" disabled={addFilesBusy} onClick={() => removeFileFromRecord(detail, i)}><X size={12} /> Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                  <label className="sv-btn sv-btn--ghost" style={{ cursor: "pointer", margin: "8px 0 0" }}>
+                    <Plus size={14} /> {addFilesBusy ? "Uploading…" : "Add more files"}
+                    <input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} disabled={addFilesBusy} onChange={(e) => addFilesToRecord(detail, e.target.files)} />
+                  </label>
+                </div>
+              )}
             </div>
             <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", flexShrink: 0, alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-              <button className="sv-btn sv-btn--danger" onClick={() => setConfirmDel(detail)}>Delete</button>
+              <button className="sv-btn sv-btn--danger" onClick={() => setConfirmDel(detail)}><Trash2 size={14} /> Delete</button>
               <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap" }}>
                 {detail.type === "salary" && <button className="sv-btn sv-btn--ghost" onClick={() => downloadSlip(detail)}><FileText size={15} /> Download Slip</button>}
-                {detail.type === "company" && <button className="sv-btn sv-btn--ghost" onClick={() => openEditCompany(detail)}>Edit</button>}
-                <button className="sv-btn sv-btn--primary" onClick={saveDetailEdit} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+                {detail.type === "company" && <button className="sv-btn sv-btn--ghost" onClick={() => openEditCompany(detail)}><Pencil size={14} /> Edit full record</button>}
+                {editing
+                  ? <button className="sv-btn sv-btn--primary" onClick={async () => { await saveDetailEdit(); setEditing(false); }} disabled={saving}>{saving ? "Saving…" : "Save changes"}</button>
+                  : detail.type !== "salary" && <button className="sv-btn sv-btn--ghost" onClick={() => setEditing(true)}><Pencil size={14} /> Edit</button>}
               </div>
             </div>
           </div>
@@ -2801,11 +2947,11 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
               </label>
               <label style={lblS}>Amount<input className="sv-input" type="number" value={form.amount} onChange={(e) => updF("amount", e.target.value)} placeholder="0.00" /></label>
               <label style={lblS}>Currency
-                <select className="sv-select" value={form.currency} onChange={(e) => updF("currency", e.target.value)}>{EXP_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+                <OtherSelect value={form.currency} onChange={(v) => updF("currency", v)} options={EXP_CURRENCIES} placeholder="Select currency…" inputPlaceholder="Currency code (e.g. SGD)" />
               </label>
               <label style={lblS}>Payment Date<input className="sv-input" type="date" value={form.paymentDate || ""} onChange={(e) => updF("paymentDate", e.target.value)} /></label>
               <label style={lblS}>Payment Method
-                <select className="sv-select" value={form.paymentMethod} onChange={(e) => updF("paymentMethod", e.target.value)}><option value="">Select…</option>{EXP_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}</select>
+                <OtherSelect value={form.paymentMethod} onChange={(v) => updF("paymentMethod", v)} options={EXP_METHODS} placeholder="Select method…" inputPlaceholder="Enter payment method" />
               </label>
               <label style={lblS}>Vendor<input className="sv-input" value={(form.details || {}).vendor || ""} onChange={(e) => updFDetail("vendor", e.target.value)} placeholder="Vendor / payee" /></label>
               <label style={lblS}>Payment Status
@@ -2837,23 +2983,31 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
             <div style={{ padding: "16px 20px", display: "grid", gap: 14 }}>
               <label style={lblS}>Name *<input className="sv-input" value={insForm.clientName} onChange={(e) => updIns("clientName", e.target.value)} placeholder="Client / order name" /></label>
               <label style={lblS}>Date<input className="sv-input" type="date" value={insForm.paymentDate} onChange={(e) => updIns("paymentDate", e.target.value)} /></label>
-              <label style={lblS}>Attach File *
+              <label style={lblS}>Attach Files * <span style={{ color: "#94A3B8", fontWeight: 500 }}>(you can add multiple)</span>
                 <div className="sv-flex sv-gap-sm" style={{ alignItems: "center", flexWrap: "wrap" }}>
                   <label className="sv-btn sv-btn--ghost" style={{ cursor: "pointer", margin: 0 }}>
-                    <Plus size={14} /> {insUploading ? "Uploading…" : insForm.fileUrl ? "Replace file" : "Choose file"}
-                    <input type="file" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} disabled={insUploading} onChange={(e) => uploadInsertionFile(e.target.files && e.target.files[0])} />
+                    <Plus size={14} /> {insUploading ? "Uploading…" : (insForm.files || []).length ? "Add more files" : "Choose files"}
+                    <input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} disabled={insUploading} onChange={(e) => uploadInsertionFiles(e.target.files)} />
                   </label>
-                  {insForm.fileUrl && <a href={insForm.fileUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {insForm.fileName || "View file"}</a>}
-                  {insForm.fileUrl && <button type="button" className="sv-chip-btn sv-chip-btn--red" onClick={() => setInsForm((f) => ({ ...f, fileUrl: "", fileName: "" }))}><X size={12} /> Remove</button>}
                 </div>
+                {(insForm.files || []).length > 0 && (
+                  <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                    {(insForm.files || []).map((f, i) => (
+                      <div key={i} className="sv-flex" style={{ alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8 }}>
+                        <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}><FileText size={13} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name || "File " + (i + 1)}</span></a>
+                        <button type="button" className="sv-chip-btn sv-chip-btn--red" onClick={() => removeInsertionFile(i)}><X size={12} /> Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </label>
               <label style={lblS}>Notes / Remarks<textarea className="sv-input" rows={2} value={insForm.notes} onChange={(e) => updIns("notes", e.target.value)} style={{ resize: "vertical" }} /></label>
             </div>
             <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", alignItems: "center" }}>
-              <span className="sv-text-muted" style={{ fontSize: 12 }}>* Name and an attached file are required</span>
+              <span className="sv-text-muted" style={{ fontSize: 12 }}>* Name and at least one file are required</span>
               <div className="sv-flex sv-gap-sm">
                 <button className="sv-btn sv-btn--ghost" onClick={() => setInsForm(null)}>Cancel</button>
-                <button className="sv-btn sv-btn--primary" onClick={saveInsertion} disabled={insSaving || insUploading || !insForm.clientName.trim() || !insForm.fileUrl}>{insSaving ? "Saving…" : "Save"}</button>
+                <button className="sv-btn sv-btn--primary" onClick={saveInsertion} disabled={insSaving || insUploading || !insForm.clientName.trim() || !(insForm.files || []).length}>{insSaving ? "Saving…" : "Save"}</button>
               </div>
             </div>
           </div>
@@ -2873,14 +3027,23 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
               <label style={lblS}>ID *<input className="sv-input" value={ioForm.id} onChange={(e) => updIO("id", e.target.value)} placeholder="ID / confirmation no" /></label>
               <label style={lblS}>Price *<input className="sv-input" type="number" value={ioForm.amount} onChange={(e) => updIO("amount", e.target.value)} placeholder="0.00" /></label>
               <label style={lblS}>Currency
-                <select className="sv-select" value={ioForm.currency} onChange={(e) => updIO("currency", e.target.value)}>{EXP_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+                <OtherSelect value={ioForm.currency} onChange={(v) => updIO("currency", v)} options={EXP_CURRENCIES} placeholder="Select currency…" inputPlaceholder="Currency code (e.g. SGD)" />
               </label>
               <label style={lblS}>Month / Date<input className="sv-input" type="date" value={ioForm.paymentDate} onChange={(e) => updIO("paymentDate", e.target.value)} /></label>
               <label style={lblS}>Status
                 <select className="sv-select" value={ioForm.paymentStatus} onChange={(e) => updIO("paymentStatus", e.target.value)}>{["Received", "Pending", "Partial", "Overdue"].map((s) => <option key={s} value={s}>{s}</option>)}</select>
               </label>
+              <label style={lblS}>Payment Method
+                <OtherSelect value={ioForm.paymentMethod || ""} onChange={(v) => updIO("paymentMethod", v)} options={EXP_METHODS} placeholder="Select method…" inputPlaceholder="Enter payment method" />
+              </label>
               <label style={lblS}>Invoice No. / Link (optional)<input className="sv-input" value={ioForm.invoice} onChange={(e) => updIO("invoice", e.target.value)} placeholder="Invoice number or URL" /></label>
-              <div />
+              <label style={lblS}>Third-Party / Conversion Fee <span style={{ color: "#94A3B8", fontWeight: 500 }}>(optional)</span>
+                <input className="sv-input" type="number" value={ioForm.conversionFee} onChange={(e) => updIO("conversionFee", e.target.value)} placeholder="Fee charged by the payment app" />
+              </label>
+              <label style={lblS}>Final Received (INR) <span style={{ color: "#94A3B8", fontWeight: 500 }}>(actual bank credit)</span>
+                <input className="sv-input" type="number" value={ioForm.finalInr} onChange={(e) => updIO("finalInr", e.target.value)} placeholder="Exact INR credited to bank" />
+                <span className="sv-text-muted" style={{ fontSize: 11 }}>If set, this is used as the final INR everywhere (overrides auto-conversion).</span>
+              </label>
               <div style={{ gridColumn: "1 / -1" }}>
                 <label style={lblS}>Attach Invoice / File (optional)
                   <div className="sv-flex sv-gap-sm" style={{ alignItems: "center", flexWrap: "wrap" }}>

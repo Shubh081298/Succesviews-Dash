@@ -6,6 +6,7 @@ import { createContext, useContext, useState, useEffect, useRef } from "react";
 import { supabase } from "../utils/supabaseClient";
 import { hashPassword } from "../utils/auth";
 import { localDateStr } from "../utils/helpers";
+import { ensureRates, convertToINRSync } from "../utils/currency";
 import logoDefault from "../assets/successviews-logo.png";
 
 const AppDataContext = createContext(null);
@@ -386,10 +387,42 @@ export function AppDataProvider({ children }) {
       .select("*")
       .order("payment_date", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false });
-    if (data) setExpenses(data.map(rowToExpense));
+    if (data) { const list = data.map(rowToExpense); setExpenses(list); backfillInr(list); }
+  }
+
+  // Snapshot the INR conversion (amount, rate, date) onto a record's details so the dashboard can
+  // report a single reporting currency (INR) while retaining the original amount + currency.
+  async function attachInr(rec) {
+    try {
+      const amt = rec && rec.amount;
+      const cur = (rec && rec.currency) || "INR";
+      if (amt == null || amt === "") return rec;
+      const r = convertToINRSync(amt, cur, await ensureRates());
+      if (!r) return rec;
+      return { ...rec, details: { ...(rec.details || {}), inrAmount: r.inrAmount, fxRate: r.rate, fxDate: r.date, fxOriginalAmount: Number(amt), fxOriginalCurrency: cur } };
+    } catch (e) { return rec; }
+  }
+
+  // One-time best-effort backfill: convert any pre-existing non-INR records that don't yet carry an
+  // INR snapshot. Uses the current rate (the free feed has no history) — new records snapshot live.
+  async function backfillInr(list) {
+    try {
+      const rates = await ensureRates();
+      if (!rates) return;
+      const pending = (list || []).filter((e) => e.amount != null && e.amount !== "" && (e.currency || "INR") !== "INR" && (!e.details || e.details.inrAmount == null));
+      if (!pending.length) return;
+      for (const e of pending) {
+        const r = convertToINRSync(e.amount, e.currency, rates);
+        if (!r) continue;
+        const nd = { ...(e.details || {}), inrAmount: r.inrAmount, fxRate: r.rate, fxDate: r.date, fxOriginalAmount: Number(e.amount), fxOriginalCurrency: e.currency };
+        try { await supabase.from("expenses").update({ details: nd }).eq("id", e.id); } catch (err) { /* keep going */ }
+        setExpenses((prev) => prev.map((x) => (x.id === e.id ? { ...x, details: nd } : x)));
+      }
+    } catch (e) { /* offline — retried next load */ }
   }
 
   async function addExpense(exp) {
+    exp = await attachInr(exp);
     const { data, error } = await supabase
       .from("expenses")
       .insert(expenseToRow(exp))
@@ -405,6 +438,7 @@ export function AppDataProvider({ children }) {
   }
 
   async function updateExpense(exp) {
+    exp = await attachInr(exp);   // recompute INR snapshot in case amount/currency changed
     setExpenses((prev) => prev.map((x) => (x.id === exp.id ? { ...x, ...exp } : x)));
     const { error } = await supabase.from("expenses").update(expenseToRow(exp)).eq("id", exp.id);
     if (error) { showToast("Failed to update expense.", "error"); return false; }
@@ -423,6 +457,7 @@ export function AppDataProvider({ children }) {
   async function captureExpense(rec) {
     if (!rec || !rec.sourceKey) return false;
     try {
+      rec = await attachInr(rec);
       const { data, error } = await supabase
         .from("expenses")
         .upsert(expenseToRow(rec), { onConflict: "source_key" })
@@ -1302,7 +1337,14 @@ export function AppDataProvider({ children }) {
      (b) rolls up into TODAY's submissions row so the existing Admin
      Dashboard / Reports / Analytics keep working unchanged.
      ══════════════════════════════════════════════════════════ */
-  const rowToPClient = (r) => ({ id: r.id, employeeId: r.employee_id, assignedEmailId: r.assigned_email_id || "", domainId: r.domain_id || "", domainName: r.domain_name || "", clientName: r.client_name || "", companyName: r.company_name || "", projectName: r.project_name || "", clientEmail: r.client_email || "", region: r.region || "", status: r.status || "New Lead", notes: r.notes || "", lastFollowUp: r.last_follow_up || "", nextFollowUp: r.next_follow_up || "", nextFollowUpTime: r.next_follow_up_time || "", nextActionType: r.next_action_type || "", expectedAmount: Number(r.expected_amount) || 0, expectedCurrency: r.expected_currency || "", lostReason: r.lost_reason || "", isDeleted: !!r.is_deleted, createdAt: r.created_at, updatedAt: r.updated_at });
+  const rowToPClient = (r) => ({ id: r.id, employeeId: r.employee_id, assignedEmailId: r.assigned_email_id || "", domainId: r.domain_id || "", domainName: r.domain_name || "", clientName: r.client_name || "", companyName: r.company_name || "", projectName: r.project_name || "", clientEmail: r.client_email || "", region: r.region || "", status: r.status || "New Lead", notes: r.notes || "", lastFollowUp: r.last_follow_up || "", nextFollowUp: r.next_follow_up || "", nextFollowUpTime: r.next_follow_up_time || "", nextActionType: r.next_action_type || "", expectedAmount: Number(r.expected_amount) || 0, expectedCurrency: r.expected_currency || "", lostReason: r.lost_reason || "", isDeleted: !!r.is_deleted, createdAt: r.created_at, updatedAt: r.updated_at,
+    // Pipeline v2 — Contract Order + Payment Received (one each per client).
+    contractSent: !!r.contract_sent, contractFileUrl: r.contract_file_url || "", contractFileName: r.contract_file_name || "", contractSentDate: r.contract_sent_date || "", contractAmount: r.contract_amount == null ? "" : Number(r.contract_amount), contractCurrency: r.contract_currency || "", contractStatus: r.contract_status || "",
+    // Contract Signed phase (separate signed document + sale amount/date).
+    contractSignedFileUrl: r.contract_signed_file_url || "", contractSignedFileName: r.contract_signed_file_name || "",
+    signedAmount: r.signed_amount == null ? "" : Number(r.signed_amount), signedDate: r.signed_date || "",
+    manualEmployeeName: r.manual_employee_name || "",
+    paymentReceived: !!r.payment_received, paymentAmount: r.payment_amount == null ? "" : Number(r.payment_amount), paymentCurrency: r.payment_currency || "", paymentDate: r.payment_date || "", paymentStatus: r.payment_status || "" });
   const rowToPFollowup = (r) => ({ id: r.id, clientId: r.client_id, employeeId: r.employee_id, followUpDate: r.follow_up_date || "", followUpTime: r.follow_up_time || "", communicationType: r.communication_type || "", notes: r.notes || "", status: r.status || "", nextFollowUp: r.next_follow_up || "", actionType: r.action_type || "", outcome: r.outcome || "", createdAt: r.created_at });
   const rowToPContract = (r) => ({ id: r.id, clientId: r.client_id, contractNumber: r.contract_number || "", contractDate: r.contract_date || "", notes: r.notes || "", createdAt: r.created_at });
   const rowToPSale = (r) => ({ id: r.id, clientId: r.client_id, packageName: r.package_name || "", amount: Number(r.amount) || 0, currency: r.currency || "USD", salesDate: r.sales_date || "", notes: r.notes || "", createdAt: r.created_at });
@@ -1375,14 +1417,14 @@ export function AppDataProvider({ children }) {
       const payload = {
         employee_id: p.employeeId, assigned_email_id: p.assignedEmailId || null, domain_id: p.domainId || null,
         domain_name: p.domainName || null, client_name: p.clientName, company_name: p.companyName || null,
-        project_name: p.projectName || null,
+        project_name: p.projectName || null, manual_employee_name: p.manualEmployeeName || null,
         client_email: p.clientEmail || null, region: p.region || null, status: p.status || "New Lead",
         notes: p.notes || null, next_follow_up: p.nextFollowUp || null, next_follow_up_time: p.nextFollowUpTime || null,
         next_action_type: p.nextActionType || null,
       };
       let { data, error } = await supabase.from("pipeline_clients").insert(payload).select("*").single();
-      if (error && /next_follow_up_time|project_name|next_action_type/.test(error.message || "")) { // columns not migrated yet — save without them
-        delete payload.next_follow_up_time; delete payload.project_name; delete payload.next_action_type;
+      if (error && /next_follow_up_time|project_name|next_action_type|manual_employee_name/.test(error.message || "")) { // columns not migrated yet — save without them
+        delete payload.next_follow_up_time; delete payload.project_name; delete payload.next_action_type; delete payload.manual_employee_name;
         ({ data, error } = await supabase.from("pipeline_clients").insert(payload).select("*").single());
       }
       if (error || !data) {
@@ -1395,7 +1437,7 @@ export function AppDataProvider({ children }) {
       const rec = rowToPClient(data);
       setPipelineClients((prev) => [rec, ...prev]);
       await addPipelineHistory(rec.id, p.employeeId, "Client Created", null, { clientName: rec.clientName, status: rec.status });
-      await rollupToSubmission(p.employeeId, "lead", { client: rec.clientName, status: rec.status, ts: Date.now() });
+      if (p.employeeId) await rollupToSubmission(p.employeeId, "lead", { client: rec.clientName, status: rec.status, ts: Date.now() });
       pushNotification && pushNotification(`New client added: ${rec.clientName}`, "info");
       return rec;
     } catch (e) { showToast("Could not save client.", "error"); return false; }
@@ -1404,12 +1446,19 @@ export function AppDataProvider({ children }) {
   async function updatePipelineClient(id, patch, employeeId) {
     const old = pipelineClients.find((c) => c.id === id);
     try {
-      const upd = {}; const map = { assignedEmailId: "assigned_email_id", domainId: "domain_id", domainName: "domain_name", clientName: "client_name", companyName: "company_name", projectName: "project_name", clientEmail: "client_email", region: "region", status: "status", notes: "notes", nextFollowUp: "next_follow_up", nextFollowUpTime: "next_follow_up_time", nextActionType: "next_action_type", expectedAmount: "expected_amount", expectedCurrency: "expected_currency", lastFollowUp: "last_follow_up", lostReason: "lost_reason", isDeleted: "is_deleted" };
+      const upd = {}; const map = { assignedEmailId: "assigned_email_id", domainId: "domain_id", domainName: "domain_name", clientName: "client_name", companyName: "company_name", projectName: "project_name", clientEmail: "client_email", region: "region", status: "status", notes: "notes", nextFollowUp: "next_follow_up", nextFollowUpTime: "next_follow_up_time", nextActionType: "next_action_type", expectedAmount: "expected_amount", expectedCurrency: "expected_currency", lastFollowUp: "last_follow_up", lostReason: "lost_reason", isDeleted: "is_deleted",
+        // Pipeline v2 — Contract Order + Payment Received fields.
+        contractSent: "contract_sent", contractFileUrl: "contract_file_url", contractFileName: "contract_file_name", contractSentDate: "contract_sent_date", contractAmount: "contract_amount", contractCurrency: "contract_currency", contractStatus: "contract_status",
+        contractSignedFileUrl: "contract_signed_file_url", contractSignedFileName: "contract_signed_file_name", signedAmount: "signed_amount", signedDate: "signed_date", manualEmployeeName: "manual_employee_name",
+        paymentReceived: "payment_received", paymentAmount: "payment_amount", paymentCurrency: "payment_currency", paymentDate: "payment_date", paymentStatus: "payment_status" };
       Object.keys(patch).forEach((k) => { if (map[k] !== undefined) upd[map[k]] = patch[k]; });
+      // Numeric fields: empty string → null so the DB accepts them.
+      ["contract_amount", "payment_amount", "expected_amount", "signed_amount"].forEach((c) => { if (upd[c] === "") upd[c] = null; });
+      ["contract_sent_date", "payment_date", "signed_date"].forEach((c) => { if (upd[c] === "") upd[c] = null; });
       upd.updated_at = new Date().toISOString();
       let { data, error } = await supabase.from("pipeline_clients").update(upd).eq("id", id).select("*").single();
-      if (error && /next_follow_up_time|project_name|expected_amount|expected_currency|next_action_type/.test(error.message || "")) { // columns not migrated yet
-        delete upd.next_follow_up_time; delete upd.project_name; delete upd.expected_amount; delete upd.expected_currency; delete upd.next_action_type;
+      if (error && /next_follow_up_time|project_name|expected_amount|expected_currency|next_action_type|contract_|payment_|signed_|manual_employee_name/.test(error.message || "")) { // columns not migrated yet — drop them and retry
+        ["next_follow_up_time", "project_name", "expected_amount", "expected_currency", "next_action_type", "contract_sent", "contract_file_url", "contract_file_name", "contract_sent_date", "contract_amount", "contract_currency", "contract_status", "contract_signed_file_url", "contract_signed_file_name", "signed_amount", "signed_date", "manual_employee_name", "payment_received", "payment_amount", "payment_currency", "payment_date", "payment_status"].forEach((c) => delete upd[c]);
         ({ data, error } = await supabase.from("pipeline_clients").update(upd).eq("id", id).select("*").single());
       }
       if (error || !data) { showToast("Could not update client.", "error"); return false; }
@@ -1543,6 +1592,20 @@ export function AppDataProvider({ children }) {
     } catch (e) { showToast("Could not reverse payment.", "error"); return false; }
   }
 
+  // Upload a Contract Order document to the existing storage bucket; returns { url, name }.
+  async function uploadPipelineFile(file) {
+    if (!file) return null;
+    if (file.size > 10 * 1024 * 1024) { showToast("File is larger than 10 MB — choose a smaller file.", "error"); return null; }
+    try {
+      const safe = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `pipeline-contracts/${Date.now()}_${safe}`;
+      const { error } = await supabase.storage.from("design-files").upload(path, file, { upsert: false });
+      if (error) { showToast("Could not upload the contract file.", "error"); return null; }
+      const { data: pub } = supabase.storage.from("design-files").getPublicUrl(path);
+      return { url: pub.publicUrl, name: file.name };
+    } catch (e) { showToast("Could not upload the contract file.", "error"); return null; }
+  }
+
   async function addPipelineNote(p) {
     try {
       const { data, error } = await supabase.from("pipeline_notes").insert({ client_id: p.clientId, employee_id: p.employeeId, note: p.note }).select("*").single();
@@ -1582,7 +1645,7 @@ export function AppDataProvider({ children }) {
     // Pipeline (Employee CRM)
     pipelineClients, pipelineFollowups, pipelineContracts, pipelineSales, pipelinePayments, pipelineNotes, pipelineHistory,
     domains, addDomain, updateDomain, deleteDomain, pipelineStatuses,
-    addPipelineClient, updatePipelineClient, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, addFollowup, addPipelineContract, addPipelineSale, addPipelinePayment, reversePipelinePayment, addPipelineNote,
+    addPipelineClient, updatePipelineClient, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, addFollowup, addPipelineContract, addPipelineSale, addPipelinePayment, reversePipelinePayment, addPipelineNote, uploadPipelineFile,
     customFields, saveCustomFields,
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,
     messages, saveMessages, addMessage, deleteMessage, dismissMessage,

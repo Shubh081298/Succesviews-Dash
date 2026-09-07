@@ -18,6 +18,7 @@ import {
 } from "./AdminTabs";
 import { DSR_STATUSES, CHART_COLORS } from "../../utils/constants";
 import { genCode, getTodayStr, fmtCurr, fmtDate, sum, downloadCSV } from "../../utils/helpers";
+import { convertToINRSync } from "../../utils/currency";
 
 export default function AdminDashboard() {
   const {
@@ -46,7 +47,7 @@ export default function AdminDashboard() {
     adminPwd, setAdminPwd,
     settingsPwd, setSettingsPwd,
     theme, toggleTheme,
-    pipelineClients, pipelineStatuses, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes, pipelineHistory, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient,
+    pipelineClients, pipelineStatuses, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes, pipelineHistory, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, updatePipelineClient, uploadPipelineFile, addPipelineClient,
     showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications, logAudit,
   } = useAppData();
   const { setAdminLoggedIn } = useAdminAuth();
@@ -160,14 +161,23 @@ export default function AdminDashboard() {
   );
 
   const empStats = useMemo(() => {
-    // Sales & payments are sourced from the pipeline. Derive per-employee totals
-    // straight from LIVE pipeline rows (excluding soft-deleted clients) so a deleted
-    // client's amounts drop out everywhere — the rolled-up submission totals can't
-    // self-correct because they don't retain a client reference.
-    const liveIds = new Set((pipelineClients || []).filter((c) => !c.isDeleted).map((c) => c.id));
+    // Pipeline v2 is the single source of truth for Sales & Payments:
+    //   Sales   = SIGNED contracts (contract_amount)
+    //   Payment = PAID payments   (payment_amount)
+    // One contract + one payment per client ⇒ editing an amount just updates that client's
+    // single value, so nothing is ever double-counted. Amounts are converted to INR (the
+    // reporting currency) via the live rate table, falling back to the raw amount if unavailable.
+    const toINR = (amt, cur) => { const r = convertToINRSync(amt, cur); return r ? r.inrAmount : (Number(amt) || 0); };
     const salesByEmp = {}, payByEmp = {};
-    for (const s of (pipelineSales || [])) if (liveIds.has(s.clientId)) salesByEmp[s.employeeId] = (salesByEmp[s.employeeId] || 0) + (Number(s.amount) || 0);
-    for (const p of (pipelinePayments || [])) if (liveIds.has(p.clientId)) payByEmp[p.employeeId] = (payByEmp[p.employeeId] || 0) + (Number(p.amount) || 0);
+    for (const c of (pipelineClients || [])) {
+      if (c.isDeleted) continue;
+      if (c.contractStatus === "Signed" && c.signedAmount !== "" && c.signedAmount != null) {
+        salesByEmp[c.employeeId] = (salesByEmp[c.employeeId] || 0) + toINR(c.signedAmount, c.contractCurrency);
+      }
+      if (c.paymentStatus === "Paid" && c.paymentAmount !== "" && c.paymentAmount != null) {
+        payByEmp[c.employeeId] = (payByEmp[c.employeeId] || 0) + toINR(c.paymentAmount, c.paymentCurrency);
+      }
+    }
     // Live dashboard / leaderboard / analytics show ACTIVE staff only — terminated
     // employees drop out of active-employee statistics (their history stays in Reports).
     return activeEmployees.map((e) => {
@@ -192,7 +202,7 @@ export default function AdminDashboard() {
       todayAttendance: (mine.find((s) => s.date === todayStr) || {}).attendance || null,
     };
   });
-  }, [activeEmployees, submissions, todayStr, pipelineClients, pipelineSales, pipelinePayments]);
+  }, [activeEmployees, submissions, todayStr, pipelineClients]);
 
   const reportsFiltered = useMemo(() => submissions
     .filter((s) => !reportEmpSearch || s.empName?.toLowerCase().includes(reportEmpSearch.toLowerCase()))
@@ -441,7 +451,7 @@ export default function AdminDashboard() {
             ovPieData={ovPieData} ovBarData={ovBarData} openDM={openDM}
             pipelineClients={pipelineClients} pipelineStatuses={pipelineStatuses}
             pipelineFollowups={pipelineFollowups} pipelineSales={pipelineSales} pipelinePayments={pipelinePayments}
-            pipelineContracts={pipelineContracts} pipelineNotes={pipelineNotes} pipelineHistory={pipelineHistory} softDeletePipelineClient={softDeletePipelineClient} restorePipelineClient={restorePipelineClient} hardDeletePipelineClient={hardDeletePipelineClient}
+            pipelineContracts={pipelineContracts} pipelineNotes={pipelineNotes} pipelineHistory={pipelineHistory} softDeletePipelineClient={softDeletePipelineClient} restorePipelineClient={restorePipelineClient} hardDeletePipelineClient={hardDeletePipelineClient} updatePipelineClient={updatePipelineClient} uploadPipelineFile={uploadPipelineFile} addPipelineClient={addPipelineClient} domains={domains} showToast={showToast}
           />
         )}
         {tab === "reports" && (
@@ -486,7 +496,7 @@ export default function AdminDashboard() {
         {tab === "managerassign" && (
           <div className="sv-flex-col sv-gap-4">
             <ManagerAssignModule employees={employees} setEmployees={saveEmployees}
-              showToast={showToast} editMode={editMode} submissions={submissions}
+              showToast={showToast} editMode={editMode} submissions={submissions} pipelineClients={pipelineClients}
               teamMeta={teamMeta} saveTeamMeta={saveTeamMeta} targets={targets} />
             <AssignIdsModule employees={employees} assignEmployeeIds={assignEmployeeIds}
               teamMeta={teamMeta} showToast={showToast} />

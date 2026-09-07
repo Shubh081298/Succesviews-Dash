@@ -3,6 +3,7 @@ import { Users, ChevronDown, Plus, Pencil, Trash2, X, UserMinus } from "lucide-r
 import Avatar from "../ui/Avatar.jsx";
 import { storageSet } from "../../utils/storage.js";
 import { empLabel } from "../../utils/helpers.js";
+import { convertToINRSync } from "../../utils/currency.js";
 
 /**
  * ManagerAssignModule — Admin "Manager Assignment" as premium team cards.
@@ -27,26 +28,30 @@ const STATUS_META = {
 };
 const fmtMoney = (n) => "₹" + Number(n || 0).toLocaleString("en-IN");
 
-export default function ManagerAssignModule({ employees, setEmployees, showToast, editMode = false, teamMeta = {}, saveTeamMeta, targets = {}, submissions = [] }) {
+export default function ManagerAssignModule({ employees, setEmployees, showToast, editMode = false, teamMeta = {}, saveTeamMeta, targets = {}, submissions = [], pipelineClients = [] }) {
   const [expanded, setExpanded] = useState(null);
   const [editingTeam, setEditingTeam] = useState(null);
-  const [form, setForm] = useState({ lead: "", target: 0, color: 0, status: "Active" });
+  const [form, setForm] = useState({ lead: "", color: 0, status: "Active" });
   const [adding, setAdding] = useState(false);
   const [newLead, setNewLead] = useState("");
   const [confirm, setConfirm] = useState(null); // { message, onYes }
 
-  const defaultTarget = Number(targets?.salesGenerated || 0);
-  const monthPrefix = new Date().toISOString().slice(0, 7); // YYYY-MM
-
-  // Month-to-date DSR sales per employee id.
-  const salesByEmp = useMemo(() => {
-    const m = {};
-    submissions.forEach((s) => {
-      if (!s.date || !String(s.date).startsWith(monthPrefix)) return;
-      m[s.empId] = (m[s.empId] || 0) + (Number(s.salesGenerated) || 0);
+  // Sales & Payment per employee, derived live from the pipeline (single source of truth):
+  //   Sales   = SIGNED contracts (signed_amount)
+  //   Payment = PAID payments   (payment_amount)
+  // Amounts are converted to INR (reporting currency) via the live rate table.
+  const toINR = (amt, cur) => { const r = convertToINRSync(amt, cur); return r ? r.inrAmount : (Number(amt) || 0); };
+  const { salesByEmp, payByEmp } = useMemo(() => {
+    const s = {}, p = {};
+    (pipelineClients || []).forEach((c) => {
+      if (c.isDeleted || !c.employeeId) return;
+      if (c.contractStatus === "Signed" && c.signedAmount !== "" && c.signedAmount != null)
+        s[c.employeeId] = (s[c.employeeId] || 0) + toINR(c.signedAmount, c.contractCurrency);
+      if (c.paymentStatus === "Paid" && c.paymentAmount !== "" && c.paymentAmount != null)
+        p[c.employeeId] = (p[c.employeeId] || 0) + toINR(c.paymentAmount, c.paymentCurrency);
     });
-    return m;
-  }, [submissions, monthPrefix]);
+    return { salesByEmp: s, payByEmp: p };
+  }, [pipelineClients]);
 
   // Live team management uses ACTIVE staff only. Persist maps below still operate
   // on the FULL `employees` list so terminated rows are never dropped on save.
@@ -62,26 +67,22 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
     await persist(employees.map((e) => (e.id === empId ? { ...e, teamLead: lead } : e)));
     showToast?.(lead ? `Assigned to ${lead}` : "Removed from team");
   };
-  const metaFor = (lead, idx = 0) => ({ target: defaultTarget, status: "Active", color: idx % PALETTES.length, ...(teamMeta[lead] || {}) });
+  const metaFor = (lead, idx = 0) => ({ status: "Active", color: idx % PALETTES.length, ...(teamMeta[lead] || {}) });
 
   const teamSales = (members) => members.reduce((a, m) => a + (salesByEmp[m.id] || 0), 0);
-  const completionOf = (members, target) => {
-    const t = Number(target) || 0;
-    if (t <= 0) return 0;
-    return Math.min(100, Math.round((teamSales(members) / t) * 100));
-  };
+  const teamPay = (members) => members.reduce((a, m) => a + (payByEmp[m.id] || 0), 0);
 
   const createTeam = () => {
     const lead = newLead.trim();
     if (!lead) return;
-    if (!teamMeta[lead]) saveTeamMeta?.({ ...teamMeta, [lead]: { target: defaultTarget, status: "Pending", color: leadNames.length % PALETTES.length } });
+    if (!teamMeta[lead]) saveTeamMeta?.({ ...teamMeta, [lead]: { status: "Pending", color: leadNames.length % PALETTES.length } });
     setNewLead(""); setAdding(false); setExpanded(lead);
     showToast?.(`Team "${lead}" created`);
   };
 
   const openEdit = (lead, idx) => {
     const m = metaFor(lead, idx);
-    setForm({ lead, target: m.target, color: m.color, status: m.status });
+    setForm({ lead, color: m.color, status: m.status });
     setEditingTeam(lead);
   };
   const saveEdit = async () => {
@@ -90,7 +91,7 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
     if (next !== old) await persist(employees.map((e) => (e.teamLead === old ? { ...e, teamLead: next } : e)));
     const nm = { ...teamMeta };
     if (next !== old) delete nm[old];
-    nm[next] = { target: Number(form.target) || 0, status: form.status, color: form.color };
+    nm[next] = { ...(nm[next] || {}), status: form.status, color: form.color };
     saveTeamMeta?.(nm);
     setEditingTeam(null);
     showToast?.("Team updated");
@@ -119,7 +120,8 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
     const st = STATUS_META[meta.status] || STATUS_META.Active;
     const leadEmp = employees.find((e) => e.name === lead);
     const isOpen = expanded === lead;
-    const completion = completionOf(members, meta.target);
+    const sales = teamSales(members);
+    const pay = teamPay(members);
     return (
       <div className="sv-team-card" style={{ borderColor: pal.border }}>
         <div className="sv-team-card-head" style={{ background: pal.header }}>
@@ -166,13 +168,9 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
         </div>
 
         <div className="sv-team-foot">
-          <div className="sv-team-stat"><span className="sv-team-stat-k">Active</span><span className="sv-team-stat-v">{members.length}</span></div>
-          <div className="sv-team-stat"><span className="sv-team-stat-k">Target</span><span className="sv-team-stat-v">{fmtMoney(meta.target)}</span></div>
-          <div className="sv-team-stat sv-team-stat--prog">
-            <span className="sv-team-stat-k" title="This month's DSR sales ÷ Target">Completion</span>
-            <span className="sv-team-stat-v">{completion}%</span>
-            <span className="sv-team-prog"><span className="sv-team-prog-bar" style={{ width: `${completion}%`, background: pal.avatar }} /></span>
-          </div>
+          <div className="sv-team-stat"><span className="sv-team-stat-k">Members</span><span className="sv-team-stat-v">{members.length}</span></div>
+          <div className="sv-team-stat"><span className="sv-team-stat-k" title="Signed contracts (INR)">Sales</span><span className="sv-team-stat-v" style={{ color: "#0D9488" }}>{fmtMoney(sales)}</span></div>
+          <div className="sv-team-stat"><span className="sv-team-stat-k" title="Payments received (INR)">Payment</span><span className="sv-team-stat-v" style={{ color: "#15803D" }}>{fmtMoney(pay)}</span></div>
         </div>
       </div>
     );
@@ -220,18 +218,12 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
                   {[...new Set([form.lead, ...activeEmployees.map((e) => e.name)])].filter(Boolean).map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
               </label>
-              <div className="sv-team-ctl-row">
-                <label className="sv-team-ctl">
-                  <span>Target (₹)</span>
-                  <input type="number" className="sv-input" value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} />
-                </label>
-                <label className="sv-team-ctl">
-                  <span>Status</span>
-                  <select className="sv-select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                    <option>Active</option><option>Pending</option><option>Inactive</option>
-                  </select>
-                </label>
-              </div>
+              <label className="sv-team-ctl">
+                <span>Status</span>
+                <select className="sv-select" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
+                  <option>Active</option><option>Pending</option><option>Inactive</option>
+                </select>
+              </label>
               <label className="sv-team-ctl">
                 <span>Colour</span>
                 <div className="sv-swatches">
@@ -240,7 +232,7 @@ export default function ManagerAssignModule({ employees, setEmployees, showToast
                   ))}
                 </div>
               </label>
-              <p className="sv-text-muted" style={{ margin: 0, fontSize: 11.5 }}>Completion % is calculated automatically from this month's DSR sales vs the Target.</p>
+              <p className="sv-text-muted" style={{ margin: 0, fontSize: 11.5 }}>Sales and Payment roll up automatically from each member's signed contracts and received payments in the pipeline.</p>
             </div>
             <div className="sv-modal-footer" style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "12px 20px" }}>
               <button className="sv-btn sv-btn--outline sv-btn--danger" onClick={() => { const l = editingTeam; setEditingTeam(null); askDeleteTeam(l); }}>Delete Team</button>

@@ -1,5 +1,4 @@
 import { fmtSalary } from "../utils/helpers.js";
-
 /**
  * PayslipView — the single, shared on-screen payslip.
  * Rendered identically in the admin "Payslip" preview (before sending)

@@ -8,6 +8,7 @@ import { ClipboardList, History, Palmtree, IdCard, Settings, Contact } from "luc
 import { useAppData } from "../../data/AppDataContext";
 import Sidebar from "../../components/layout/Sidebar";
 import { EmployeeLogin, EmployeeDashboard } from "../../components/employee";
+import LoginSuccess from "../../components/ui/LoginSuccess";
 import Pipeline from "../../components/employee/Pipeline";
 import DesignerDashboard from "../../components/designer/DesignerDashboard";
 import { getTodayStr, fmtDate, blankDsr, dsrFromExisting } from "../../utils/helpers";
@@ -41,6 +42,7 @@ export default function EmployeePortal() {
   const [loginPwd, setLoginPwd] = useState("");
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [loginSuccess, setLoginSuccess] = useState(false);
 
   /* ── Employee dashboard UI state ──────────────────────────── */
   const [empTab, setEmpTab] = useState("form");
@@ -105,11 +107,12 @@ export default function EmployeePortal() {
     } catch (e) { /* ignore */ }
 
     setEmp(found);
-    setLoggedIn(true);
     setLoginPwd("");
     setBusy(false);
     logAudit && logAudit("login", "employee", found.id, { name: found.name, portal: "employee" });
-    showToast(`Welcome back, ${found.name}!`, "success");
+    // Show the centered success modal on the login page, then enter the portal.
+    setLoginSuccess(true);
+    setTimeout(() => setLoggedIn(true), 1300);
   };
 
   const handleForgot = async () => {
@@ -275,17 +278,20 @@ export default function EmployeePortal() {
   /* ── Render: not logged in -> Employee login only ─────────── */
   if (!loggedIn) {
     return (
-      <EmployeeLogin
-        email={loginEmail}
-        setEmail={setLoginEmail}
-        password={loginPwd}
-        setPassword={setLoginPwd}
-        remember={remember}
-        setRemember={setRemember}
-        onLogin={handleLogin}
-        onForgot={handleForgot}
-        busy={busy}
-      />
+      <>
+        <EmployeeLogin
+          email={loginEmail}
+          setEmail={setLoginEmail}
+          password={loginPwd}
+          setPassword={setLoginPwd}
+          remember={remember}
+          setRemember={setRemember}
+          onLogin={handleLogin}
+          onForgot={handleForgot}
+          busy={busy}
+        />
+        {loginSuccess && <LoginSuccess message="Employee login successful" />}
+      </>
     );
   }
 

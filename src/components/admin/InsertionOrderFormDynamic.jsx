@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Download, Save, FolderOpen, FilePlus } from 'lucide-react';
 import { supabase } from '../../utils/supabaseClient';
 import { useAppData } from '../../data/AppDataContext';
 
@@ -218,7 +219,7 @@ function RichTextEditor({ initialHtml, onChange, placeholder }) {
 const magSnap = (m) => ({
   id: m.id, name: m.name, publisherCompany: m.publisherCompany || "",
   repName: m.repName, repTitle: m.repTitle, repEmail: m.repEmail,
-  accentColor: m.accentColor, headingColor: m.headingColor, logoText: m.logoText, logoSubText: m.logoSubText,
+  accentColor: m.accentColor, headingColor: m.headingColor, stampScale: m.stampScale, logoText: m.logoText, logoSubText: m.logoSubText,
   logoScale: m.logoScale, watermarkOpacity: m.watermarkOpacity,
   watermarkSize: m.watermarkSize, perksHtml: m.perksHtml, termsHtml: m.termsHtml,
   // document fields (footer + editable headings/text)
@@ -243,6 +244,9 @@ function genOrderHtml(m, data, preview = false) {
   const num = (v) => { const n = Number(String(v).replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
   const money = (v) => `${num(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fee = num(data.cost);
+  const hasCost = !(data.cost === '' || data.cost == null);
+  // Digital stamp zoom (per magazine): 100% => 96px tall cap; scales up/down from there.
+  const stampMax = Math.round(96 * (Number(m.stampScale) || 100) / 100);
   // Logo: uploaded image, else the text lockup.
   const logoHtml = m.logoDataUrl
     ? `<img src="${m.logoDataUrl}" style="max-height:60px;max-width:320px;object-fit:contain;display:block;" alt="" />`
@@ -286,7 +290,7 @@ function genOrderHtml(m, data, preview = false) {
      print fonts, overflowing the A4 box onto a 2nd page. Keeps the PDF device-independent. */
   html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
   html,body{margin:0;padding:0}
-  body{font-family:Arial,Helvetica,sans-serif;color:#1f2937;font-size:10px;line-height:1.4;background:#fff}
+  body{font-family:Arial,Helvetica,sans-serif;color:#1f2937;font-size:10.5px;line-height:1.32;background:#fff}
   .wm{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:0;pointer-events:none}
   .wm img{max-width:66%;max-height:55%;height:auto;object-fit:contain}
   .wmtext{font-family:Georgia,'Times New Roman',serif;font-size:66px;font-weight:800;letter-spacing:5px;transform:rotate(-18deg);white-space:nowrap;text-align:center}
@@ -294,45 +298,50 @@ function genOrderHtml(m, data, preview = false) {
      printed page — footer sits at the bottom of the sheet, not the bottom of the browser window. */
   .doc{position:relative;z-index:1;width:100%;max-width:794px;min-height:1122px;margin:0 auto;padding:26px 30px 18px;display:flex;flex-direction:column;background:#fff}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
-  .co-title{font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:700;letter-spacing:1px;text-align:right;color:#111;margin-bottom:6px;white-space:nowrap}
-  .meta{display:grid;grid-template-columns:auto auto;column-gap:16px;row-gap:2px;justify-content:end;font-size:10px}
+  .co-title{font-family:Georgia,'Times New Roman',serif;font-size:21px;font-weight:700;letter-spacing:1px;text-align:right;color:#111;margin-bottom:6px;white-space:nowrap}
+  .meta{display:grid;grid-template-columns:auto auto;column-gap:16px;row-gap:2px;justify-content:end;font-size:10.5px}
   .meta .mk{font-weight:700;color:#111}
   .meta .mv{color:#374151;text-align:right}
-  .rule{position:relative;height:1px;background:#d1d5db;margin:10px 0 12px}
+  .rule{position:relative;height:1px;background:#d1d5db;margin:9px 0 11px}
   .rule::before{content:'';position:absolute;left:0;top:-1px;height:3px;width:104px;background:${accent};border-radius:2px}
-  .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:11px;align-items:start}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;align-items:start}
   .panel{border:1px solid #e2e5ea;border-radius:5px;overflow:hidden}
-  .panel-h{font-weight:700;font-size:11.5px;color:${headingColor};padding:6px 10px;border-bottom:1px solid #eceef2;background:rgba(251,252,253,0.72)}
-  .kv{display:grid;grid-template-columns:108px 1fr}
-  .kv>div{padding:4px 10px;border-bottom:1px solid #f0f1f4;font-size:10px}
+  .panel-h{font-weight:700;font-size:12px;color:${headingColor};padding:6px 10px;border-bottom:1px solid #eceef2;background:rgba(251,252,253,0.72)}
+  .kv{display:grid;grid-template-columns:112px 1fr}
+  .kv>div{padding:4px 10px;border-bottom:1px solid #f0f1f4;font-size:10.5px}
   .kv:last-child>div{border-bottom:none}
   .kv .k{font-weight:700;color:#111;border-right:1px solid #f0f1f4}
   .kv .v{color:#374151;word-break:break-word}
-  .sec{border:1px solid #e2e5ea;border-radius:5px;margin-bottom:11px}
-  .sec-h{font-weight:700;font-size:11.5px;color:${headingColor};padding:6px 10px;border-bottom:1px solid #eceef2;background:rgba(251,252,253,0.72)}
-  .adv{display:grid;grid-template-columns:150px 1fr;column-gap:10px;padding:5px 10px;font-size:10px;border-bottom:1px solid #f4f5f7;align-items:start}
+  .sec{border:1px solid #e2e5ea;border-radius:5px;margin-bottom:10px}
+  .sec-h{font-weight:700;font-size:12px;color:${headingColor};padding:6px 10px;border-bottom:1px solid #eceef2;background:rgba(251,252,253,0.72)}
+  .adv{display:grid;grid-template-columns:150px 1fr;column-gap:10px;padding:5px 10px;font-size:10.5px;border-bottom:1px solid #f4f5f7;align-items:start}
   .adv:last-child{border-bottom:none}
   .adv .ak{font-weight:700;color:#111}
-  .adv .av{color:#374151;word-break:break-word;overflow-wrap:anywhere;line-height:1.45}
-  .rich{padding:6px 12px;font-size:9.5px;color:#374151}
+  .adv .av{color:#374151;word-break:break-word;overflow-wrap:anywhere;line-height:1.4}
+  .rich{padding:6px 12px;font-size:10px;color:#374151}
   .rich ul,.rich ol{margin:0;padding-left:16px}
-  .rich li{padding:1px 0}
-  .ctable{width:100%;border-collapse:collapse;font-size:10px;table-layout:fixed}
+  .rich li{padding:1.5px 0}
+  .ctable{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed}
   .ctable th,.ctable td{padding:5px 10px;border-bottom:1px solid #eceef2;text-align:left;vertical-align:top;word-break:break-word}
   .ctable th{background:rgba(248,250,252,0.72);font-weight:700;color:#111}
   .ctable td.amt,.ctable th.amt{text-align:right;white-space:nowrap;width:46%}
   .ctable tr.total td{font-weight:800;color:${accent};border-top:1px solid #e2e5ea}
-  .ctable tr.total td.amt{font-size:10.5px;letter-spacing:.2px}
+  .ctable tr.total td.amt{font-size:11px;letter-spacing:.2px}
   .pay{padding:2px 10px 8px}
-  .pay .row{display:grid;grid-template-columns:120px 1fr;padding:4px 0;font-size:10px;border-bottom:1px solid #f4f5f7}
+  .pay .row{display:grid;grid-template-columns:120px 1fr;padding:4px 0;font-size:10.5px;border-bottom:1px solid #f4f5f7}
   .pay .row:last-child{border-bottom:none}
   .pay .pk{color:#6b7280}
-  .pay .pv{color:#111;font-weight:600}
+  .pay .pv{color:${headingColor};font-weight:700}
+  /* Bold/emphasised words in body copy (e.g. Terms) use the brand heading colour so they stand out. */
+  .rich b,.rich strong,.rich.terms b,.rich.terms strong{color:${headingColor}}
   .rich.terms ol,.rich.terms ul{padding-left:16px}
   .rich.terms li{padding:2px 0}
-  .accept{padding:8px 12px;font-size:10px}
-  .accept .intro{color:#374151;margin-bottom:10px}
-  .accept .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;align-items:end}
+  .accept{padding:7px 12px;font-size:10.5px}
+  .accept .intro{color:#374151;margin-bottom:11px}
+  .accept .acc2{display:grid;grid-template-columns:1fr 1fr;gap:0 32px;align-items:stretch}
+  .accept .acc-col{display:flex;flex-direction:column;gap:13px}
+  .accept .acc-stamp{display:flex;align-items:center;justify-content:center;min-height:70px}
+  .accept .acc-stamp img{max-width:100%;max-height:96px;object-fit:contain}
   .accept .fld{display:flex;align-items:flex-end;gap:8px}
   .accept .fld .lbl{color:#111;font-weight:600;white-space:nowrap}
   .accept .fld .line{flex:1;border-bottom:1px solid #9ca3af;height:14px}
@@ -340,7 +349,6 @@ function genOrderHtml(m, data, preview = false) {
      so margin-top:auto pushes the footer to the physical bottom (screen preview + print match). */
   .foot-wrap{margin-top:auto}
   .footer{border-top:2px solid ${accent};margin-top:12px;padding-top:7px;text-align:center;font-size:10.5px;font-weight:600;color:#374151}
-  .bline{height:3px;background:${accent};border-radius:2px;margin-top:7px}
   /* Never split a section across pages. */
   .hdr,.cols,.sec,.panel,.accept,.foot-wrap,.ctable{break-inside:avoid;page-break-inside:avoid}
   @page{size:A4;margin:8mm}
@@ -397,8 +405,8 @@ function genOrderHtml(m, data, preview = false) {
     <div class="sec">
       <div class="sec-h">${esc(hAdvertising)}</div>
       ${advRow('Feature Title', data.featureTitle)}
-      ${advRow('Participation Type', D(data.participationType, 'Featured Leader / Editorial Feature'))}
-      ${advRow('Publication', D(data.publication, m.name))}
+      ${advRow('Participation Type', data.participationType)}
+      ${advRow('Publication', data.publication)}
     </div>
 
     <div class="cols">
@@ -411,8 +419,8 @@ function genOrderHtml(m, data, preview = false) {
         <table class="ctable">
           <thead><tr><th>Description</th><th class="amt">Amount (${esc(cur)})</th></tr></thead>
           <tbody>
-            <tr><td>Participation Fee</td><td class="amt">${money(fee)}</td></tr>
-            <tr class="total"><td>Total Amount</td><td class="amt">${esc(cur)} ${money(fee)}</td></tr>
+            <tr><td>Participation Fee</td><td class="amt">${hasCost ? money(fee) : '—'}</td></tr>
+            <tr class="total"><td>Total Amount</td><td class="amt">${hasCost ? `${esc(cur)} ${money(fee)}` : '—'}</td></tr>
           </tbody>
         </table>
         <div class="panel-h" style="border-top:1px solid #eceef2;border-bottom:none;">${esc(hPayment)}</div>
@@ -433,18 +441,17 @@ function genOrderHtml(m, data, preview = false) {
       <div class="sec-h">${esc(hAcceptance)}</div>
       <div class="accept">
         <div class="intro">${esc(acceptanceText)}</div>
-        <div class="grid">
-          <div class="fld"><span class="lbl">Client Name:</span><span class="line"></span></div>
-          <div class="fld"><span class="lbl">Signature:</span><span class="line"></span></div>
-          <div class="fld"><span class="lbl">Date:</span><span class="line"></span></div>
+        <div class="acc2">
+          <div class="acc-col">
+            <div class="fld"><span class="lbl">Client Name:</span><span class="line"></span></div>
+            <div class="fld"><span class="lbl">Signature:</span><span class="line"></span></div>
+            <div class="fld"><span class="lbl">Date:</span><span class="line"></span></div>
+          </div>
+          <div class="acc-stamp">${m.stampDataUrl ? `<img src="${m.stampDataUrl}" alt="Stamp" style="max-height:${stampMax}px" />` : ''}</div>
         </div>
       </div>
     </div>
 
-    <div class="foot-wrap">
-      <div class="footer">${esc(footerSite)}</div>
-      <div class="bline"></div>
-    </div>
   </div>
   ${preview ? '' : '<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},350);};</script>'}
 </body></html>`;
@@ -483,6 +490,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     return Array.from(byKey.values());
   })();
   const [showSaved, setShowSaved] = useState(false);
+  const [newConfirm, setNewConfirm] = useState(false);
   const [busyDl, setBusyDl] = useState(false);
   const [magazines, setMagazines] = useState(loadMagazines);
   const hydratedRef = useRef(false);   // becomes true once DB config is applied
@@ -534,13 +542,13 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     // and reused on every edit, so each order maps to exactly one DB row (source_key) —
     // new orders never collide/overwrite, and edits update in place.
     orderKey: '',
-    date: todayStr(),
+    date: '',
     orderId: '', edition: '',
     featureTitle: '',
     clientCompany: '', // record-only (not shown on the document)
     clientName: '', clientTitle: '', clientEmail: '',
     participationType: '', publication: '',
-    cost: '199', currency: 'USD',
+    cost: '', currency: 'USD',
     paymentTerms: '', paymentMethod: '',
     repName: '', repTitle: '', repEmail: '', // per-order publisher contact (blank = magazine default)
   };
@@ -694,7 +702,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
   const hydrateSnap = (snap, magName) => {
     if (!snap) return null;
     const live = magazines.find((x) => x.name === magName) || {};
-    return { ...snap, logoDataUrl: live.logoDataUrl || '', watermarkDataUrl: live.watermarkDataUrl || '' };
+    return { ...snap, logoDataUrl: live.logoDataUrl || '', watermarkDataUrl: live.watermarkDataUrl || '', stampDataUrl: live.stampDataUrl || '' };
   };
 
   // Re-open (regenerate) a saved insertion order from its stored data.
@@ -964,133 +972,116 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
           <div className="sv-card sv-io-form-card">
             <h3 className="sv-io-section-title">Insertion order details</h3>
 
-            <div className="sv-io-field">
-              <label className="sv-form-label">Date</label>
-              <input
-                className="sv-input"
-                type="text"
-                value={form.date}
-                onChange={(e) => updateField('date', e.target.value)}
-              />
-            </div>
-
-            <div className="sv-io-row-2">
-              <div className="sv-io-field">
-                <label className="sv-form-label">Client company</label>
-                <input
-                  className="sv-input"
-                  type="text"
-                  placeholder="Riskmindz"
-                  value={form.clientCompany}
-                  onChange={(e) => updateField('clientCompany', e.target.value)}
-                />
+            {/* Client Information */}
+            <div className="sv-iof-group">
+              <div className="sv-iof-gh">Client Information</div>
+              <div className="sv-io-row-2">
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Client company</label>
+                  <input className="sv-input" type="text" placeholder="e.g. Riskmindz" value={form.clientCompany} onChange={(e) => updateField('clientCompany', e.target.value)} />
+                </div>
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Client name</label>
+                  <input className="sv-input" type="text" placeholder="e.g. Sachin Singh" value={form.clientName} onChange={(e) => updateField('clientName', e.target.value)} />
+                </div>
               </div>
-              <div className="sv-io-field">
-                <label className="sv-form-label">Client name</label>
-                <input
-                  className="sv-input"
-                  type="text"
-                  placeholder="Sachin Singh"
-                  value={form.clientName}
-                  onChange={(e) => updateField('clientName', e.target.value)}
-                />
+              <div className="sv-io-row-2">
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Client title</label>
+                  <input className="sv-input" type="text" placeholder="e.g. Founder" value={form.clientTitle} onChange={(e) => updateField('clientTitle', e.target.value)} />
+                </div>
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Client email</label>
+                  <input className="sv-input" type="email" placeholder="e.g. sachin@riskmindz.com" value={form.clientEmail} onChange={(e) => updateField('clientEmail', e.target.value)} />
+                </div>
               </div>
             </div>
 
-            <div className="sv-io-row-2">
+            {/* Publisher Information — edits the selected magazine template (single source) */}
+            <div className="sv-iof-group">
+              <div className="sv-iof-gh">Publisher Information <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 11 }}>(saved to {liveMag.name || 'this magazine'})</span></div>
               <div className="sv-io-field">
-                <label className="sv-form-label">Client title</label>
-                <input
-                  className="sv-input"
-                  type="text"
-                  placeholder="Founder"
-                  value={form.clientTitle}
-                  onChange={(e) => updateField('clientTitle', e.target.value)}
-                />
+                <label className="sv-form-label">Contact person</label>
+                <input className="sv-input" type="text" placeholder="e.g. Ryan Scott" value={liveMag.repName || ''} onChange={(e) => updateMag({ repName: e.target.value })} />
               </div>
-              <div className="sv-io-field">
-                <label className="sv-form-label">Client email</label>
-                <input
-                  className="sv-input"
-                  type="email"
-                  placeholder="sachin@riskmindz.com"
-                  value={form.clientEmail}
-                  onChange={(e) => updateField('clientEmail', e.target.value)}
-                />
+              <div className="sv-io-row-2">
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Designation</label>
+                  <input className="sv-input" type="text" placeholder="e.g. Market Research Analyst" value={liveMag.repTitle || ''} onChange={(e) => updateMag({ repTitle: e.target.value })} />
+                </div>
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Email</label>
+                  <input className="sv-input" type="email" placeholder="e.g. ryan@ciovisionaries.com" value={liveMag.repEmail || ''} onChange={(e) => updateMag({ repEmail: e.target.value })} />
+                </div>
               </div>
             </div>
 
-            <p className="sv-text-muted" style={{ fontSize: 11.5, margin: '2px 0 6px' }}>
+            {/* Order Information */}
+            <div className="sv-iof-group">
+              <div className="sv-iof-gh">Order Information</div>
+              <div className="sv-io-row-2">
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Date</label>
+                  <input className="sv-input" type="text" placeholder="DD/MM/YYYY" value={form.date} onChange={(e) => updateField('date', e.target.value)} />
+                </div>
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Order ID <span style={{ color: '#94A3B8', fontWeight: 500 }}>(blank = auto)</span></label>
+                  <input className="sv-input" type="text" placeholder="Auto (SV/25-26/xxx)" value={form.orderId} onChange={(e) => updateField('orderId', e.target.value)} />
+                </div>
+              </div>
+              <div className="sv-io-row-2">
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Edition</label>
+                  <input className="sv-input" type="text" placeholder="e.g. September 2026" value={form.edition} onChange={(e) => updateField('edition', e.target.value)} />
+                </div>
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Participation cost</label>
+                  <div className="sv-flex sv-gap-2">
+                    <input className="sv-input" type="text" placeholder="199" value={form.cost} onChange={(e) => updateField('cost', e.target.value)} style={{ flex: 2 }} />
+                    <input className="sv-input" list="io-cur-list" value={form.currency} onChange={(e) => updateField('currency', e.target.value.toUpperCase())} placeholder="USD" style={{ flex: 1, minWidth: 84 }} />
+                    <datalist id="io-cur-list">{IO_CURRENCIES.map((c) => <option key={c} value={c} />)}</datalist>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Advertising / Editorial Details */}
+            <div className="sv-iof-group">
+              <div className="sv-iof-gh">Advertising / Editorial Details <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 11 }}>(optional)</span></div>
+              <div className="sv-io-field">
+                <label className="sv-form-label">Feature title</label>
+                <input className="sv-input" type="text" placeholder='"The 10 Most Influential ... in 2025."' value={form.featureTitle} onChange={(e) => updateField('featureTitle', e.target.value)} />
+              </div>
+              <div className="sv-io-row-2">
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Participation type</label>
+                  <input className="sv-input" type="text" placeholder="Featured Leader / Editorial Feature" value={form.participationType} onChange={(e) => updateField('participationType', e.target.value)} />
+                </div>
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Publication</label>
+                  <input className="sv-input" type="text" placeholder={mag.name} value={form.publication} onChange={(e) => updateField('publication', e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Details */}
+            <div className="sv-iof-group">
+              <div className="sv-iof-gh">Payment Details <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 11 }}>(blank = magazine default)</span></div>
+              <div className="sv-io-row-2">
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Payment terms</label>
+                  <input className="sv-input" type="text" placeholder={liveMag.payTerms || '100% advance payment'} value={form.paymentTerms} onChange={(e) => updateField('paymentTerms', e.target.value)} />
+                </div>
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Payment method</label>
+                  <input className="sv-input" type="text" placeholder={liveMag.payMethod || 'Bank Transfer / Online Payment'} value={form.paymentMethod} onChange={(e) => updateField('paymentMethod', e.target.value)} />
+                </div>
+              </div>
+            </div>
+
+            <p className="sv-text-muted" style={{ fontSize: 11.5, margin: '2px 2px 0' }}>
               Publisher Information (contact person, designation, email) is set once per magazine in the <b>Magazine template</b> section below.
             </p>
-
-            <div className="sv-io-field">
-              <label className="sv-form-label">Participation cost</label>
-              <div className="sv-flex sv-gap-2">
-                <input
-                  className="sv-input"
-                  type="text"
-                  placeholder="199"
-                  value={form.cost}
-                  onChange={(e) => updateField('cost', e.target.value)}
-                  style={{ flex: 2 }}
-                />
-                <input
-                  className="sv-input"
-                  list="io-cur-list"
-                  value={form.currency}
-                  onChange={(e) => updateField('currency', e.target.value.toUpperCase())}
-                  placeholder="USD"
-                  style={{ flex: 1, minWidth: 90 }}
-                />
-                <datalist id="io-cur-list">
-                  {IO_CURRENCIES.map((c) => <option key={c} value={c} />)}
-                </datalist>
-              </div>
-            </div>
-
-            {/* Order meta — top-right of the document */}
-            <h4 className="sv-io-subhead">Order meta</h4>
-            <div className="sv-io-row-2">
-              <div className="sv-io-field">
-                <label className="sv-form-label">Order ID <span style={{ color: '#94A3B8', fontWeight: 500 }}>(blank = auto)</span></label>
-                <input className="sv-input" type="text" placeholder="Auto (SV/25-26/xxx)" value={form.orderId} onChange={(e) => updateField('orderId', e.target.value)} />
-              </div>
-              <div className="sv-io-field">
-                <label className="sv-form-label">Edition</label>
-                <input className="sv-input" type="text" placeholder="e.g. September 2026" value={form.edition} onChange={(e) => updateField('edition', e.target.value)} />
-              </div>
-            </div>
-
-            {/* Advertising / editorial details */}
-            <h4 className="sv-io-subhead">Advertising / editorial details <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 11 }}>(blank = sensible default)</span></h4>
-            <div className="sv-io-field">
-              <label className="sv-form-label">Feature title</label>
-              <input className="sv-input" type="text" placeholder='"The 10 Most Influential ... in 2025."' value={form.featureTitle} onChange={(e) => updateField('featureTitle', e.target.value)} />
-            </div>
-            <div className="sv-io-row-2">
-              <div className="sv-io-field">
-                <label className="sv-form-label">Participation type</label>
-                <input className="sv-input" type="text" placeholder="Featured Leader / Editorial Feature" value={form.participationType} onChange={(e) => updateField('participationType', e.target.value)} />
-              </div>
-              <div className="sv-io-field">
-                <label className="sv-form-label">Publication</label>
-                <input className="sv-input" type="text" placeholder={mag.name} value={form.publication} onChange={(e) => updateField('publication', e.target.value)} />
-              </div>
-            </div>
-
-            {/* Payment details */}
-            <h4 className="sv-io-subhead">Payment details <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 11 }}>(blank = magazine default)</span></h4>
-            <div className="sv-io-row-2">
-              <div className="sv-io-field">
-                <label className="sv-form-label">Payment terms</label>
-                <input className="sv-input" type="text" placeholder={liveMag.payTerms || '100% advance payment'} value={form.paymentTerms} onChange={(e) => updateField('paymentTerms', e.target.value)} />
-              </div>
-              <div className="sv-io-field">
-                <label className="sv-form-label">Payment method</label>
-                <input className="sv-input" type="text" placeholder={liveMag.payMethod || 'Bank Transfer / Online Payment'} value={form.paymentMethod} onChange={(e) => updateField('paymentMethod', e.target.value)} />
-              </div>
-            </div>
           </div>
 
           {/* Magazine template — dynamic brand configuration */}
@@ -1189,6 +1180,40 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
               </div>
             </div>
 
+            {/* Digital stamp — shows in the Client Acceptance area when set; blank space otherwise */}
+            <div className="sv-io-field">
+              <label className="sv-form-label">Digital stamp <span style={{ color: '#94A3B8', fontWeight: 500 }}>(optional — appears in Client Acceptance)</span></label>
+              <div className="sv-io-upload-row">
+                <label className="sv-btn-outline sv-io-upload-btn">
+                  Upload stamp
+                  <input type="file" accept="image/*" hidden onChange={(e) => onImageUpload(e, 'stampDataUrl')} />
+                </label>
+                {mag.stampDataUrl && (
+                  <>
+                    <img className="sv-io-thumb" src={mag.stampDataUrl} alt="stamp preview" />
+                    <button
+                      type="button"
+                      className="sv-io-perk-remove"
+                      onClick={() => { if (window.confirm('Remove this digital stamp?')) updateMag({ stampDataUrl: '' }); }}
+                      aria-label="Remove stamp"
+                    >
+                      ×
+                    </button>
+                  </>
+                )}
+              </div>
+              {mag.stampDataUrl && (
+                <div style={{ marginTop: 8 }}>
+                  <label className="sv-form-label">Stamp size — {mag.stampScale || 100}%</label>
+                  <div className="sv-flex sv-gap-2" style={{ alignItems: 'center' }}>
+                    <button type="button" className="sv-btn-outline" style={{ padding: '2px 10px', fontWeight: 700 }} onClick={() => updateMag({ stampScale: Math.max(40, (Number(mag.stampScale) || 100) - 10) })} aria-label="Zoom out">−</button>
+                    <input type="range" min="40" max="220" step="5" value={mag.stampScale || 100} onChange={(e) => updateMag({ stampScale: Number(e.target.value) })} style={{ flex: 1 }} />
+                    <button type="button" className="sv-btn-outline" style={{ padding: '2px 10px', fontWeight: 700 }} onClick={() => updateMag({ stampScale: Math.min(220, (Number(mag.stampScale) || 100) + 10) })} aria-label="Zoom in">+</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="sv-io-row-2">
               <div className="sv-io-field">
                 <label className="sv-form-label">Watermark opacity</label>
@@ -1278,38 +1303,9 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
                 onChange={(e) => updateMag({ publisherCompany: e.target.value })}
               />
             </div>
-            <div className="sv-io-field">
-              <label className="sv-form-label">Contact person</label>
-              <input
-                className="sv-input"
-                type="text"
-                placeholder="Ryan Scott"
-                value={liveMag.repName}
-                onChange={(e) => updateMag({ repName: e.target.value })}
-              />
-            </div>
-            <div className="sv-io-row-2">
-              <div className="sv-io-field">
-                <label className="sv-form-label">Designation</label>
-                <input
-                  className="sv-input"
-                  type="text"
-                  placeholder="Manager - Market Research"
-                  value={liveMag.repTitle}
-                  onChange={(e) => updateMag({ repTitle: e.target.value })}
-                />
-              </div>
-              <div className="sv-io-field">
-                <label className="sv-form-label">Email</label>
-                <input
-                  className="sv-input"
-                  type="email"
-                  placeholder="ryan@ciovisionaries.com"
-                  value={liveMag.repEmail}
-                  onChange={(e) => updateMag({ repEmail: e.target.value })}
-                />
-              </div>
-            </div>
+            <p className="sv-text-muted" style={{ fontSize: 11.5, margin: '-2px 0 10px' }}>
+              Contact person, designation and email are edited in the <b>Publisher Information</b> group at the top of the form.
+            </p>
             {/* Payment defaults for this magazine (per-order can still override) */}
             <div className="sv-io-row-2">
               <div className="sv-io-field">
@@ -1414,31 +1410,27 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
             />
           </div>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button type="button" className="sv-btn-primary sv-io-download-btn" onClick={handleDownload} disabled={busyDl}>
-              {busyDl ? 'Saving…' : 'Download PDF'}
+          <div className="sv-io-actgrid">
+            <button type="button" className="sv-io-actbtn sv-io-actbtn--blue" onClick={handleDownload} disabled={busyDl}>
+              <Download size={16} /> {busyDl ? 'Saving…' : 'Download PDF'}
             </button>
-            <button type="button" className="sv-btn-primary sv-io-download-btn" style={{ background: '#16A34A' }} onClick={handleSaveToMemory} disabled={busyDl}>
-              {busyDl ? 'Saving…' : '💾 Save to memory'}
+            <button type="button" className="sv-io-actbtn sv-io-actbtn--green" onClick={handleSaveToMemory} disabled={busyDl}>
+              <Save size={16} /> {busyDl ? 'Saving…' : 'Save'}
             </button>
-            <button type="button" className="sv-btn-primary sv-io-download-btn" style={{ background: '#334155' }} onClick={() => setShowSaved(true)}>
-              Saved Insertion Orders ({savedOrders.length})
+            <button type="button" className="sv-io-actbtn sv-io-actbtn--slate" onClick={() => setShowSaved(true)}>
+              <FolderOpen size={16} /> Saved Files <span className="sv-io-actbadge">({savedOrders.length})</span>
             </button>
-            <button
-              type="button"
-              className="sv-btn-outline sv-io-download-btn"
-              onClick={() => { if (window.confirm('Start a new blank order? The current draft will be cleared.')) { setForm({ ...BLANK_FORM }); setOrderSnap(null); setEditingKey(''); setAutoSaveState(''); } }}
-            >
-              New order
+            <button type="button" className="sv-io-actbtn sv-io-actbtn--ghost" onClick={() => setNewConfirm(true)}>
+              <FilePlus size={16} /> New
             </button>
-            {editingKey && (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, alignSelf: 'center',
-                color: autoSaveState === 'error' ? '#DC2626' : autoSaveState === 'saving' ? '#B45309' : '#16A34A' }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: autoSaveState === 'error' ? '#DC2626' : autoSaveState === 'saving' ? '#F59E0B' : '#16A34A' }} />
-                {autoSaveState === 'error' ? 'Edit not saved — will retry' : autoSaveState === 'saving' ? 'Editing — auto-saving…' : 'Editing — all changes saved'}
-              </span>
-            )}
           </div>
+          {editingKey && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, marginTop: 8,
+              color: autoSaveState === 'error' ? '#DC2626' : autoSaveState === 'saving' ? '#B45309' : '#16A34A' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: autoSaveState === 'error' ? '#DC2626' : autoSaveState === 'saving' ? '#F59E0B' : '#16A34A' }} />
+              {autoSaveState === 'error' ? 'Edit not saved — will retry' : autoSaveState === 'saving' ? 'Editing — auto-saving…' : 'Editing — all changes saved'}
+            </span>
+          )}
         </div>
       </div>
 
@@ -1478,6 +1470,32 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Insertion Order — confirmation before clearing the current draft */}
+      {newConfirm && (
+        <div className="sv-modal-overlay" onClick={() => setNewConfirm(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10000 }}>
+          <div className="sv-modal" style={{ maxWidth: 420, width: '92%', background: '#fff', borderRadius: 14, overflow: 'hidden' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ padding: '18px 20px 14px' }}>
+              <div style={{ fontWeight: 800, color: '#162B55', fontSize: 16, marginBottom: 6 }}>Start a New Insertion Order?</div>
+              <p style={{ color: '#475569', fontSize: 13, lineHeight: 1.5, margin: 0 }}>
+                This will remove the current draft data and start a new client entry. Your magazine, domain, and other template settings will remain unchanged.
+              </p>
+            </div>
+            <div style={{ display: 'flex', gap: 10, padding: '0 20px 18px', justifyContent: 'flex-end' }}>
+              <button type="button" className="sv-io-actbtn sv-io-actbtn--ghost" style={{ height: 40, padding: '0 16px' }} onClick={() => setNewConfirm(false)}>Cancel</button>
+              <button type="button" className="sv-io-actbtn sv-io-actbtn--blue" style={{ height: 40, padding: '0 16px' }} onClick={() => {
+                // Clear only the client/order draft; keep the selected magazine, domain, logo, watermark,
+                // template settings and all saved insertion orders untouched.
+                setForm({ ...BLANK_FORM });
+                setOrderSnap(null);
+                setEditingKey('');
+                setAutoSaveState('');
+                setNewConfirm(false);
+              }}>Yes, Start New</button>
             </div>
           </div>
         </div>

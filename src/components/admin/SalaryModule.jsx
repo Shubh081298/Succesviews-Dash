@@ -68,7 +68,14 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   const [sending, setSending] = useState(false);
 
   // ── Payroll Cycle (additive month-based workflow) state ──
+  // Defaults to the current calendar month; the admin can pick any month, and the
+  // payslip / expense are always mapped to the SELECTED payroll (salary) month.
   const [payMonth, setPayMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  // Optional "Salary month" stamp shown on the payslip. Empty => follows the payroll
+  // month. Lets the admin label a payslip as e.g. "August 2026" even when processed in
+  // another slot, without changing the payroll record or the expense mapping.
+  const [slipMK, setSlipMK] = useState("");
+  const payslipMK = slipMK || payMonth;
   const [pcEntry, setPcEntry] = useState(null);   // { empId, type: 'incentive'|'deduction' }
   const [pcAmt, setPcAmt] = useState("");
   const [pcReason, setPcReason] = useState("");
@@ -113,11 +120,22 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
     const s = salaries[empId] || {};
     const existing = s.months && s.months[mk];
     if (existing) return existing;
-    // Fresh month: fixed salary carries over from the employee's base; incentives
-    // and deductions always start empty (added per-month), so nothing phantom
-    // shows up as "pending".
-    return { fixed: s.fixedSalary || 0, incentives: [], deductions: [], notes: "", status: "Draft", releaseDate: "", paidDate: "" };
+    // Fresh month: carry forward the LATEST approved fixed salary as the starting
+    // structure (most recent prior month's fixed, else the employee's base). Each
+    // month keeps its own record; historical months are never changed by this.
+    const months = s.months || {};
+    let carried = s.fixedSalary || 0;
+    const prior = Object.keys(months).filter((k) => k < mk).sort();
+    for (let i = prior.length - 1; i >= 0; i--) { const f = months[prior[i]].fixed; if (f) { carried = f; break; } }
+    // Incentives/deductions always start empty (entered per-month), so nothing
+    // phantom shows up as "pending".
+    return { fixed: carried, incentives: [], deductions: [], notes: "", status: "Draft", releaseDate: "", paidDate: "" };
   };
+  // A month record is "in the payroll run" only once the admin has actively engaged
+  // it — advanced its status, added any incentive/deduction, or set a release date.
+  // A brand-new Draft that only shows the carried-forward fixed salary is NOT counted
+  // toward Net Payable / totals, so numbers never appear before the month is worked on.
+  const pcStarted = (rec) => (rec.status && rec.status !== "Draft") || sumAmt(rec.incentives) > 0 || sumAmt(rec.deductions) > 0 || !!rec.releaseDate;
   const saveMonthRec = async (empId, mk, patch) => {
     const s = salaries[empId] || { fixedSalary: 0, incentives: [], deductions: [], payments: [] };
     const nextMonth = { ...getMonthRec(empId, mk), ...patch };
@@ -142,9 +160,9 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   // Build a payslip payload straight from the month record (accurate before release).
   const pcPayslip = (empId) => {
     const emp = employees.find((x) => x.id === empId); const rec = getMonthRec(empId, payMonth);
-    const [y, m] = payMonth.split("-");
+    const [y, m] = payslipMK.split("-");
     setPreview({ empId, payload: {
-      month: new Date(+y, +m - 1, 1).toLocaleDateString("en-IN", { month: "long" }), year: +y, monthKey: payMonth,
+      month: new Date(+y, +m - 1, 1).toLocaleDateString("en-IN", { month: "long" }), year: +y, monthKey: payslipMK,
       date: rec.releaseDate || getTodayStr(), empName: emp?.name || "", empId,
       fixed: rec.fixed || 0,
       incentives: (rec.incentives || []).map((i) => ({ reason: i.reason, amount: i.amount })), incentiveTotal: sumAmt(rec.incentives),
@@ -157,16 +175,21 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
     const already = (s.payments || []).some((p) => (p.monthKey || mKey(p.date)) === payMonth);
     const net = pcNet(rec);
     const date = rec.releaseDate || getTodayStr();
-    const pay = { id: `pay${Date.now()}`, amount: net, fixed: rec.fixed || 0, incentiveTotal: sumAmt(rec.incentives), deductionTotal: sumAmt(rec.deductions), incentives: rec.incentives || [], deductions: rec.deductions || [], date, monthKey: payMonth };
+    const pay = { id: `pay${Date.now()}`, amount: net, fixed: rec.fixed || 0, incentiveTotal: sumAmt(rec.incentives), deductionTotal: sumAmt(rec.deductions), incentives: rec.incentives || [], deductions: rec.deductions || [], date, monthKey: payMonth, salaryForMonth: payslipMK };
     const nextMonth = { ...rec, status: "Released", paidDate: getTodayStr(), releaseDate: date };
-    const u = { ...salaries, [empId]: { ...s, months: { ...(s.months || {}), [payMonth]: nextMonth }, payments: already ? (s.payments || []) : [...(s.payments || []), pay] } };
+    // The released month's fixed becomes the LATEST approved fixed salary carried
+    // forward to future months (salary versioning). Historical months[mk] keep their
+    // own immutable fixed value.
+    const u = { ...salaries, [empId]: { ...s, fixedSalary: rec.fixed || s.fixedSalary || 0, months: { ...(s.months || {}), [payMonth]: nextMonth }, payments: already ? (s.payments || []) : [...(s.payments || []), pay] } };
     setSalaries(u); await storageSet("svd_salaries", JSON.stringify(u));
     setPcRelease(null);
     showToast(`Salary released for ${monthLabel(payMonth)}.`, "success");
     if (emp) { pushNotification(`Salary released to ${empLabel(emp)} (${monthLabel(payMonth)}): ${fmtSalary(net)}`); try { await addMessage(empId, buildPayslipMessage(buildPayloadFromPayment(emp, pay))); } catch (e) { /* message optional */ } }
     if (captureExpense && emp && !already) {
-      const d = new Date(date + "T00:00:00");
-      captureExpense({ type: "salary", sourceKey: `salary:${empId}:${payMonth}`, title: `Salary — ${emp.name || empId}`, category: "Salary", clientName: emp.name || "", paymentStatus: "Paid", paymentDate: date, amount: net, currency: "INR", paymentMethod: "Salary", details: { employeeId: empId, employeeName: emp.name || "", department: emp.department || "", month: monthLabel(payMonth).split(" ")[0], year: d.getFullYear(), monthKey: payMonth, fixed: pay.fixed, incentiveTotal: pay.incentiveTotal, deductionTotal: pay.deductionTotal, incentives: pay.incentives, deductions: pay.deductions, finalSalary: net } });
+      // Expense is mapped to the SELECTED payroll month (August stays August), not
+      // the calendar month of the release date — one source of truth per period.
+      const [py, pm] = payMonth.split("-");
+      captureExpense({ type: "salary", sourceKey: `salary:${empId}:${payMonth}`, title: `Salary — ${emp.name || empId}`, category: "Salary", clientName: emp.name || "", paymentStatus: "Paid", paymentDate: date, amount: net, currency: "INR", paymentMethod: "Salary", details: { employeeId: empId, employeeName: emp.name || "", department: emp.department || "", month: monthLabel(payMonth).split(" ")[0], year: +py, monthKey: payMonth, reference: `${monthLabel(payMonth)} Salary`, fixed: pay.fixed, incentiveTotal: pay.incentiveTotal, deductionTotal: pay.deductionTotal, incentives: pay.incentives, deductions: pay.deductions, finalSalary: net } });
     }
   };
 
@@ -286,8 +309,8 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   // Payslip for a specific historical payment (used from History).
   const buildPayloadFromPayment = (emp, p) => {
     const d = new Date((p.date || getTodayStr()) + "T00:00:00");
-    // Prefer the payroll month the payment belongs to over the release date's month.
-    const mk = p.monthKey || `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    // Prefer the admin-stamped salary month, then the payroll month, then the release month.
+    const mk = p.salaryForMonth || p.monthKey || `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const [ly, lm] = mk.split("-"); const ld = new Date(+ly, +lm - 1, 1);
     return {
       month: ld.toLocaleDateString("en-IN", { month: "long" }), year: +ly,
@@ -370,7 +393,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
     (freelancers || []).forEach((f) => (f.payments || []).forEach((p) => { if (mKey(p.date) === payMonth) { freePaid += p.amount || 0; freePaidIds.add(f.id); } }));
     // Pending / net payable = the selected month's records that are NOT released yet.
     let pendingInc = 0, pendingDed = 0, netPayable = 0;
-    activeEmployees.forEach((e) => { const rec = getMonthRec(e.id, payMonth); if (!pcResolved(rec.status)) { pendingInc += sumAmt(rec.incentives); pendingDed += sumAmt(rec.deductions); netPayable += (rec.fixed || 0) + sumAmt(rec.incentives) - sumAmt(rec.deductions); } });
+    activeEmployees.forEach((e) => { const rec = getMonthRec(e.id, payMonth); if (!pcResolved(rec.status) && pcStarted(rec)) { pendingInc += sumAmt(rec.incentives); pendingDed += sumAmt(rec.deductions); netPayable += (rec.fixed || 0) + sumAmt(rec.incentives) - sumAmt(rec.deductions); } });
     const withSalary = activeEmployees.filter((e) => (getMonthRec(e.id, payMonth).fixed || 0) > 0).length;
     const completion = withSalary > 0 ? Math.round((empPaidIds.size / withSalary) * 100) : 0;
     return { empPaid, freePaid, total: empPaid + freePaid, incPaid, dedPaid, pendingInc, pendingDed, netPayable, empPaidCount: empPaidIds.size, freePaidCount: freePaidIds.size, pending: Math.max(0, withSalary - empPaidIds.size), completion };
@@ -517,7 +540,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
             .sort((a, b) => (PC_ORDER[a.rec.status] ?? 0) - (PC_ORDER[b.rec.status] ?? 0));
           const cnt = { Draft: 0, Ready: 0, Approved: 0, Released: 0, NA: 0 };
           let releasedTotal = 0, netPayable = 0;
-          recs.forEach(({ rec }) => { cnt[rec.status] = (cnt[rec.status] || 0) + 1; const n = pcNet(rec); if (rec.status === "Released") releasedTotal += n; else if (rec.status !== "NA") netPayable += n; });
+          recs.forEach(({ rec }) => { cnt[rec.status] = (cnt[rec.status] || 0) + 1; const n = pcNet(rec); if (rec.status === "Released") releasedTotal += n; else if (rec.status !== "NA" && pcStarted(rec)) netPayable += n; });
           const allResolved = recs.length > 0 && recs.every(({ rec }) => pcResolved(rec.status));
           return (
             <>
@@ -526,9 +549,15 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
                   <span className="sv-mod-icon" style={{ background: "rgba(37,99,235,.12)", color: "#2563EB" }}><CalendarDays size={16} /></span>
                   <div><div className="sv-text-navy sv-font-800" style={{ fontSize: 15 }}>Payroll Cycle</div><div className="sv-text-muted" style={{ fontSize: 11.5 }}>Process each month on its own: Draft → Ready → Approved → Released. Only released pay reaches the employee & counts as paid.</div></div>
                 </div>
-                <div className="sv-flex sv-items-center sv-gap-2" style={{ marginLeft: "auto" }}>
-                  <label className="sv-text-muted" style={{ fontSize: 12, fontWeight: 700 }}>Payroll Month</label>
-                  <select className="sv-select" value={payMonth} onChange={(e) => setPayMonth(e.target.value)} style={{ minWidth: 170 }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select>
+                <div className="sv-flex" style={{ marginLeft: "auto", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
+                  <label className="sv-flex-col" style={{ gap: 3 }}>
+                    <span className="sv-text-muted" style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>Payroll Month</span>
+                    <select className="sv-select" value={payMonth} onChange={(e) => { setPayMonth(e.target.value); setSlipMK(""); }} style={{ width: 150, height: 34, fontSize: 12.5 }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select>
+                  </label>
+                  <label className="sv-flex-col" style={{ gap: 3 }} title="Month printed on the payslip as the salary month">
+                    <span className="sv-text-muted" style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>Payslip Month</span>
+                    <select className="sv-select" value={payslipMK} onChange={(e) => setSlipMK(e.target.value)} style={{ width: 150, height: 34, fontSize: 12.5 }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select>
+                  </label>
                 </div>
               </div>
               <div className="sv-pc-summary">

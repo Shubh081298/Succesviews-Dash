@@ -1,4 +1,5 @@
 import { fmtSalary } from "../utils/helpers.js";
+import stampImg from "../assets/successviews-stamp.png";
 /**
  * PayslipView — the single, shared on-screen payslip.
  * Rendered identically in the admin "Payslip" preview (before sending)
@@ -39,7 +40,7 @@ export default function PayslipView({ payload, employee = {}, logo = "" }) {
           <div className="sv-payslip-sub">Salary Payslip</div>
         </div>
         <div className="sv-payslip-period">
-          <div className="sv-payslip-period-label">Pay Period</div>
+          <div className="sv-payslip-period-label">Salary Month</div>
           <div className="sv-payslip-period-val">{month} {year}</div>
         </div>
       </div>
@@ -107,6 +108,11 @@ export default function PayslipView({ payload, employee = {}, logo = "" }) {
           </tr>
         </tfoot>
       </table>
+
+      {/* Company digital stamp — auto-applied below Net Salary on every payslip */}
+      <div className="sv-payslip-stamp">
+        <img src={stampImg} alt="SuccessViews authorised stamp" />
+      </div>
 
       <div className="sv-payslip-foot">Generated on {prettyDate}</div>
     </div>

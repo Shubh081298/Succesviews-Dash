@@ -86,7 +86,7 @@ export default function DesignerDashboard({
   const [wProject, setWProject] = useState("");
   const [costSearch, setCostSearch] = useState("");
   const [costOpen, setCostOpen] = useState(null); // project id whose cost sheet is open
-  const [addF, setAddF] = useState({ type: "Cover Page", amount: "", notes: "", proof: "" });
+  const [addF, setAddF] = useState({ type: "Cover Page", amount: "", pages: "", notes: "", proof: "" });
   const [editF, setEditF] = useState(null); // { id, amount, notes, reason }
   const [convoText, setConvoText] = useState("");
   const [convoImgs, setConvoImgs] = useState([]);   // pending screenshots (multiple)
@@ -196,7 +196,12 @@ export default function DesignerDashboard({
     pushNotification && pushNotification(`${emp.name} logged work "${item.name}" (${money(amt)}) for ${proj.clientName}.`);
   };
   const saveWorkEdit = (id, patch) => saveDesignWork((designWork || []).map((w) => (w.id === id ? { ...w, ...patch } : w)));
-  const removeWork = (id) => saveDesignWork((designWork || []).filter((w) => w.id !== id));
+  const removeWork = (id) => {
+    // Never allow the designer to delete a cost whose payment is already completed (Paid).
+    const it = (designWork || []).find((w) => w.id === id);
+    if (it && normPay(it.payStatus) === "Paid") { showToast("This cost is paid and can no longer be deleted.", "error"); return; }
+    saveDesignWork((designWork || []).filter((w) => w.id !== id));
+  };
   // ── Costing (designer): add a new cost record; edit an existing one (mandatory reason) ──
   const addCost = (proj) => {
     const amt = +addF.amount || 0;
@@ -204,15 +209,17 @@ export default function DesignerDashboard({
     if (!addF.notes.trim()) { showToast("A short note describing the work is required.", "error"); return; }
     ask("Add this cost and send it to the admin for review?", () => {
       const now = new Date().toISOString();
-      const item = { id: `w${Date.now()}${Math.floor(Math.random() * 1000)}`, projectId: proj.id, clientName: proj.clientName, magazine: proj.magazineName || "", edition: proj.edition || "", designerId: emp.id, designerName: emp.name, name: addF.type, amount: amt, notes: addF.notes.trim(), proofUrl: addF.proof.trim(), workStatus: "Under Review", payStatus: "Pending", date: now.slice(0, 10), createdAt: now, updatedAt: now, history: [{ at: now, by: emp.name, action: "Created", reason: addF.notes.trim() }] };
+      const item = { id: `w${Date.now()}${Math.floor(Math.random() * 1000)}`, projectId: proj.id, clientName: proj.clientName, magazine: proj.magazineName || "", edition: proj.edition || "", designerId: emp.id, designerName: emp.name, name: addF.type, amount: amt, pages: +addF.pages || 0, notes: addF.notes.trim(), proofUrl: addF.proof.trim(), workStatus: "Under Review", payStatus: "Pending", date: now.slice(0, 10), createdAt: now, updatedAt: now, history: [{ at: now, by: emp.name, action: "Created", reason: addF.notes.trim() }] };
       saveDesignWork([...(designWork || []), item]);
-      setAddF({ type: "Cover Page", amount: "", notes: "", proof: "" });
+      setAddF({ type: "Cover Page", amount: "", pages: "", notes: "", proof: "" });
       showToast("Cost added — sent to admin for review.");
       pushNotification && pushNotification(`${emp.name} added "${item.name}" (${money(amt)}) for ${proj.clientName} — pending review.`);
     });
   };
   const saveCostEdit = () => {
     if (!editF) return;
+    const orig = (designWork || []).find((w) => w.id === editF.id);
+    if (orig && normPay(orig.payStatus) === "Paid") { showToast("This cost is paid and can no longer be edited.", "error"); setEditF(null); return; }
     const amt = +editF.amount || 0;
     if (amt <= 0) { showToast("Enter a valid amount.", "error"); return; }
     if (!editF.reason.trim()) { showToast("A reason for the edit is required.", "error"); return; }
@@ -661,7 +668,7 @@ export default function DesignerDashboard({
                             <td>{dzBadge(dzCanon(p.status), st)}</td>
                             <td><span className="sv-text-navy sv-font-700">{money(totalFor(p.id))}</span> <span className="sv-text-muted" style={{ fontSize: 11 }}>· {n} item{n !== 1 ? "s" : ""}</span></td>
                             <td><span className="sv-erp-chip" style={{ background: agg.bg, color: agg.fg }}>{agg.label}</span></td>
-                            <td><button className="sv-btn sv-btn--sm sv-btn--primary" onClick={() => { setCostOpen(p.id); setAddF({ type: "Cover Page", amount: "", notes: "", proof: "" }); }}>Add / Edit Cost</button></td>
+                            <td><button className="sv-btn sv-btn--sm sv-btn--primary" onClick={() => { setCostOpen(p.id); setAddF({ type: "Cover Page", amount: "", pages: "", notes: "", proof: "" }); }}>Add / Edit Cost</button></td>
                           </tr>
                         ); })}
                       </tbody>
@@ -686,11 +693,16 @@ export default function DesignerDashboard({
                             <div key={w.id} className="sv-erp-item">
                               <div style={{ minWidth: 0, flex: 1 }}>
                                 <div className="sv-erp-item-top"><span className="sv-erp-item-name">{w.name}</span><span className="sv-erp-item-amt">{money(w.amount)}</span></div>
-                                <div className="sv-erp-item-sub">{dzBadge(w.workStatus || "Under Review", WORK_STATUS_STYLE(w.workStatus))} <span className="sv-erp-chip" style={{ ...PAY_STYLE_MAP[normPay(w.payStatus)] }}>{normPay(w.payStatus)}</span>{w.notes ? <span className="sv-text-muted"> · {w.notes}</span> : null}</div>
+                                <div className="sv-erp-item-sub">{dzBadge(w.workStatus || "Under Review", WORK_STATUS_STYLE(w.workStatus))} <span className="sv-erp-chip" style={{ ...PAY_STYLE_MAP[normPay(w.payStatus)] }}>{normPay(w.payStatus)}</span>{w.pages ? <span className="sv-erp-chip" style={{ background: "#EEF2FF", color: "#4338CA" }}>{w.pages} {w.pages == 1 ? "page" : "pages"}</span> : null}{w.notes ? <span className="sv-text-muted"> · {w.notes}</span> : null}</div>
                                 {(w.history || []).length > 0 && <div className="sv-text-muted" style={{ fontSize: 10.5, marginTop: 3 }}>Last: {w.history[w.history.length - 1].action} by {w.history[w.history.length - 1].by}{w.history[w.history.length - 1].reason ? ` — ${w.history[w.history.length - 1].reason}` : ""}</div>}
                               </div>
                               {w.proofUrl ? <a className="sv-btn sv-btn--sm sv-btn--ghost" href={w.proofUrl} target="_blank" rel="noreferrer">Proof</a> : null}
-                              {paid ? <span className="sv-erp-chip" style={{ ...PAY_STYLE_MAP["Paid"] }}>Locked</span> : <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => setEditF({ id: w.id, amount: w.amount, notes: w.notes || "", reason: "", client: openP.clientName })}><Pencil size={12} /> Edit</button>}
+                              {paid ? (
+                                <span className="sv-erp-chip" style={{ ...PAY_STYLE_MAP["Paid"] }}>Locked · Paid</span>
+                              ) : (<>
+                                <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => setEditF({ id: w.id, amount: w.amount, notes: w.notes || "", reason: "", client: openP.clientName })}><Pencil size={12} /> Edit</button>
+                                <button className="sv-btn sv-btn--sm sv-btn--ghost" style={{ color: "#DC2626" }} onClick={() => ask(`Delete this cost "${w.name}" (${money(w.amount)})? This cannot be undone.`, () => { removeWork(w.id); showToast("Cost deleted."); pushNotification && pushNotification(`${emp.name} deleted a cost "${w.name}" (${money(w.amount)}) for ${openP.clientName}.`); })}><Trash2 size={12} /> Delete</button>
+                              </>)}
                             </div>
                           ); })}
                         </div>
@@ -699,6 +711,7 @@ export default function DesignerDashboard({
                       <div className="sv-erp-addgrid">
                         <label className="sv-team-ctl"><span>Work type</span><select className="sv-select" value={addF.type} onChange={(e) => setAddF({ ...addF, type: e.target.value })}>{WORK_PRESETS.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
                         <label className="sv-team-ctl"><span>Amount (₹)</span><input type="number" min="0" className="sv-input" value={addF.amount} onChange={(e) => setAddF({ ...addF, amount: e.target.value })} placeholder="0" /></label>
+                        <label className="sv-team-ctl"><span>No. of pages</span><input type="number" min="0" className="sv-input" value={addF.pages} onChange={(e) => setAddF({ ...addF, pages: e.target.value })} placeholder="e.g. 8" /></label>
                         <label className="sv-team-ctl" style={{ gridColumn: "1 / -1" }}><span>Notes (required)</span><input className="sv-input" value={addF.notes} onChange={(e) => setAddF({ ...addF, notes: e.target.value })} placeholder="e.g. Cover page — 2 rounds, final delivered" /></label>
                         <label className="sv-team-ctl" style={{ gridColumn: "1 / -1" }}><span>Proof link (optional)</span><input className="sv-input" value={addF.proof} onChange={(e) => setAddF({ ...addF, proof: e.target.value })} placeholder="https://… (Drive/Dropbox link to proof)" /></label>
                       </div>

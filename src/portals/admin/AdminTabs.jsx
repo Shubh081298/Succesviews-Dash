@@ -3358,7 +3358,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
       type: "salary", sourceKey: `designwork:${w.id}`,
       title: `Designer — ${w.designerName} · ${w.name}`, category: "Designer Payment", clientName: w.clientName || w.designerName,
       paymentStatus: "Paid", paymentDate: today, amount: w.amount || 0, currency: "INR", paymentMethod: "Designer Payment",
-      details: { designerId: w.designerId, designerName: w.designerName, client: w.clientName, magazine: w.magazine, work: w.name, notes: w.notes, finalSalary: w.amount || 0 },
+      details: { designerId: w.designerId, designerName: w.designerName, client: w.clientName, magazine: w.magazine, work: w.name, pages: w.pages || 0, notes: w.notes, finalSalary: w.amount || 0 },
     });
   };
   // Admin sets the WORK status (Pending → … → Approved). Yes/No confirmed.
@@ -3414,6 +3414,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
         const live = (designProjects || []).filter((p) => !archivedIds.has(p.id));
         const itemsFor = (pid) => (designWork || []).filter((w) => w.projectId === pid && (!payDesigner || w.designerId === payDesigner));
         const totalFor = (pid) => itemsFor(pid).reduce((a, w) => a + (Number(w.amount) || 0), 0);
+        const pagesFor = (pid) => itemsFor(pid).reduce((a, w) => a + (Number(w.pages) || 0), 0);
         const rows = live.filter((p) => (!payDesigner || p.assignedDesigner === payDesigner) && (itemsFor(p.id).length > 0) && (!q || `${p.clientName} ${p.magazineName} ${p.companyName} ${p.edition} ${p.assignedDesignerName}`.toLowerCase().includes(q)));
         const payAgg = (pid) => {
           const its = itemsFor(pid); if (!its.length) return { label: "No costs", bg: "#F1F5F9", fg: "#94A3B8" };
@@ -3452,13 +3453,13 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                   <table className="sv-erp-table">
                     <thead><tr>{["Client", "Edition", "Designer", "Project Status", "Total Value", "Payment", "Manage"].map((h) => <th key={h}>{h}</th>)}</tr></thead>
                     <tbody>
-                      {rows.map((p) => { const st = designStatusStyle(p.status); const agg = payAgg(p.id); const n = itemsFor(p.id).length; return (
+                      {rows.map((p) => { const st = designStatusStyle(p.status); const agg = payAgg(p.id); const n = itemsFor(p.id).length; const pg = pagesFor(p.id); return (
                         <tr key={p.id}>
                           <td><div className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{p.clientName}</div><div className="sv-text-muted" style={{ fontSize: 11 }}>{p.magazineName || p.companyName || "—"}</div></td>
                           <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{p.edition || "—"}</td>
                           <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{p.assignedDesignerName || "—"}</td>
                           <td>{badge(stepOf(p.status), st)}</td>
-                          <td><span className="sv-text-navy sv-font-700">{dMoney(totalFor(p.id))}</span> <span className="sv-text-muted" style={{ fontSize: 11 }}>· {n} item{n !== 1 ? "s" : ""}</span></td>
+                          <td><span className="sv-text-navy sv-font-700">{dMoney(totalFor(p.id))}</span> <span className="sv-text-muted" style={{ fontSize: 11 }}>· {n} item{n !== 1 ? "s" : ""}{pg > 0 ? ` · ${pg} page${pg !== 1 ? "s" : ""}` : ""}</span></td>
                           <td><span className="sv-erp-chip" style={{ background: agg.bg, color: agg.fg }}>{agg.label}</span></td>
                           <td><button className="sv-btn sv-btn--sm sv-btn--primary" onClick={() => { setPayOpen(p.id); setPayComment(""); }}>Review / Manage</button></td>
                         </tr>
@@ -3486,7 +3487,7 @@ export function DesignsTab({ designProjects = [], addDesignProject, updateDesign
                             <div className="sv-flex sv-justify-between sv-items-center" style={{ gap: 8, flexWrap: "wrap" }}>
                               <div style={{ minWidth: 0 }}>
                                 <div className="sv-erp-item-top"><span className="sv-erp-item-name">{w.name}</span><span className="sv-erp-item-amt">{dMoney(w.amount)}</span></div>
-                                <div className="sv-erp-item-sub">{badge(ps, payWorkStyle(ps))} {w.notes ? <span className="sv-text-muted">· {w.notes}</span> : null}</div>
+                                <div className="sv-erp-item-sub">{badge(ps, payWorkStyle(ps))} {w.pages ? <span className="sv-erp-chip" style={{ background: "#EEF2FF", color: "#4338CA" }}>{w.pages} {Number(w.pages) === 1 ? "page" : "pages"}</span> : null} {w.notes ? <span className="sv-text-muted">· {w.notes}</span> : null}</div>
                               </div>
                               {w.proofUrl ? <a className="sv-btn sv-btn--sm sv-btn--ghost" href={w.proofUrl} target="_blank" rel="noreferrer">Proof</a> : null}
                             </div>

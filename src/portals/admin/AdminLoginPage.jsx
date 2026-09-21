@@ -61,21 +61,21 @@ export default function AdminLoginPage() {
   }
 
   const handleSubmit = async () => {
-    // Password is verified INSIDE the database (SECURITY DEFINER RPC), so the
-    // admin password is never downloaded to the browser.
-    let okPwd = false;
-    try {
-      const { data } = await supabase.rpc("admin_login", { p_password: pwdInput });
-      okPwd = data === true;
-    } catch (e) { /* ignore */ }
-    if (okPwd) {
+    // Admin signs in via Supabase Auth so the session carries a JWT (required for
+    // row-level security). The email is the configured admin email (or one typed in);
+    // the password is verified by Supabase, never stored/compared in the browser.
+    const email = ((adminIdInput || "").trim() || (adminEmail || "")).trim();
+    if (!email) { showToast("Admin email is not configured. Set it in Settings.", "error"); return; }
+    if (!pwdInput) { showToast("Enter your password.", "error"); return; }
+    const { error } = await supabase.auth.signInWithPassword({ email, password: pwdInput });
+    if (!error) {
       setPwdInput("");
       logAudit && logAudit("login", "admin", "admin", { portal: "admin" });
       // Show the centered success modal on the login page, then redirect.
       setSuccess(true);
       setTimeout(() => { setAdminLoggedIn(true); navigate("/admin", { replace: true }); }, 1300);
     } else {
-      showToast("Incorrect admin password.", "error");
+      showToast("Incorrect email or password.", "error");
     }
   };
 
@@ -96,6 +96,9 @@ export default function AdminLoginPage() {
     if (newPwd !== confirmPwd) { showToast("Passwords do not match.", "error"); return; }
     setBusy(true);
     await setAdminPwd(newPwd);
+    // Admin now signs in via Supabase Auth — update the auth password too (the magic
+    // link established a recovery session, so this updates the current admin user).
+    try { await supabase.auth.updateUser({ password: newPwd }); } catch (e) { /* ignore */ }
     try { await supabase.auth.signOut(); } catch (e) { /* ignore */ }
     setBusy(false);
     showToast("Admin password updated. Sign in with your new password.", "success");

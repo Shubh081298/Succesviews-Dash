@@ -36,7 +36,7 @@ import { NURTURE_STATUSES, WORKFLOW_STEPS, stageColour, progressOf, isClosed } f
  * OverviewTab — 5 primary + 5 secondary KPI cards (period-filtered)
  * + analytics charts + today's submission grid + recent pending.
  * ──────────────────────────────────────────────────────────────*/
-export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {}, hardDeletePipelineClient = () => {}, updatePipelineClient = () => {}, uploadPipelineFile = () => {}, addPipelineClient = () => {}, domains = [], showToast = () => {} }) {
+export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "", ovTo = "", ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {}, hardDeletePipelineClient = () => {}, updatePipelineClient = () => {}, uploadPipelineFile = () => {}, addPipelineClient = () => {}, domains = [], showToast = () => {} }) {
   const [clpOpen, setClpOpen] = useState(false);
   const [clpAddOpen, setClpAddOpen] = useState(false);   // Admin "Add Client" modal
   const [clpAdd, setClpAdd] = useState({ clientName: "", projectName: "", assignedEmailId: "", domainName: "", region: "", employeeId: "", manualEmployeeName: "", notes: "" });
@@ -69,9 +69,11 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
   // C1: currency-correct money — read the real pipeline rows and group by
   // currency for the selected period (never sum different currencies together).
   const CUR_SYM = { USD: "$", INR: "₹", AED: "AED ", EUR: "€", GBP: "£", AUD: "A$", SGD: "S$" };
-  const _dts = ovFiltered.map((s) => s.date).filter(Boolean).sort();
-  const _from = ovDateFrom || _dts[0];
-  const _to = ovDateTo || _dts[_dts.length - 1];
+  // Use the SAME period range as the DSR filter (passed from the parent) so the money KPIs
+  // honour Today/Week/Month exactly, instead of drifting to the min/max of submission dates.
+  const _from = ovFrom || "";
+  const _to = ovTo || "";
+  const _bounded = !!(_from && _to); // a real period is selected (today/week/month or custom range)
   const _inRange = (d) => !!d && (!_from || d >= _from) && (!_to || d <= _to);
   // F1: only count money for live (non-deleted) clients — deleted clients must
   // not leave orphaned sales/payments inflating the analytics.
@@ -95,13 +97,25 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
     (pipelineClients || []).forEach((c) => {
       if (c.isDeleted || c[statusField] !== statusVal) return;
       const amt = Number(c[amtField]); if (!amt) return;
-      if (c[dateField] && !_inRange(String(c[dateField]))) return; // respect the period when a date exists
+      const dv = c[dateField] ? String(c[dateField]) : "";
+      // Bounded period (Today/Week/Month/custom range): the row MUST have a date inside it.
+      // Otherwise (open custom): honour whatever bound exists.
+      if (_bounded) { if (!dv || !_inRange(dv)) return; }
+      else if (dv && !_inRange(dv)) return;
       const cur = c[curField] || "USD"; m[cur] = (m[cur] || 0) + amt;
     });
     return m;
   };
   const salesByCur = clientAmtByCur("contractStatus", "Signed", "signedAmount", "contractCurrency", "signedDate");
   const payByCur = clientAmtByCur("paymentStatus", "Paid", "paymentAmount", "paymentCurrency", "paymentDate");
+  // Pipeline v2: "Contract Order Sent" counts clients whose contract was sent within the period
+  // (was reading deprecated DSR contractOrders, so it showed stale/zero after the migration).
+  const contractsSentCount = (pipelineClients || []).filter((c) => {
+    if (c.isDeleted || !c.contractSent) return false;
+    const dv = c.contractSentDate ? String(c.contractSentDate) : "";
+    if (_bounded) return !!dv && _inRange(dv);
+    return !dv || _inRange(dv);
+  }).length;
   // Outstanding = Sales − Payments, computed strictly within each currency (never mixed).
   const outstandingByCur = (() => {
     const m = {};
@@ -170,7 +184,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
         <ClickCard idx={5} label="Scheduled Calls" value={calls} icon={<Phone size={20} />} c1="#FFF1EC" c2="#FFD4C5" accent="#EA580C" onClick={() => openDM("calls")} />
         <ClickCard idx={6} label="Team Lead Updates" value={updates} icon={<Megaphone size={20} />} c1="#ECFEFF" c2="#C9F7FF" accent="#0891B2" onClick={() => openDM("updates")} />
         <ClickCard idx={7} label="Sales" value={fmtMoneyByCur(salesByCur)} icon={<TrendingUp size={20} />} c1="#ECFDF5" c2="#C9F7D8" accent="#059669" onClick={() => openDM("sales")} />
-        <ClickCard idx={8} label="Contract Order Sent" value={orders} icon={<FileSignature size={20} />} c1="#F5F0FF" c2="#DDCCFF" accent="#6D28D9" onClick={() => openDM("orders")} />
+        <ClickCard idx={8} label="Contract Order Sent" value={contractsSentCount} icon={<FileSignature size={20} />} c1="#F5F0FF" c2="#DDCCFF" accent="#6D28D9" onClick={() => openDM("orders")} />
         <ClickCard idx={9} label="Payment Received" value={fmtMoneyByCur(payByCur)} icon={<Wallet size={20} />} c1="#FFF8E6" c2="#FFE49C" accent="#CA8A04" onClick={() => openDM("payments")} />
         <ClickCard idx={10} label="Outstanding" value={fmtMoneyByCur(outstandingByCur)} icon={<AlertTriangle size={20} />} c1="#FEF2F2" c2="#FEE2E2" accent="#DC2626" onClick={() => openDM("sales")} />
       </div>
@@ -513,22 +527,23 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovPeriod, se
           // Currency-aware Sales & Payments trend — built from real pipeline records,
           // grouped by the selected currency so different currencies are never mixed.
           const CUR_SYM = { USD: "$", INR: "₹", AED: "AED ", EUR: "€", GBP: "£", AUD: "A$", SGD: "S$" };
-          const liveIdsForCur = new Set((pipelineClients || []).filter((c) => !c.isDeleted).map((c) => c.id));
-          // total sales+payments volume per currency (live clients only) — used to
-          // order the currency list and pick a sensible default with real data.
+          // Pipeline v2: Sales = SIGNED contracts (signedAmount/signedDate), Payments = PAID
+          // (paymentAmount/paymentDate) read from the client record itself — the old
+          // pipelineSales/pipelinePayments child tables are deprecated and empty after the migration.
+          const liveClientsCur = (pipelineClients || []).filter((c) => !c.isDeleted);
           const curVol = {};
-          for (const s of (pipelineSales || [])) if (s.currency && liveIdsForCur.has(s.clientId)) curVol[s.currency] = (curVol[s.currency] || 0) + (Number(s.amount) || 0);
-          for (const p of (pipelinePayments || [])) if (p.currency && liveIdsForCur.has(p.clientId)) curVol[p.currency] = (curVol[p.currency] || 0) + (Number(p.amount) || 0);
-          const curList = [...new Set([...(pipelineSales || []), ...(pipelinePayments || [])].filter((x) => liveIdsForCur.has(x.clientId)).map((x) => x.currency).filter(Boolean))]
-            .sort((a, b) => (curVol[b] || 0) - (curVol[a] || 0));
+          liveClientsCur.forEach((c) => {
+            if (c.contractStatus === "Signed" && Number(c.signedAmount)) { const cu = c.contractCurrency || "USD"; curVol[cu] = (curVol[cu] || 0) + Number(c.signedAmount); }
+            if (c.paymentStatus === "Paid" && Number(c.paymentAmount)) { const cu = c.paymentCurrency || "USD"; curVol[cu] = (curVol[cu] || 0) + Number(c.paymentAmount); }
+          });
+          const curList = Object.keys(curVol).sort((a, b) => (curVol[b] || 0) - (curVol[a] || 0));
           if (!curList.length) curList.push("USD");
           const activeCur = curList.includes(trendCur) ? trendCur : curList[0];
           const curSym = CUR_SYM[activeCur] || (activeCur + " ");
-          const liveClientIds = new Set((pipelineClients || []).filter((c) => !c.isDeleted).map((c) => c.id));
           const trendData = (ovBarData || []).map((row) => ({
             date: row.date,
-            sales: (pipelineSales || []).filter((s) => liveClientIds.has(s.clientId) && s.currency === activeCur && String(s.salesDate) === row.date).reduce((a, b) => a + (Number(b.amount) || 0), 0),
-            payment: (pipelinePayments || []).filter((p) => liveClientIds.has(p.clientId) && p.currency === activeCur && String(p.paymentDate) === row.date).reduce((a, b) => a + (Number(b.amount) || 0), 0),
+            sales: liveClientsCur.filter((c) => c.contractStatus === "Signed" && (c.contractCurrency || "USD") === activeCur && String(c.signedDate) === row.date).reduce((a, c) => a + (Number(c.signedAmount) || 0), 0),
+            payment: liveClientsCur.filter((c) => c.paymentStatus === "Paid" && (c.paymentCurrency || "USD") === activeCur && String(c.paymentDate) === row.date).reduce((a, c) => a + (Number(c.paymentAmount) || 0), 0),
           }));
           return (
             <>
@@ -1661,14 +1676,23 @@ export function SettingsTab({ employees, setEmployees, submissions = [], departm
           </select>
           <textarea className="sv-textarea" placeholder="Message..." value={msgText} onChange={(e) => setMsgText(e.target.value)} style={{ marginTop: 8 }} />
           <button className="sv-btn sv-btn--primary" style={{ marginTop: 8 }} onClick={sendMessage}>Send</button>
-          <ul className="sv-list" style={{ marginTop: 12 }}>
-            {messages.map((m) => (
-              <li key={m.id} className="sv-flex sv-flex--between">
-                <span>{employees.find((e) => e.id === m.empId)?.name}: {m.text}</span>
-                <button className="sv-btn sv-btn--sm sv-btn--danger" onClick={() => deleteMessage(m.id)}>Delete</button>
-              </li>
-            ))}
-          </ul>
+          <div style={{ marginTop: 12, maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+            {messages.length === 0 ? (
+              <span className="sv-text-muted" style={{ fontSize: 12.5 }}>No messages sent yet.</span>
+            ) : messages.map((m) => {
+              const nm = employees.find((e) => e.id === m.empId)?.name || "Employee";
+              const raw = m.text || "";
+              const sv = /\[SVPAY\]([\s\S]*?)\[\/SVPAY\]/.exec(raw);
+              let label = raw.trim();
+              if (sv) { let extra = ""; try { const d = JSON.parse(sv[1]); extra = ` — ${d.month} ${d.year} · Net ₹${Number(d.total || 0).toLocaleString("en-IN")}`; } catch (e) { /* ignore */ } label = `Payslip sent${extra}`; }
+              return (
+                <div key={m.id} className="sv-flex sv-flex--between sv-items-center" style={{ gap: 10, padding: "8px 12px", background: "#F8FAFC", border: "1px solid #EEF2F7", borderRadius: 10 }}>
+                  <span style={{ minWidth: 0, fontSize: 12.5, color: "#334155", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}><b className="sv-text-navy">{nm}:</b> {label}</span>
+                  <button className="sv-btn sv-btn--sm sv-btn--danger" style={{ flexShrink: 0 }} onClick={() => deleteMessage(m.id)}>Delete</button>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
 

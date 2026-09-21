@@ -59,35 +59,34 @@ export default function EmployeePortal() {
     setBusy(true);
     try { localStorage.setItem("svd_remember", remember ? "true" : "false"); } catch (e) { /* ignore */ }
 
-    let empId = null;
+    // Employees sign in via Supabase Auth so the session carries a JWT (required for
+    // row-level security). No non-JWT fallback — every session is authenticated.
+    let auth;
+    try { auth = await employeeSignIn(email, loginPwd); } catch (e) { auth = { success: false }; }
+    if (!auth || !auth.success) { showToast("Invalid email or password.", "error"); setBusy(false); return; }
 
-    // 1) Supabase Auth (for employees provisioned that way).
-    try {
-      const res = await employeeSignIn(email, loginPwd);
-      if (res.success) {
-        const m = employees.find((e) => (e.email || "").toLowerCase() === email.toLowerCase());
-        if (m) {
-          empId = m.id;
-          // Groundwork for role-based RLS: link this employee row to its auth user.
-          try { if (res.user?.id) await supabase.from("employees").update({ auth_id: res.user.id }).eq("id", m.id).is("auth_id", null); } catch (e) { /* column may not exist yet */ }
-        }
-      }
-    } catch (e) { /* ignore */ }
-
-    // 2) Server-side verification — the password is checked INSIDE the
-    //    database (SECURITY DEFINER RPC), so plaintext passwords are never
-    //    downloaded to the browser.
-    if (!empId) {
+    // Resolve this employee's profile. Prefer the loaded list; if it isn't there yet
+    // (the list may have loaded before a session existed), fetch the row under the new
+    // JWT (RLS lets a user read their own row) and normalize it to the app's shape.
+    let found = employees.find((e) => (e.email || "").toLowerCase() === email.toLowerCase());
+    if (!found) {
       try {
-        const { data } = await supabase.rpc("emp_login", { p_email: email, p_password: loginPwd });
-        const row = Array.isArray(data) ? data[0] : data;
-        if (row && row.id) empId = row.id;
+        const { data } = await supabase.from("employees")
+          .select("id, name, department, code, photo, team_lead, email, assigned_ids, status, terminated_at, terminated_reason, terminated_by")
+          .ilike("email", email).maybeSingle();
+        if (data) found = {
+          id: data.id, name: data.name, department: data.department, code: data.code, photo: data.photo || "",
+          teamLead: data.team_lead || "", email: data.email || "",
+          assignedIds: Array.isArray(data.assigned_ids) ? data.assigned_ids : [],
+          status: data.status === "terminated" ? "terminated" : "active",
+          terminatedAt: data.terminated_at || null, terminatedReason: data.terminated_reason || "", terminatedBy: data.terminated_by || "",
+        };
       } catch (e) { /* ignore */ }
     }
-
-    if (!empId) { showToast("Invalid email or password.", "error"); setBusy(false); return; }
-    const found = employees.find((e) => e.id === empId);
     if (!found) { showToast("No employee profile found. Contact your admin.", "error"); setBusy(false); return; }
+    const empId = found.id;
+    // Link this employee row to its auth user (idempotent) so RLS can match it.
+    try { if (auth.user?.id) await supabase.from("employees").update({ auth_id: auth.user.id }).eq("id", found.id).is("auth_id", null); } catch (e) { /* ignore */ }
 
     // Terminated / deactivated accounts cannot sign in (their data is preserved;
     // only the admin can open their DSR history from the Former Employees section).

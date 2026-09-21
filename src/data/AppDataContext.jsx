@@ -64,6 +64,18 @@ export function AppDataProvider({ children }) {
     loadAll();
   }, []);
 
+  /* Reload all data whenever the auth session changes (sign in / out / token
+     refresh), so data is always fetched under the current JWT. Harmless today
+     (just re-fetches); required once RLS is enabled so post-login reads carry a JWT. */
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
+        loadAll();
+      }
+    });
+    return () => { try { sub.subscription.unsubscribe(); } catch (e) { /* ignore */ } };
+  }, []);
+
   /* Keep data fresh across separate admin/employee sessions: refetch the
      frequently-changing tables when the tab regains focus and on an interval,
      so an admin sees newly submitted employee DSRs (and leaves/messages)

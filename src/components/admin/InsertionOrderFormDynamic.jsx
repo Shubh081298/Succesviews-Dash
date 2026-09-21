@@ -296,7 +296,9 @@ function genOrderHtml(m, data, preview = false) {
   .wmtext{font-family:Georgia,'Times New Roman',serif;font-size:66px;font-weight:800;letter-spacing:5px;transform:rotate(-18deg);white-space:nowrap;text-align:center}
   /* On screen: an A4-proportioned sheet (794×1122 @96dpi) so the preview looks exactly like the
      printed page — footer sits at the bottom of the sheet, not the bottom of the browser window. */
-  .doc{position:relative;z-index:1;width:100%;max-width:794px;min-height:1122px;margin:0 auto;padding:26px 30px 18px;display:flex;flex-direction:column;background:#fff}
+  /* Transparent doc so the fixed background watermark (z-index:0, behind) shows through — the
+     white sheet colour comes from <body>. An opaque .doc background hides the watermark. */
+  .doc{position:relative;z-index:1;width:100%;max-width:794px;min-height:1122px;margin:0 auto;padding:26px 30px 18px;display:flex;flex-direction:column;background:transparent}
   .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
   .co-title{font-family:Georgia,'Times New Roman',serif;font-size:21px;font-weight:700;letter-spacing:1px;text-align:right;color:#111;margin-bottom:6px;white-space:nowrap}
   .meta{display:grid;grid-template-columns:auto auto;column-gap:16px;row-gap:2px;justify-content:end;font-size:10.5px}

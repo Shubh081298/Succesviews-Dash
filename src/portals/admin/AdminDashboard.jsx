@@ -287,7 +287,9 @@ export default function AdminDashboard() {
     return Object.values(byDate).sort((a, b) => (a.date > b.date ? 1 : -1)).slice(-14);
   }, [submissions]);
 
-  const ovFiltered = useMemo(() => {
+  // The selected period as an explicit [from,to] range — shared by the DSR filter AND the
+  // Overview money KPIs so both honour Today/Week/Month identically (no submission-derived drift).
+  const ovRange = useMemo(() => {
     let from = ovDateFrom, to = ovDateTo || todayStr;
     if (ovPeriod === "today") {
       from = todayStr; to = todayStr;
@@ -306,8 +308,11 @@ export default function AdminDashboard() {
       from = d.toISOString().split("T")[0];
       to = todayStr;
     }
-    return submissions.filter((s) => s.date >= (from || "0000-00-00") && s.date <= to);
-  }, [submissions, ovPeriod, ovDateFrom, ovDateTo, todayStr]);
+    return { from: from || "", to: to || todayStr };
+  }, [ovPeriod, ovDateFrom, ovDateTo, todayStr]);
+  const ovFiltered = useMemo(() =>
+    submissions.filter((s) => s.date >= (ovRange.from || "0000-00-00") && s.date <= ovRange.to),
+    [submissions, ovRange]);
 
   const ovPieData = useMemo(() => [
     { name: "Emails", value: sum(ovFiltered, "freshEmails") + sum(ovFiltered, "reminderEmails"), color: CHART_COLORS[0] },
@@ -445,6 +450,7 @@ export default function AdminDashboard() {
         {tab === "overview" && (
           <OverviewTab
             empStats={empStats} ovFiltered={ovFiltered} employees={employees}
+            ovFrom={ovRange.from} ovTo={ovRange.to}
             ovPeriod={ovPeriod} setOvPeriod={setOvPeriod}
             ovDateFrom={ovDateFrom} setOvDateFrom={setOvDateFrom}
             ovDateTo={ovDateTo} setOvDateTo={setOvDateTo}

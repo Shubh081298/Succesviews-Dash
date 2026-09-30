@@ -22,12 +22,15 @@ import LoginSuccess from "../../components/ui/LoginSuccess";
 import logo from "../../assets/successviews-logo.png";
 
 export default function AdminLoginPage() {
-  const { adminPwd, setAdminPwd, adminEmail, showToast, logAudit } = useAppData();
+  const { adminPwd, setAdminPwd, adminEmail, teamAccessEmail, showToast, logAudit } = useAppData();
   const { adminLoggedIn, setAdminLoggedIn } = useAdminAuth();
   const [pwdInput, setPwdInput] = useState("");
   const [adminIdInput, setAdminIdInput] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [mode, setMode] = useState("password"); // "password" | "key"
+  const [keyInput, setKeyInput] = useState("");
+  const [showKey, setShowKey] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -76,6 +79,23 @@ export default function AdminLoginPage() {
       setTimeout(() => { setAdminLoggedIn(true); navigate("/admin", { replace: true }); }, 1300);
     } else {
       showToast("Incorrect email or password.", "error");
+    }
+  };
+
+  // Shared team access key: signs into the shared admin account (its password IS the
+  // access key), so partners get a real admin JWT without their own email/password.
+  const handleKeySignIn = async () => {
+    const email = (teamAccessEmail || "").trim();
+    if (!email) { showToast("Team access key is not set up yet.", "error"); return; }
+    if (!keyInput) { showToast("Enter your access key.", "error"); return; }
+    const { error } = await supabase.auth.signInWithPassword({ email, password: keyInput });
+    if (!error) {
+      setKeyInput("");
+      logAudit && logAudit("login", "admin", "team-access", { portal: "admin", method: "access-key" });
+      setSuccess(true);
+      setTimeout(() => { setAdminLoggedIn(true); navigate("/admin", { replace: true }); }, 1300);
+    } else {
+      showToast("Invalid access key.", "error");
     }
   };
 
@@ -148,31 +168,50 @@ export default function AdminLoginPage() {
           {!forgot ? (
             <>
               <h2 className="sv-auth-h">Sign in to Admin Console</h2>
-              <p className="sv-auth-sub">Enter your credentials to access the dashboard</p>
+              <p className="sv-auth-sub">{mode === "key" ? "Enter your team access key" : "Enter your credentials to access the dashboard"}</p>
 
-              <label className="sv-auth-field">
-                <span>Email or Admin ID</span>
-                <span className="sv-auth-inp">
-                  <Mail size={16} />
-                  <input type="text" placeholder="Enter email or admin ID" value={adminIdInput} onChange={(e) => setAdminIdInput(e.target.value)} autoComplete="username" />
-                </span>
-              </label>
+              {mode === "password" ? (<>
+                <label className="sv-auth-field">
+                  <span>Email or Admin ID</span>
+                  <span className="sv-auth-inp">
+                    <Mail size={16} />
+                    <input type="text" placeholder="Enter email or admin ID" value={adminIdInput} onChange={(e) => setAdminIdInput(e.target.value)} autoComplete="username" />
+                  </span>
+                </label>
 
-              <label className="sv-auth-field">
-                <span>Password</span>
-                <span className="sv-auth-inp">
-                  <Lock size={16} />
-                  <input type={showPwd ? "text" : "password"} placeholder="Enter your password" value={pwdInput} autoFocus
-                    onChange={(e) => setPwdInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }} autoComplete="current-password" />
-                  <button type="button" className="eye" onClick={() => setShowPwd((v) => !v)} aria-label={showPwd ? "Hide password" : "Show password"}>{showPwd ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-                </span>
-              </label>
+                <label className="sv-auth-field">
+                  <span>Password</span>
+                  <span className="sv-auth-inp">
+                    <Lock size={16} />
+                    <input type={showPwd ? "text" : "password"} placeholder="Enter your password" value={pwdInput} autoFocus
+                      onChange={(e) => setPwdInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSubmit(); }} autoComplete="current-password" />
+                    <button type="button" className="eye" onClick={() => setShowPwd((v) => !v)} aria-label={showPwd ? "Hide password" : "Show password"}>{showPwd ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                  </span>
+                </label>
 
-              <div className="sv-auth-row" style={{ justifyContent: "flex-end" }}>
-                <button type="button" className="sv-auth-link" onClick={() => setForgot(true)}>Forgot password?</button>
-              </div>
+                <div className="sv-auth-row" style={{ justifyContent: "space-between" }}>
+                  <button type="button" className="sv-auth-link" onClick={() => setMode("key")}>Use an access key</button>
+                  <button type="button" className="sv-auth-link" onClick={() => setForgot(true)}>Forgot password?</button>
+                </div>
 
-              <button className="sv-auth-btn" onClick={handleSubmit}>Sign In <ArrowRight size={17} /></button>
+                <button className="sv-auth-btn" onClick={handleSubmit}>Sign In <ArrowRight size={17} /></button>
+              </>) : (<>
+                <label className="sv-auth-field">
+                  <span>Access key</span>
+                  <span className="sv-auth-inp">
+                    <Lock size={16} />
+                    <input type={showKey ? "text" : "password"} placeholder="Enter your team access key" value={keyInput} autoFocus
+                      onChange={(e) => setKeyInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleKeySignIn(); }} autoComplete="off" />
+                    <button type="button" className="eye" onClick={() => setShowKey((v) => !v)} aria-label={showKey ? "Hide key" : "Show key"}>{showKey ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+                  </span>
+                </label>
+
+                <div className="sv-auth-row" style={{ justifyContent: "flex-start" }}>
+                  <button type="button" className="sv-auth-link" onClick={() => setMode("password")}>Use email &amp; password</button>
+                </div>
+
+                <button className="sv-auth-btn" onClick={handleKeySignIn}>Sign In <ArrowRight size={17} /></button>
+              </>)}
 
               <div className="sv-auth-or">or</div>
               <div className="sv-auth-secure">

@@ -45,6 +45,7 @@ export function AppDataProvider({ children }) {
   const [logo, setLogo]                     = useState(logoDefault);
   const [adminPwd, setAdminPwdState]        = useState(""); // login is verified server-side (admin_login RPC); no client-side password
   const [adminEmail, setAdminEmailState]    = useState("");
+  const [teamAccessEmail, setTeamAccessEmail] = useState(""); // shared admin access-key account
   const [settingsPwd, setSettingsPwdState]  = useState("Settings@123");
   const [toast, setToast]                   = useState(null);
   const [notifications, setNotifications]   = useState([]);
@@ -694,6 +695,7 @@ export function AppDataProvider({ children }) {
         }
         // admin_password is verified server-side (admin_login RPC); never loaded to the client.
         if (row.key === "admin_email") setAdminEmailState(row.value || "");
+        if (row.key === "team_access_email") setTeamAccessEmail(row.value || "");
       });
     }
   }
@@ -1670,7 +1672,7 @@ export function AppDataProvider({ children }) {
     designActivity, changeProjectStatus, requestRevision, addProjectComment, uploadMessageImage,
     logo, onLogoChange, onLogoRemove,
     adminPwd, setAdminPwd,
-    adminEmail, setAdminEmail,
+    adminEmail, setAdminEmail, teamAccessEmail,
     settingsPwd, setSettingsPwd,
     toast, showToast,
     notifications, pushNotification, markNotificationRead, markAllNotificationsRead, clearNotifications,

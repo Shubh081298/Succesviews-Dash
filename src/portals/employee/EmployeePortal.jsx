@@ -4,7 +4,7 @@
  * reached only via /admin/login, never from inside this tree.
  */
 import { useState, useEffect } from "react";
-import { ClipboardList, History, Palmtree, IdCard, Settings, Contact } from "lucide-react";
+import { ClipboardList, History, Palmtree, IdCard, Settings, Contact, CalendarDays } from "lucide-react";
 import { useAppData } from "../../data/AppDataContext";
 import Sidebar from "../../components/layout/Sidebar";
 import { EmployeeLogin, EmployeeDashboard } from "../../components/employee";
@@ -17,10 +17,10 @@ import { employeeSignIn, employeeSignOut, sendPasswordReset } from "../../utils/
 
 export default function EmployeePortal() {
   const {
-    employees, saveEmployees, assignEmployeeIds,
+    employees, saveEmployees, assignEmployeeIds, updateEmployee,
     submissions, saveSubs, upsertSubmission,
     bankDetails, saveBankDetails,
-    leaves, saveLeaves, addLeave,
+    leaves, saveLeaves, addLeave, cancelLeave, attendanceOverrides,
     customFields,
     announcements, saveAnnouncements,
     messages, saveMessages, dismissMessage,
@@ -38,6 +38,21 @@ export default function EmployeePortal() {
   /* ── Employee session state (local to this portal) ───────── */
   const [loggedIn, setLoggedIn] = useState(false);
   const [emp, setEmp] = useState(null);
+
+  // Merge old bank_details table data into employee object so pre-existing
+  // bank info shows up in the new profile fields without manual re-entry.
+  const enrichEmp = (empObj) => {
+    if (!empObj) return empObj;
+    const bd = bankDetails[empObj.id] || {};
+    return {
+      ...empObj,
+      bankHolder: empObj.bankHolder || bd.recipientName || "",
+      bankAccount: empObj.bankAccount || bd.accountNumber || "",
+      bankIfsc: empObj.bankIfsc || bd.ifscCode || "",
+      bankUpi: empObj.bankUpi || bd.upiId || "",
+      // bankName / bankBranch have no equivalent in the old table — keep as-is
+    };
+  };
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPwd, setLoginPwd] = useState("");
   const [remember, setRemember] = useState(true);
@@ -50,7 +65,7 @@ export default function EmployeePortal() {
   const [dsrForm, setDsrForm] = useState(blankDsr());
   const [histSearch, setHistSearch] = useState("");
   const [viewingDsr, setViewingDsr] = useState(null);
-  const [leaveForm, setLeaveForm] = useState({ fromDate: "", toDate: "", reason: "" });
+  const [leaveForm, setLeaveForm] = useState({ fromDate: "", toDate: "", reason: "", leaveType: "" });
 
   /* ── Auth handlers ─────────────────────────────────────────── */
   const handleLogin = async () => {
@@ -72,7 +87,7 @@ export default function EmployeePortal() {
     if (!found) {
       try {
         const { data } = await supabase.from("employees")
-          .select("id, name, department, code, photo, team_lead, email, assigned_ids, status, terminated_at, terminated_reason, terminated_by")
+          .select("id, name, department, code, photo, team_lead, email, assigned_ids, status, terminated_at, terminated_reason, terminated_by, gender, dob, personal_email, mobile, employment_type, address, bank_account, bank_name, bank_ifsc, bank_branch, bank_holder, bank_upi")
           .ilike("email", email).maybeSingle();
         if (data) found = {
           id: data.id, name: data.name, department: data.department, code: data.code, photo: data.photo || "",
@@ -80,7 +95,13 @@ export default function EmployeePortal() {
           assignedIds: Array.isArray(data.assigned_ids) ? data.assigned_ids : [],
           status: data.status === "terminated" ? "terminated" : "active",
           terminatedAt: data.terminated_at || null, terminatedReason: data.terminated_reason || "", terminatedBy: data.terminated_by || "",
+          gender: data.gender || "", dob: data.dob || "", personalEmail: data.personal_email || "",
+          mobile: data.mobile || "", employmentType: data.employment_type || "Full-Time",
+          address: data.address || "", bankAccount: data.bank_account || "",
+          bankName: data.bank_name || "", bankIfsc: data.bank_ifsc || "", bankBranch: data.bank_branch || "", bankHolder: data.bank_holder || "",
+          bankUpi: data.bank_upi || "",
         };
+        found = enrichEmp(found);
       } catch (e) { /* ignore */ }
     }
     if (!found) { showToast("No employee profile found. Contact your admin.", "error"); setBusy(false); return; }
@@ -105,7 +126,7 @@ export default function EmployeePortal() {
       other.removeItem("svd_emp_session");
     } catch (e) { /* ignore */ }
 
-    setEmp(found);
+    setEmp(enrichEmp(found));
     setLoginPwd("");
     setBusy(false);
     logAudit && logAudit("login", "employee", found.id, { name: found.name, portal: "employee" });
@@ -149,7 +170,7 @@ export default function EmployeePortal() {
           try { await employeeSignOut(); } catch (e) { /* ignore */ }
           return;
         }
-        if (active && f) { setEmp(f); setLoggedIn(true); return; }
+        if (active && f) { setEmp(enrichEmp(f)); setLoggedIn(true); return; }
       }
       // b) Supabase Auth session (for provisioned accounts).
       const { data } = await supabase.auth.getSession();
@@ -160,10 +181,19 @@ export default function EmployeePortal() {
         try { await employeeSignOut(); } catch (e) { /* ignore */ }
         return;
       }
-      if (found) { setEmp(found); setLoggedIn(true); }
+      if (found) { setEmp(enrichEmp(found)); setLoggedIn(true); }
     })();
     return () => { active = false; };
   }, [employees, loggedIn]);
+
+  // Keep emp in sync when the employees list or bankDetails refreshes (e.g. real-time update).
+  // Preserve any locally-set fields (like photo changes) that haven't persisted yet.
+  useEffect(() => {
+    if (!emp || !loggedIn) return;
+    const fresh = employees.find((e) => e.id === emp.id);
+    if (fresh) setEmp((prev) => enrichEmp({ ...fresh, photo: prev?.photo || fresh.photo }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employees, bankDetails]);
 
   /* ── Employee self-service handlers ──────────────────────── */
   /* Employee fills in project name + start date on the IDs the admin gave them. */
@@ -183,10 +213,19 @@ export default function EmployeePortal() {
       showToast("Fill in all leave fields.", "error");
       return;
     }
-    await addLeave(emp.id, emp.name, leaveForm.fromDate, leaveForm.toDate, leaveForm.reason);
-    setLeaveForm({ fromDate: "", toDate: "", reason: "" });
+    if (leaveForm.toDate < leaveForm.fromDate) {
+      showToast("To Date cannot be before From Date.", "error");
+      return;
+    }
+    await addLeave(emp.id, emp.name, leaveForm.fromDate, leaveForm.toDate, leaveForm.reason, leaveForm.leaveType);
+    setLeaveForm({ fromDate: "", toDate: "", reason: "", leaveType: "" });
     showToast("Leave request submitted.", "success");
-    pushNotification(`${emp.name} applied for leave (${leaveForm.fromDate} -> ${leaveForm.toDate}).`);
+    pushNotification(`${emp.name} applied for leave (${leaveForm.fromDate} → ${leaveForm.toDate}).`);
+  };
+
+  const onCancelLeave = async (id) => {
+    await cancelLeave(id);
+    showToast("Leave request cancelled.", "success");
   };
 
   const dismissAnnouncement = (id) => {
@@ -224,6 +263,22 @@ export default function EmployeePortal() {
   }, [emp?.id, empTab, dsrDate, dsrForm]);
 
   const isOpsEmp = (emp?.department || "") === "Operations";
+
+  // Profile completeness — employee must fill: mobile, dob, personalEmail, address, bank details
+  const isProfileComplete = (e) => !!(
+    e && e.mobile && e.dob && e.personalEmail && e.address &&
+    e.bankHolder && e.bankAccount && e.bankName && e.bankIfsc && e.bankBranch
+  );
+  const [profileBannerDismissed, setProfileBannerDismissed] = useState(false);
+
+  const handleUpdateProfile = async (fields) => {
+    if (!emp) return;
+    const updated = { ...emp, ...fields };
+    await updateEmployee(updated);
+    setEmp(updated);
+    if (isProfileComplete(updated)) setProfileBannerDismissed(true);
+    showToast("Profile updated successfully!", "success");
+  };
   const handleDsrSave = async (status) => {
     if (status === "Submitted") {
       if (!dsrForm.attendance) { showToast("Please select Attendance.", "error"); return; }
@@ -321,6 +376,7 @@ export default function EmployeePortal() {
           { key: "form", label: "Daily Report", icon: <ClipboardList size={18} /> },
           { key: "pipeline", label: "Pipeline", icon: <Contact size={18} /> },
           { key: "history", label: "My History", icon: <History size={18} /> },
+          { key: "attendance", label: "Attendance", icon: <CalendarDays size={18} /> },
           { key: "leave", label: "Leave", icon: <Palmtree size={18} /> },
           { key: "assigned", label: "Assigned IDs", icon: <IdCard size={18} /> },
           { key: "settings", label: "Settings", icon: <Settings size={18} /> },
@@ -329,6 +385,51 @@ export default function EmployeePortal() {
         onSignOut={handleLogout}
       />
       <main className="sv-main">
+        {/* Profile completion popup */}
+        {emp && !isProfileComplete(emp) && !profileBannerDismissed && (
+          <div style={{ position: "fixed", inset: 0, zIndex: 9990, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(15,23,42,.5)", backdropFilter: "blur(3px)" }}>
+            <div style={{ background: "#fff", borderRadius: 18, width: "min(94vw,480px)", boxShadow: "0 20px 50px rgba(15,23,42,.18)", overflow: "hidden" }}>
+              <div style={{ background: "linear-gradient(135deg,#2563EB,#7C3AED)", padding: "28px 28px 22px", textAlign: "center" }}>
+                <div style={{ width: 56, height: 56, borderRadius: 16, background: "rgba(255,255,255,.2)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+                </div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#fff" }}>Complete Your Profile</h3>
+                <p style={{ margin: "6px 0 0", fontSize: 13, color: "rgba(255,255,255,.8)" }}>Your profile is incomplete. Please fill in the required details.</p>
+              </div>
+              <div style={{ padding: "20px 24px" }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+                  {[
+                    { label: "Mobile Number", done: !!emp.mobile },
+                    { label: "Date of Birth", done: !!emp.dob },
+                    { label: "Personal Email", done: !!emp.personalEmail },
+                    { label: "Address", done: !!emp.address },
+                    { label: "Bank Account Details", done: !!(emp.bankHolder && emp.bankAccount && emp.bankName && emp.bankIfsc && emp.bankBranch) },
+                  ].map(({ label, done }) => (
+                    <div key={label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: done ? "#F0FDF4" : "#FFF7ED", border: `1px solid ${done ? "#BBF7D0" : "#FED7AA"}`, borderRadius: 8 }}>
+                      <span style={{ width: 20, height: 20, borderRadius: "50%", background: done ? "#16A34A" : "#EA580C", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        {done
+                          ? <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="2,6 5,9 10,3"/></svg>
+                          : <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="3" x2="9" y2="9"/><line x1="9" y1="3" x2="3" y2="9"/></svg>
+                        }
+                      </span>
+                      <span style={{ fontSize: 13, color: done ? "#15803D" : "#C2410C", fontWeight: done ? 400 : 600 }}>{label}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button onClick={() => { setProfileBannerDismissed(true); setEmpTab("settings"); }}
+                    style={{ flex: 1, background: "#2563EB", color: "#fff", border: "none", borderRadius: 10, padding: "11px 0", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
+                    Go to Settings →
+                  </button>
+                  <button onClick={() => setProfileBannerDismissed(true)}
+                    style={{ padding: "11px 16px", background: "#F1F5F9", border: "none", borderRadius: 10, fontSize: 13, color: "#64748B", cursor: "pointer" }}>
+                    Later
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {empTab === "pipeline" ? (
           <Pipeline mode="pipeline" emp={emp} onToast={showToast} goTab={setEmpTab} />
         ) : (
@@ -347,12 +448,15 @@ export default function EmployeePortal() {
           onDismissMsg={handleDismissMessage}
           theme={theme} onToggleTheme={toggleTheme}
           leaves={leaves.filter((l) => l.empId === emp.id)}
-          leaveForm={leaveForm} setLeaveForm={setLeaveForm} onApplyLeave={onApplyLeave}
+          allLeaves={leaves}
+          attendanceOverrides={attendanceOverrides}
+          leaveForm={leaveForm} setLeaveForm={setLeaveForm} onApplyLeave={onApplyLeave} onCancelLeave={onCancelLeave}
           onUpdatePhoto={updateMyPhoto}
           onSaveAssignedIds={saveMyAssignedIds}
           bankDetails={bankDetails} onSaveBank={saveBankDetails}
           employees={employees}
           logo={logo}
+          onUpdateProfile={handleUpdateProfile}
         />
         )}
       </main>

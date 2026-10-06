@@ -33,7 +33,7 @@ export default function AdminDashboard() {
     customFields, saveCustomFields,
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,
     messages, saveMessages, addMessage, deleteMessage,
-    leaves, saveLeaves, updateLeaveStatus, attendanceOverrides, saveAttendanceOverride,
+    leaves, saveLeaves, addLeave, updateLeaveStatus, attendanceOverrides, saveAttendanceOverride,
     salaries, saveSalaries, bankDetails, saveBankDetails,
     freelancers, saveFreelancers,
     designWork, saveDesignWork,
@@ -47,7 +47,7 @@ export default function AdminDashboard() {
     adminPwd, setAdminPwd,
     settingsPwd, setSettingsPwd,
     theme, toggleTheme,
-    pipelineClients, pipelineStatuses, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes, pipelineHistory, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, updatePipelineClient, uploadPipelineFile, addPipelineClient,
+    pipelineClients, pipelineStatuses, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes, pipelineHistory, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, updatePipelineClient, uploadPipelineFile, addPipelineClient, addPipelinePayment,
     showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications, logAudit,
   } = useAppData();
   const { setAdminLoggedIn } = useAdminAuth();
@@ -341,24 +341,45 @@ export default function AdminDashboard() {
     } else if (type === "reminders") {
       title = "Reminder Emails"; columns = ["Employee", "Date", "Reminder Emails"];
       each((s) => rows.push([s.empName, fmtDate(s.date), Number(s.reminderEmails) || 0]));
-    } else if (type === "leads") {
-      title = "New Leads / Interested"; columns = ["Employee", "Client", "ID Name", "Domain", "Price"];
-      each((s) => (s.leads || []).forEach((l) => rows.push([s.empName, l.clientName, l.idName, l.domain, l.price])));
-    } else if (type === "followups") {
-      title = "Client Follow-ups"; columns = ["Employee", "Client", "Domain"];
-      each((s) => (s.followups || []).forEach((f) => rows.push([s.empName, f.clientName, f.domain])));
-    } else if (type === "calls") {
-      title = "Scheduled Calls"; columns = ["Employee", "Client", "ID Name", "Domain", "Time"];
-      each((s) => (s.calls || []).forEach((c) => rows.push([s.empName, c.clientName, c.idName, c.domain, `${c.time || ""}${c.tz ? " " + c.tz : ""}`])));
     } else if (type === "sales") {
-      title = "Sales Generated"; columns = ["Employee", "Amount", "Currency", "ID Name"];
-      each((s) => (s.sales || []).forEach((x) => rows.push([s.empName, x.amount, x.currency, x.idName])));
+      // All-time — no date filter, matches the KPI card which is also all-time.
+      title = "Sales (All Time)"; columns = ["Date", "Client", "Amount", "Currency", "Status", "Employee"];
+      (pipelineClients || []).filter((c) => !c.isDeleted && (c.contractStatus === "Signed" || c.contractSent))
+      .sort((a, b) => {
+        const da = (a.contractStatus === "Signed" ? a.signedDate : a.contractSentDate) || "";
+        const db = (b.contractStatus === "Signed" ? b.signedDate : b.contractSentDate) || "";
+        return db.localeCompare(da);
+      }).forEach((c) => {
+        const emp = (employees || []).find((e) => e.id === c.employeeId);
+        const isSigned = c.contractStatus === "Signed";
+        const amt = isSigned ? (c.signedAmount || c.contractAmount) : c.contractAmount;
+        const date = isSigned ? c.signedDate : c.contractSentDate;
+        rows.push([fmtDate(date) || "—", c.clientName || "—", amt || "—", c.contractCurrency || "—", isSigned ? "Signed ✓" : "Sent", emp?.name || c.employeeId || "—"]);
+      });
     } else if (type === "orders") {
-      title = "Contract Order Sent"; columns = ["Date", "Client Name", "Price", "Employee", "Domain"];
-      each((s) => (s.contractOrders || []).forEach((c) => rows.push([fmtDate(s.date), c.clientName, c.price, `${s.empName} (${s.empId})`, c.domain_custom || c.domain])));
+      title = "Contract Order Sent"; columns = ["Date", "Client Name", "Amount", "Currency", "Employee", "Domain"];
+      // All-time — no date filter, matches the KPI card.
+      (pipelineClients || [])
+        .filter((c) => !c.isDeleted && !!c.contractSent)
+        .sort((a, b) => String(b.contractSentDate || b.updatedAt || "").localeCompare(String(a.contractSentDate || a.updatedAt || "")))
+        .forEach((c) => {
+          const emp = (employees || []).find((e) => e.id === c.employeeId);
+          const d = c.contractSentDate || (c.updatedAt ? String(c.updatedAt).slice(0, 10) : "—");
+          rows.push([fmtDate(d) || "—", c.clientName || "—", c.contractAmount || "—", c.contractCurrency || "—", emp?.name || c.employeeId || "—", c.domainName || "—"]);
+        });
     } else if (type === "payments") {
-      title = "Payments Received"; columns = ["Employee", "Amount", "Currency", "ID Name"];
-      each((s) => (s.payments || []).forEach((x) => rows.push([s.empName, x.amount, x.currency, x.idName])));
+      // All-time — no date filter, matches the KPI card which is also all-time.
+      title = "Payments Received (All Time)"; columns = ["Date Paid", "Client", "Amount", "Currency", "Method", "Employee"];
+      const liveIds = new Set((pipelineClients || []).filter((c) => !c.isDeleted).map((c) => c.id));
+      const clientMap = Object.fromEntries((pipelineClients || []).map((c) => [c.id, c]));
+      (pipelinePayments || [])
+        .filter((pay) => liveIds.has(pay.clientId) && pay.amount > 0)
+        .sort((a, b) => String(b.paymentDate || b.createdAt || "").localeCompare(String(a.paymentDate || a.createdAt || "")))
+        .forEach((pay) => {
+          const c = clientMap[pay.clientId] || {};
+          const emp = (employees || []).find((e) => e.id === (c.employeeId || pay.employeeId));
+          rows.push([fmtDate(pay.paymentDate), c.clientName || pay.clientName || "—", pay.amount, pay.currency || "—", pay.paymentMethod || "—", emp?.name || "—"]);
+        });
     } else if (type === "updates") {
       title = "Team Lead Updates"; columns = ["Employee", "Date", "Update"];
       each((s) => { if (s.updatesForTeamLead) rows.push([s.empName, fmtDate(s.date), s.updatesForTeamLead]); });
@@ -457,7 +478,7 @@ export default function AdminDashboard() {
             ovPieData={ovPieData} ovBarData={ovBarData} openDM={openDM}
             pipelineClients={pipelineClients} pipelineStatuses={pipelineStatuses}
             pipelineFollowups={pipelineFollowups} pipelineSales={pipelineSales} pipelinePayments={pipelinePayments}
-            pipelineContracts={pipelineContracts} pipelineNotes={pipelineNotes} pipelineHistory={pipelineHistory} softDeletePipelineClient={softDeletePipelineClient} restorePipelineClient={restorePipelineClient} hardDeletePipelineClient={hardDeletePipelineClient} updatePipelineClient={updatePipelineClient} uploadPipelineFile={uploadPipelineFile} addPipelineClient={addPipelineClient} domains={domains} showToast={showToast}
+            pipelineContracts={pipelineContracts} pipelineNotes={pipelineNotes} pipelineHistory={pipelineHistory} softDeletePipelineClient={softDeletePipelineClient} restorePipelineClient={restorePipelineClient} hardDeletePipelineClient={hardDeletePipelineClient} updatePipelineClient={updatePipelineClient} uploadPipelineFile={uploadPipelineFile} addPipelineClient={addPipelineClient} addPipelinePayment={addPipelinePayment} domains={domains} showToast={showToast}
           />
         )}
         {tab === "reports" && (
@@ -470,7 +491,7 @@ export default function AdminDashboard() {
             pipelineClients={pipelineClients} pipelineSales={pipelineSales} pipelinePayments={pipelinePayments}
           />
         )}
-        {tab === "leaderboard" && <LeaderboardTab empStats={empStats} submissions={submissions} lbPeriod={lbPeriod} setLbPeriod={setLbPeriod} />}
+        {tab === "leaderboard" && <LeaderboardTab empStats={empStats} submissions={submissions} lbPeriod={lbPeriod} setLbPeriod={setLbPeriod} pipelineClients={pipelineClients} pipelinePayments={pipelinePayments} />}
         {tab === "analytics" && <AnalyticsTab empStats={empStats} statusPie={statusPie} chartData={chartData} monthlySalary={monthlySalary} />}
         {tab === "departments" && (
           <DepartmentsTab
@@ -485,13 +506,14 @@ export default function AdminDashboard() {
           />
         )}
         {tab === "insertionorder" && <InsertionOrderForm onCapture={captureExpense} sharedMagazines={ioMagazines} onSaveMagazines={saveIoMagazines} />}
-        {tab === "leaveboard" && <LeaveBoardTab leaves={leaves} employees={employees} setLeaveStatus={setLeaveStatus} editMode={editMode} submissions={submissions} attendanceOverrides={attendanceOverrides} saveAttendanceOverride={saveAttendanceOverride} />}
+        {tab === "leaveboard" && <LeaveBoardTab leaves={leaves} employees={employees} setLeaveStatus={setLeaveStatus} addLeave={addLeave} editMode={editMode} submissions={submissions} attendanceOverrides={attendanceOverrides} saveAttendanceOverride={saveAttendanceOverride} showToast={showToast} />}
         {tab === "salary" && (
           <SalaryModule employees={employees} salaries={salaries} setSalaries={saveSalaries} captureExpense={captureExpense}
             showToast={showToast} pushNotification={pushNotification}
             addMessage={addMessage} editMode={editMode} setEditMode={setEditMode} settingsPwd={settingsPwd} logo={logo}
             freelancers={freelancers} saveFreelancers={saveFreelancers}
-            bankDetails={bankDetails} saveBankDetails={saveBankDetails} deleteEmployee={deleteEmployee} />
+            bankDetails={bankDetails} saveBankDetails={saveBankDetails} deleteEmployee={deleteEmployee}
+            submissions={submissions} leaves={leaves} attendanceOverrides={attendanceOverrides} />
         )}
         {tab === "expense" && (
           <ExpenseTab expenses={expenses} addExpense={addExpense} updateExpense={updateExpense} deleteExpense={deleteExpense} logo={logo} domains={domains} />

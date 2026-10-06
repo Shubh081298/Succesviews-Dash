@@ -14,17 +14,19 @@ import {
   CHART_COLORS, TT, LEG, TICK, NAVY, BLUE, GREEN, ORANGE, PURPLE, AMBER,
 } from "../../utils/constants";
 import { fmtDate, fmtCurr, fmtSalary, sum, empLabel, humanizeKey, downloadCSV, domainColor } from "../../utils/helpers";
-import { formatINR } from "../../utils/currency";
+import { formatINR, convertToINRSync } from "../../utils/currency";
 import { supabase } from "../../utils/supabaseClient";
-import { Mail, Send, Target, Handshake, CheckCircle2, Phone, Megaphone, IndianRupee, FileText, Banknote } from "lucide-react";
+import { Mail, Send, Target, Handshake, CheckCircle2, Megaphone, IndianRupee, FileText, Banknote } from "lucide-react";
 import { Download, Plus, Pencil, KeyRound, Eye, EyeOff, X, Palette, Building2 } from "lucide-react";
 import { Palmtree, CalendarDays, Clock, XCircle, Check, Search as SearchIcon, Inbox } from "lucide-react";
 import { LayoutDashboard, Receipt, Users as UsersIcon } from "lucide-react";
-import { Layers, TrendingUp, Trash2, UserPlus, CalendarCheck, FileSignature } from "lucide-react";
+import { Layers, TrendingUp, Trash2, UserPlus, FileSignature } from "lucide-react";
 import { Users, ShieldCheck, MessageSquare, Globe2, Image as ImageIcon, Briefcase as BriefcaseIcon, UserCog } from "lucide-react";
 import { FolderOpen, BookOpen, Wallet, Bell, ArrowLeft, AlertTriangle } from "lucide-react";
 import { UserX, UserCheck, RotateCcw, History as HistoryIcon } from "lucide-react";
 import DesignPushToggle from "../../components/design/DesignPushToggle";
+import AddEmployeeModal from "../../components/admin/AddEmployeeModal";
+import EmployeeProfileModal from "../../components/admin/EmployeeProfileModal";
 import WorkflowTimeline, { buildRevisions } from "../../components/design/WorkflowTimeline";
 import { ClientHub } from "../../components/employee/Pipeline";
 import LeadWorkflow from "../../components/crm/LeadWorkflow";
@@ -36,7 +38,7 @@ import { NURTURE_STATUSES, WORKFLOW_STEPS, stageColour, progressOf, isClosed } f
  * OverviewTab — 5 primary + 5 secondary KPI cards (period-filtered)
  * + analytics charts + today's submission grid + recent pending.
  * ──────────────────────────────────────────────────────────────*/
-export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "", ovTo = "", ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {}, hardDeletePipelineClient = () => {}, updatePipelineClient = () => {}, uploadPipelineFile = () => {}, addPipelineClient = () => {}, domains = [], showToast = () => {} }) {
+export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "", ovTo = "", ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {}, hardDeletePipelineClient = () => {}, updatePipelineClient = () => {}, uploadPipelineFile = () => {}, addPipelineClient = () => {}, addPipelinePayment = () => {}, domains = [], showToast = () => {} }) {
   const [clpOpen, setClpOpen] = useState(false);
   const [clpAddOpen, setClpAddOpen] = useState(false);   // Admin "Add Client" modal
   const [clpAdd, setClpAdd] = useState({ clientName: "", projectName: "", assignedEmailId: "", domainName: "", region: "", employeeId: "", manualEmployeeName: "", notes: "" });
@@ -50,21 +52,16 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
   const [clpHardDel, setClpHardDel] = useState(null); // client pending permanent delete
   const [opDetail, setOpDetail] = useState(null); // Operations Overview block drill-down: 'web'|'social'|'attendance'|'updates'
   const [trendCur, setTrendCur] = useState("");
-  // Emails/reminders/leads/calls are Sales activities — only count Sales-department
-  // submissions so Operations/Design/Manager don't dilute these metrics.
+  // Emails/reminders are from DSR (employees still fill these in).
   const salesSubs = ovFiltered.filter((s) => (s.department || "") === "Sales");
   const freshEmails = sum(salesSubs, "freshEmails");
   const reminderEmails = sum(salesSubs, "reminderEmails");
-  const leads = sum(salesSubs, "newLeadsInterested");
-  const followups = sum(salesSubs, "newFollowUps");
   const dsrSubmitted = ovFiltered.filter((s) => s.status === "Submitted").length;
-  const calls = sum(salesSubs, "callsScheduled");
   const updates = ovFiltered.filter((s) => s.updatesForTeamLead).length;
   // Operations submissions in the period (used by the Operations Overview + its drill-down modal)
   const opSubsAll = (ovFiltered || []).filter((s) => (s.department || "") === "Operations");
-  const sales = sum(ovFiltered, "salesGenerated");
-  const orders = ovFiltered.reduce((a, s) => a + ((s.contractOrders || []).length), 0);
-  const payments = sum(ovFiltered, "paymentReceived");
+  // Helper for pipeline date filtering.
+  const pipeInRange = (d) => { const s = d ? String(d).slice(0, 10) : ""; return !!s && (!ovFrom || s >= ovFrom) && (!ovTo || s <= ovTo); };
 
   // C1: currency-correct money — read the real pipeline rows and group by
   // currency for the selected period (never sum different currencies together).
@@ -90,38 +87,68 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
     const head = `${CUR_SYM[c] || c + " "}${Number(v).toLocaleString()}`;
     return ents.length > 1 ? `${head} +${ents.length - 1}` : head; // never mixes; extra currencies flagged
   };
-  // Pipeline v2: Sales = SIGNED contracts, Payments = PAID payments, read from the client record
-  // itself (one per client, so no double-counting), grouped by currency and within the period.
-  const clientAmtByCur = (statusField, statusVal, amtField, curField, dateField) => {
+  // Pipeline v2: Sales = contract SENT amount, Payments = PAID payments.
+  // Sales counts the contractAmount the moment a contract is sent to the client.
+  const clientAmtByCur = (filterFn, amtField, curField, dateField) => {
     const m = {};
     (pipelineClients || []).forEach((c) => {
-      if (c.isDeleted || c[statusField] !== statusVal) return;
+      if (c.isDeleted || !filterFn(c)) return;
       const amt = Number(c[amtField]); if (!amt) return;
-      const dv = c[dateField] ? String(c[dateField]) : "";
-      // Bounded period (Today/Week/Month/custom range): the row MUST have a date inside it.
-      // Otherwise (open custom): honour whatever bound exists.
+      const dv = c[dateField] ? String(c[dateField]).slice(0, 10) : (c.updatedAt ? String(c.updatedAt).slice(0, 10) : "");
       if (_bounded) { if (!dv || !_inRange(dv)) return; }
       else if (dv && !_inRange(dv)) return;
       const cur = c[curField] || "USD"; m[cur] = (m[cur] || 0) + amt;
     });
     return m;
   };
-  const salesByCur = clientAmtByCur("contractStatus", "Signed", "signedAmount", "contractCurrency", "signedDate");
-  const payByCur = clientAmtByCur("paymentStatus", "Paid", "paymentAmount", "paymentCurrency", "paymentDate");
-  // Pipeline v2: "Contract Order Sent" counts clients whose contract was sent within the period
-  // (was reading deprecated DSR contractOrders, so it showed stale/zero after the migration).
-  const contractsSentCount = (pipelineClients || []).filter((c) => {
-    if (c.isDeleted || !c.contractSent) return false;
-    const dv = c.contractSentDate ? String(c.contractSentDate) : "";
-    if (_bounded) return !!dv && _inRange(dv);
-    return !dv || _inRange(dv);
-  }).length;
-  // Outstanding = Sales − Payments, computed strictly within each currency (never mixed).
+  // Pipeline financial KPIs — NO period filter. A contract signed last month is still a sale.
+  // The period filter applies to DSR activity (emails, DSR count) but not to pipeline money.
+  const salesByCur = (() => {
+    const m = {};
+    (pipelineClients || []).forEach((c) => {
+      if (c.isDeleted || c.contractStatus === "Opted Out") return;
+      const isSigned = c.contractStatus === "Signed";
+      const isSent = !!c.contractSent;
+      if (!isSigned && !isSent) return;
+      const amt = isSigned ? (Number(c.signedAmount) || Number(c.contractAmount) || 0) : (Number(c.contractAmount) || 0);
+      if (!amt) return;
+      const cur = c.contractCurrency || "USD";
+      m[cur] = (m[cur] || 0) + amt;
+    });
+    return m;
+  })();
+  // Payments = ALL payments ever received from pipeline_payments table (all-time total).
+  const payByCur = (() => {
+    const m = {};
+    (pipelinePayments || []).forEach((pay) => {
+      if (!_liveIds.has(pay.clientId) || !(pay.amount > 0)) return;
+      const cur = pay.currency || "USD";
+      m[cur] = (m[cur] || 0) + pay.amount;
+    });
+    return m;
+  })();
+  const contractsSentCount = (pipelineClients || []).filter((c) => !c.isDeleted && !!c.contractSent && c.contractStatus !== "Opted Out").length;
+  // Outstanding = total contract value (ALL time, not period-filtered) minus ALL payments received.
+  // Period filter intentionally excluded so a contract signed last month still shows outstanding.
   const outstandingByCur = (() => {
     const m = {};
-    new Set([...Object.keys(salesByCur), ...Object.keys(payByCur)]).forEach((c) => {
-      const o = (salesByCur[c] || 0) - (payByCur[c] || 0);
-      if (o > 0) m[c] = o;
+    // Total received per client across all time
+    const recvByClient = {};
+    (pipelinePayments || []).forEach((pay) => {
+      if (_liveIds.has(pay.clientId) && pay.amount > 0)
+        recvByClient[pay.clientId] = (recvByClient[pay.clientId] || 0) + pay.amount;
+    });
+    (pipelineClients || []).forEach((c) => {
+      if (c.isDeleted || c.contractStatus === "Opted Out") return;
+      const isSigned = c.contractStatus === "Signed";
+      const isSent = !!c.contractSent;
+      if (!isSigned && !isSent) return;
+      const contractVal = Number(c.signedAmount) || Number(c.contractAmount) || 0;
+      if (!contractVal) return;
+      const cur = c.contractCurrency || "USD";
+      const received = recvByClient[c.id] || 0;
+      const outstanding = contractVal - received;
+      if (outstanding > 0) m[cur] = (m[cur] || 0) + outstanding;
     });
     return m;
   })();
@@ -172,21 +199,15 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
         )}
       </div>
 
-      <div className="sv-kpi-grid">
+      <div className="sv-kpi-grid sv-kpi-grid--4">
         <ClickCard idx={0} label="Fresh Emails" value={freshEmails} icon={<Mail size={20} />} c1="#EAF4FF" c2="#CFE6FF" accent="#2563EB" onClick={() => openDM("emails")} />
         <ClickCard idx={1} label="Reminder Emails" value={reminderEmails} icon={<Bell size={20} />} c1="#F3E8FF" c2="#E3D0FF" accent="#7C3AED" onClick={() => openDM("reminders")} />
-        <ClickCard idx={2} label="New Leads" value={leads} icon={<UserPlus size={20} />} c1="#ECFDF3" c2="#C8F5DA" accent="#16A34A" onClick={() => openDM("leads")} />
-        <ClickCard idx={3} label="Follow-ups" value={followups} icon={<CalendarCheck size={20} />} c1="#FFF6E5" c2="#FFE1A8" accent="#D97706" onClick={() => openDM("followups")} />
-        <ClickCard idx={4} label="DSR Submitted" value={dsrSubmitted} icon={<CheckCircle2 size={20} />} c1="#EEF2FF" c2="#DCE7FF" accent="#4F46E5" onClick={() => openDM("dsr")} />
-      </div>
-
-      <div className="sv-kpi-grid">
-        <ClickCard idx={5} label="Scheduled Calls" value={calls} icon={<Phone size={20} />} c1="#FFF1EC" c2="#FFD4C5" accent="#EA580C" onClick={() => openDM("calls")} />
-        <ClickCard idx={6} label="Team Lead Updates" value={updates} icon={<Megaphone size={20} />} c1="#ECFEFF" c2="#C9F7FF" accent="#0891B2" onClick={() => openDM("updates")} />
-        <ClickCard idx={7} label="Sales" value={fmtMoneyByCur(salesByCur)} icon={<TrendingUp size={20} />} c1="#ECFDF5" c2="#C9F7D8" accent="#059669" onClick={() => openDM("sales")} />
-        <ClickCard idx={8} label="Contract Order Sent" value={contractsSentCount} icon={<FileSignature size={20} />} c1="#F5F0FF" c2="#DDCCFF" accent="#6D28D9" onClick={() => openDM("orders")} />
-        <ClickCard idx={9} label="Payment Received" value={fmtMoneyByCur(payByCur)} icon={<Wallet size={20} />} c1="#FFF8E6" c2="#FFE49C" accent="#CA8A04" onClick={() => openDM("payments")} />
-        <ClickCard idx={10} label="Outstanding" value={fmtMoneyByCur(outstandingByCur)} icon={<AlertTriangle size={20} />} c1="#FEF2F2" c2="#FEE2E2" accent="#DC2626" onClick={() => openDM("sales")} />
+        <ClickCard idx={2} label="DSR Submitted" value={dsrSubmitted} icon={<CheckCircle2 size={20} />} c1="#EEF2FF" c2="#DCE7FF" accent="#4F46E5" onClick={() => openDM("dsr")} />
+        <ClickCard idx={3} label="Team Lead Updates" value={updates} icon={<Megaphone size={20} />} c1="#ECFEFF" c2="#C9F7FF" accent="#0891B2" onClick={() => openDM("updates")} />
+        <ClickCard idx={4} label="Sales (Signed)" value={fmtMoneyByCur(salesByCur)} icon={<TrendingUp size={20} />} c1="#ECFDF5" c2="#C9F7D8" accent="#059669" onClick={() => openDM("sales")} />
+        <ClickCard idx={5} label="Contract Orders Sent" value={contractsSentCount} icon={<FileSignature size={20} />} c1="#F5F0FF" c2="#DDCCFF" accent="#6D28D9" onClick={() => openDM("orders")} />
+        <ClickCard idx={6} label="Payment Received" value={fmtMoneyByCur(payByCur)} icon={<Wallet size={20} />} c1="#FFF8E6" c2="#FFE49C" accent="#CA8A04" onClick={() => openDM("payments")} />
+        <ClickCard idx={7} label="Outstanding" value={fmtMoneyByCur(outstandingByCur)} icon={<AlertTriangle size={20} />} c1="#FEF2F2" c2="#FEE2E2" accent="#DC2626" onClick={() => openDM("sales")} />
       </div>
 
       {(() => {
@@ -357,12 +378,33 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
                 </div>
               </>
             )}
+            {(pipelineClients || []).filter((c) => !c.isDeleted && c.contractStatus === "Opted Out").length > 0 && (() => {
+              const optedOutList = (pipelineClients || []).filter((c) => !c.isDeleted && c.contractStatus === "Opted Out");
+              return (
+                <div style={{ marginTop: 14, borderTop: "1px solid #F1F5F9", paddingTop: 10 }}>
+                  <button className="sv-btn sv-btn--sm sv-btn--ghost" style={{ color: "#BE123C", borderColor: "#FECDD3" }} onClick={() => setClpShowDeleted((v) => v === "optout" ? false : "optout")}>
+                    <UserX size={13} /> Opted Out Clients ({optedOutList.length})
+                  </button>
+                  {clpShowDeleted === "optout" && (
+                    <div className="sv-rev-list" style={{ marginTop: 8 }}>
+                      {optedOutList.map((c) => (
+                        <div key={c.id} className="sv-rev-row">
+                          <span className="sv-text-navy sv-font-700" style={{ fontSize: 12.5 }}>{c.clientName}</span>
+                          <span className="sv-text-muted" style={{ fontSize: 11.5 }}>{c.lostReason || c.domainName || "—"}</span>
+                          <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ marginLeft: "auto" }} onClick={() => setClpDetail(c)}>View / Restore</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {(pipelineClients || []).filter((c) => c.isDeleted).length > 0 && (
               <div style={{ marginTop: 14, borderTop: "1px solid #F1F5F9", paddingTop: 10 }}>
-                <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => setClpShowDeleted((v) => !v)}>
+                <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => setClpShowDeleted((v) => v === "deleted" ? false : "deleted")}>
                   <Trash2 size={13} /> Recently deleted ({(pipelineClients || []).filter((c) => c.isDeleted).length})
                 </button>
-                {clpShowDeleted && (
+                {clpShowDeleted === "deleted" && (
                   <div className="sv-rev-list" style={{ marginTop: 8 }}>
                     {(pipelineClients || []).filter((c) => c.isDeleted).map((c) => (
                       <div key={c.id} className="sv-rev-row">
@@ -450,6 +492,8 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
               toast={showToast}
               updatePipelineClient={updatePipelineClient}
               uploadPipelineFile={uploadPipelineFile}
+              addPipelinePayment={addPipelinePayment}
+              pipelinePayments={pipelinePayments}
               extraFooter={(
                 clpDelete === dc.id ? (
                   <div className="sv-flex sv-gap-2 sv-items-center" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -821,14 +865,32 @@ export function ReportsTab({ reportEmpSearch, setReportEmpSearch, reportDept, se
 /* ───────────────────────────────────────────────────────────────
  * LeaderboardTab — Sales & Payments ranking with Week/Month/Year.
  * ──────────────────────────────────────────────────────────────*/
-export function LeaderboardTab({ empStats, submissions, lbPeriod, setLbPeriod }) {
+export function LeaderboardTab({ empStats, submissions, lbPeriod, setLbPeriod, pipelineClients = [], pipelinePayments = [] }) {
   const days = { week: 7, month: 30, year: 365 }[lbPeriod] ?? 30;
   const fromDate = new Date(); fromDate.setDate(fromDate.getDate() - days);
   const fromStr = fromDate.toISOString().split("T")[0];
 
+  const toINR = (amt, cur) => { const r = convertToINRSync(amt, cur); return r ? r.inrAmount : (Number(amt) || 0); };
+  const live = pipelineClients.filter((c) => !c.isDeleted);
+  const liveIds = new Set(live.map((c) => c.id));
+  // Build per-employee payments map from pipeline_payments table (multi-payment)
+  const clientEmpMap = Object.fromEntries(live.map((c) => [c.id, c.employeeId]));
+  const empPayMap = {};
+  (pipelinePayments || []).forEach((pay) => {
+    if (!liveIds.has(pay.clientId) || !(pay.amount > 0)) return;
+    if (pay.paymentDate && String(pay.paymentDate).slice(0, 10) < fromStr) return;
+    const empId = clientEmpMap[pay.clientId] || pay.employeeId;
+    if (!empId) return;
+    empPayMap[empId] = (empPayMap[empId] || 0) + toINR(pay.amount, pay.currency);
+  });
   const ranked = empStats.map((e) => {
-    const mine = submissions.filter((s) => s.empId === e.id && s.date >= fromStr);
-    return { id: e.id, name: e.name, sales: sum(mine, "salesGenerated"), payments: sum(mine, "paymentReceived") };
+    let sales = 0;
+    live.forEach((c) => {
+      if (c.employeeId !== e.id) return;
+      if (c.contractStatus === "Signed" && String(c.signedDate || "") >= fromStr)
+        sales += toINR(c.signedAmount, c.contractCurrency);
+    });
+    return { id: e.id, name: e.name, sales, payments: empPayMap[e.id] || 0 };
   }).sort((a, b) => b.sales - a.sales);
   const medals = ["🥇", "🥈", "🥉"];
 
@@ -846,12 +908,12 @@ export function LeaderboardTab({ empStats, submissions, lbPeriod, setLbPeriod })
       </div>
 
       <table className="sv-table">
-        <thead><tr><th>Rank</th><th>Employee</th><th>Sales</th><th>Payments</th></tr></thead>
+        <thead><tr><th>Rank</th><th>Employee</th><th>Sales (INR)</th><th>Payments (INR)</th></tr></thead>
         <tbody>
           {ranked.map((e, i) => (
             <tr key={e.id}>
               <td>{medals[i] || `#${i + 1}`}</td><td>{e.name}</td>
-              <td>{fmtCurr(e.sales)}</td><td>{fmtCurr(e.payments)}</td>
+              <td>{formatINR(e.sales)}</td><td>{formatINR(e.payments)}</td>
             </tr>
           ))}
         </tbody>
@@ -1092,11 +1154,14 @@ export function DepartmentsTab({ departments, employees, submissions, newDept, s
 /* ───────────────────────────────────────────────────────────────
  * LeaveBoardTab — approve/reject with mandatory remark + history.
  * ──────────────────────────────────────────────────────────────*/
-export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode = false, submissions = [], attendanceOverrides = [], saveAttendanceOverride }) {
+export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, addLeave, editMode = false, submissions = [], attendanceOverrides = [], saveAttendanceOverride, showToast }) {
   const [remarks, setRemarks] = useState({});
   const [pendingRemark, setPendingRemark] = useState({}); // id -> "Approved"|"Rejected" awaiting confirm
   const [errorId, setErrorId] = useState(null);
   const [confirm, setConfirm] = useState(null); // { leave, status, remark }
+  const [adminLeaveOpen, setAdminLeaveOpen] = useState(false);
+  const [adminLeaveForm, setAdminLeaveForm] = useState({ empId: "", fromDate: "", toDate: "", leaveType: "", reason: "" });
+  const [adminLeaveBusy, setAdminLeaveBusy] = useState(false);
   const [histSearch, setHistSearch] = useState("");
   const [histFilter, setHistFilter] = useState("All");
   const [histPeriod, setHistPeriod] = useState("Month"); // Month | Year
@@ -1139,6 +1204,19 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
     setRemarks((prev) => ({ ...prev, [confirm.leave.id]: "" }));
     setConfirm(null);
   };
+  const handleAdminAddLeave = async () => {
+    const { empId, fromDate, toDate, reason, leaveType } = adminLeaveForm;
+    const emp = employees.find((e) => e.id === empId);
+    if (!empId || !fromDate || !toDate || !reason.trim()) { showToast?.("Fill all fields.", "error"); return; }
+    if (toDate < fromDate) { showToast?.("To Date cannot be before From Date.", "error"); return; }
+    setAdminLeaveBusy(true);
+    await addLeave?.(empId, emp?.name || empId, fromDate, toDate, reason, leaveType);
+    setAdminLeaveBusy(false);
+    setAdminLeaveForm({ empId: "", fromDate: "", toDate: "", leaveType: "", reason: "" });
+    setAdminLeaveOpen(false);
+    showToast?.("Leave added on behalf of employee.", "success");
+  };
+
   const ATT_STATUSES = ["Present", "Half Day", "Leave", "Absent", "Holiday"];
   const doSaveAtt = async () => {
     if (!saveAttendanceOverride || !attEdit) return;
@@ -1190,7 +1268,66 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
 
   return (
     <div className="sv-tab">
-      <h2 className="sv-tab-title">Leave Board {pending.length > 0 && <span className="sv-badge sv-badge--pending" style={{ marginLeft: 8 }}>{pending.length} pending</span>}</h2>
+      <div className="sv-flex sv-items-center sv-justify-between" style={{ marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <h2 className="sv-tab-title" style={{ margin: 0 }}>Leave Board {pending.length > 0 && <span className="sv-badge sv-badge--pending" style={{ marginLeft: 8 }}>{pending.length} pending</span>}</h2>
+        <button className="sv-btn sv-btn--primary sv-btn--sm" onClick={() => setAdminLeaveOpen(true)} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <CalendarDays size={14} /> Add Leave for Employee
+        </button>
+      </div>
+
+      {/* Admin Add Leave Modal */}
+      {adminLeaveOpen && (
+        <div className="sv-modal-overlay" onClick={() => setAdminLeaveOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 10002, padding: 16 }}>
+          <div className="sv-modal" style={{ maxWidth: 440, width: "100%", background: "#fff", borderRadius: 16, overflow: "hidden" }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid #F1F5F9" }}>
+              <div>
+                <div style={{ fontWeight: 800, color: "#162B55", fontSize: 16 }}>Add Leave on Behalf</div>
+                <div style={{ fontSize: 12, color: "#94A3B8" }}>Mark leave for any employee</div>
+              </div>
+              <button onClick={() => setAdminLeaveOpen(false)} style={{ border: "none", background: "transparent", fontSize: 22, cursor: "pointer", color: "#64748B", lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: "16px 20px", display: "grid", gap: 12 }}>
+              <label style={{ display: "grid", gap: 5, fontSize: 13, fontWeight: 600, color: "#475569" }}>
+                Employee
+                <select className="sv-select" value={adminLeaveForm.empId} onChange={(e) => setAdminLeaveForm({ ...adminLeaveForm, empId: e.target.value })}>
+                  <option value="">-- Select employee --</option>
+                  {employees.filter((e) => e.status !== "terminated").sort((a, b) => a.name.localeCompare(b.name)).map((e) => (
+                    <option key={e.id} value={e.id}>{e.name} ({e.department || "—"})</option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: 5, fontSize: 13, fontWeight: 600, color: "#475569" }}>
+                Leave Type
+                <select className="sv-select" value={adminLeaveForm.leaveType} onChange={(e) => setAdminLeaveForm({ ...adminLeaveForm, leaveType: e.target.value })}>
+                  <option value="">-- Select type --</option>
+                  <option value="Sick Leave">Sick Leave</option>
+                  <option value="Casual Leave">Casual Leave</option>
+                  <option value="Annual Leave">Annual Leave</option>
+                  <option value="Emergency Leave">Emergency Leave</option>
+                </select>
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <label style={{ display: "grid", gap: 5, fontSize: 13, fontWeight: 600, color: "#475569" }}>
+                  From Date
+                  <input type="date" className="sv-input" value={adminLeaveForm.fromDate} onChange={(e) => setAdminLeaveForm({ ...adminLeaveForm, fromDate: e.target.value })} />
+                </label>
+                <label style={{ display: "grid", gap: 5, fontSize: 13, fontWeight: 600, color: "#475569" }}>
+                  To Date
+                  <input type="date" className="sv-input" value={adminLeaveForm.toDate} min={adminLeaveForm.fromDate} onChange={(e) => setAdminLeaveForm({ ...adminLeaveForm, toDate: e.target.value })} />
+                </label>
+              </div>
+              <label style={{ display: "grid", gap: 5, fontSize: 13, fontWeight: 600, color: "#475569" }}>
+                Reason
+                <textarea rows={2} className="sv-input" value={adminLeaveForm.reason} onChange={(e) => setAdminLeaveForm({ ...adminLeaveForm, reason: e.target.value })} placeholder="e.g. Medical appointment, family emergency…" style={{ resize: "vertical" }} />
+              </label>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+                <button className="sv-btn sv-btn--outline sv-btn--sm" onClick={() => setAdminLeaveOpen(false)}>Cancel</button>
+                <button className="sv-btn sv-btn--primary sv-btn--sm" onClick={handleAdminAddLeave} disabled={adminLeaveBusy}>{adminLeaveBusy ? "Adding…" : "Add Leave"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="sv-leave-stats">
         <StatCard icon={<Clock size={18} />} label="Pending" value={pending.length} color="#F59E0B" />
@@ -1382,6 +1519,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
                 </div>
                 <div className="sv-leave-req-meta">
                   <DateRange l={l} />
+                  {l.leaveType && <span style={{ fontSize: 11.5, fontWeight: 700, color: "#7C3AED", background: "#F3E8FF", padding: "2px 8px", borderRadius: 12 }}>{l.leaveType}</span>}
                   <span className="sv-leave-reason">{l.reason}</span>
                 </div>
                 <input className={`sv-input sv-leave-remark${errorId === l.id ? " sv-input--err" : ""}`} placeholder="Add a remark (required)…"
@@ -1434,6 +1572,7 @@ export function LeaveBoardTab({ leaves, employees = [], setLeaveStatus, editMode
                 <Person l={l} size={34} />
                 <div className="sv-leave-hrow-mid">
                   <DateRange l={l} />
+                  {l.leaveType && <span style={{ fontSize: 11, fontWeight: 700, color: "#7C3AED", background: "#F3E8FF", padding: "2px 7px", borderRadius: 10 }}>{l.leaveType}</span>}
                   <span className="sv-leave-reason">{l.reason}</span>
                   {l.remark && <span className="sv-leave-note">Note: {l.remark}</span>}
                 </div>
@@ -1558,6 +1697,8 @@ export function SettingsTab({ employees, setEmployees, submissions = [], departm
   // move to the Former Employees section (their data is preserved).
   const activeEmps = employees.filter((e) => e.status !== "terminated");
   const formerEmps = employees.filter((e) => e.status === "terminated");
+  const [addEmpOpen, setAddEmpOpen] = useState(false);
+  const [viewingEmp, setViewingEmp] = useState(null);
   const [newDomain, setNewDomain] = useState("");
   const [editDomainId, setEditDomainId] = useState(null);
   const [editDomainVal, setEditDomainVal] = useState("");
@@ -1566,27 +1707,27 @@ export function SettingsTab({ employees, setEmployees, submissions = [], departm
   const [confirmPwd, setConfirmPwd] = useState("");
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [unlockPwd, setUnlockPwd] = useState("");
+  const [tDraft, setTDraft] = useState(() => ({ ...(targets || {}) }));
 
-  // Inline unlock (same check as the lock bar) so config sections can be
-  // unlocked right where they are, without scrolling back to the top.
   const doInlineUnlock = () => {
     if (unlockPwd === settingsPwd) { setEditMode && setEditMode(true); setUnlockOpen(false); setUnlockPwd(""); showToast("Settings unlocked.", "success"); }
     else showToast("Incorrect Settings Password.", "error");
   };
-  // Rendered as a function call (not a nested <Component/>) so the password
-  // input keeps focus while typing.
   const lockHint = () => (editMode ? null : (
-    <div className="sv-sal-lock" style={{ marginTop: 12 }}>
-      <span className="sv-sal-lock-msg">🔒 Locked — unlock with the Settings Password to edit.</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, padding: "7px 12px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8 }}>
+      <ShieldCheck size={13} style={{ color: "#94A3B8", flexShrink: 0 }} />
+      <span style={{ fontSize: 12, color: "#64748B", flex: 1 }}>Protected — unlock to edit this section</span>
       {unlockOpen ? (
-        <div className="sv-sal-unlock-form">
-          <input type="password" className="sv-input" autoFocus placeholder="Settings Password" value={unlockPwd}
-            onChange={(e) => setUnlockPwd(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doInlineUnlock(); if (e.key === "Escape") { setUnlockOpen(false); setUnlockPwd(""); } }} />
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input type="password" className="sv-input" autoFocus placeholder="Settings password"
+            style={{ width: 180, height: 30, fontSize: 12 }} value={unlockPwd}
+            onChange={(e) => setUnlockPwd(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") doInlineUnlock(); if (e.key === "Escape") { setUnlockOpen(false); setUnlockPwd(""); } }} />
           <button className="sv-btn sv-btn--primary sv-btn--sm" onClick={doInlineUnlock} disabled={!unlockPwd}>Unlock</button>
-          <button className="sv-btn sv-btn--outline sv-btn--sm" onClick={() => { setUnlockOpen(false); setUnlockPwd(""); }}>Cancel</button>
+          <button className="sv-btn sv-btn--outline sv-btn--sm" onClick={() => { setUnlockOpen(false); setUnlockPwd(""); }} style={{ padding: "5px 8px" }}>✕</button>
         </div>
       ) : (
-        <button className="sv-btn sv-btn--primary sv-btn--sm" onClick={() => setUnlockOpen(true)}>Unlock</button>
+        <button className="sv-btn sv-btn--outline sv-btn--sm" onClick={() => setUnlockOpen(true)} style={{ fontSize: 11.5, whiteSpace: "nowrap" }}>Unlock</button>
       )}
     </div>
   ));
@@ -1612,153 +1753,211 @@ export function SettingsTab({ employees, setEmployees, submissions = [], departm
   const managerCount = new Set(activeEmps.map((e) => e.teamLead).filter(Boolean)).size;
   const designerCount = activeEmps.filter((e) => (e.department || "").toLowerCase() === "design").length;
   const stats = [
-    { icon: <Users size={18} />, label: "Employees", value: activeEmps.length, color: "#3B82F6" },
-    { icon: <Building2 size={18} />, label: "Departments", value: deptCount, color: "#8B5CF6" },
-    { icon: <UserCog size={18} />, label: "Managers", value: managerCount, color: "#0EA5E9" },
-    { icon: <Palette size={18} />, label: "Designers", value: designerCount, color: "#EC4899" },
-    { icon: <BriefcaseIcon size={18} />, label: "Freelancers", value: (freelancers || []).length, color: "#F59E0B" },
-    { icon: <Globe2 size={18} />, label: "Websites", value: (websites || []).length, color: "#22C55E" },
+    { icon: <Users size={16} />, label: "Employees", value: activeEmps.length, color: "#3B82F6" },
+    { icon: <Building2 size={16} />, label: "Departments", value: deptCount, color: "#8B5CF6" },
+    { icon: <UserCog size={16} />, label: "Managers", value: managerCount, color: "#0EA5E9" },
+    { icon: <Palette size={16} />, label: "Designers", value: designerCount, color: "#EC4899" },
+    { icon: <BriefcaseIcon size={16} />, label: "Freelancers", value: (freelancers || []).length, color: "#F59E0B" },
+    { icon: <Globe2 size={16} />, label: "Domains", value: (domains || []).length, color: "#22C55E" },
   ];
+  const SHORTCUTS = [
+    { label: "Employees", id: "sv-s-emp" }, { label: "Former", id: "sv-s-former" },
+    { label: "Security", id: "sv-s-security" }, { label: "Branding", id: "sv-s-branding" },
+    { label: "Targets", id: "sv-s-targets" }, { label: "Messages", id: "sv-s-messages" },
+    { label: "Domains", id: "sv-s-domains" },
+  ];
+  const scrollTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   const SecHead = ({ icon, color = "#2563EB", bg, title, desc }) => (
-    <div className="sv-flex sv-items-center sv-gap-2" style={{ marginBottom: 12 }}>
-      <span className="sv-mod-icon" style={{ background: bg || "rgba(37,99,235,.1)", color }}>{icon}</span>
-      <div><p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 15.5 }}>{title}</p><p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>{desc}</p></div>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #F1F5F9" }}>
+      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 9, background: bg || `${color}18`, color, flexShrink: 0 }}>{icon}</span>
+      <div>
+        <p style={{ margin: 0, fontSize: 13.5, fontWeight: 700, color: "#0F172A", lineHeight: 1.25 }}>{title}</p>
+        <p style={{ margin: "2px 0 0", fontSize: 11.5, color: "#64748B", lineHeight: 1.4 }}>{desc}</p>
+      </div>
     </div>
   );
 
   return (
+    <>
     <div className="sv-tab">
-      <h2 className="sv-tab-title">Settings</h2>
 
-      <div className="sv-leave-stats" style={{ gridTemplateColumns: "repeat(6, 1fr)" }}>
+      {/* ── Page header ──────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 18, flexWrap: "wrap" }}>
+        <div>
+          <h2 className="sv-tab-title" style={{ margin: 0 }}>Settings</h2>
+          <p style={{ margin: "3px 0 0", fontSize: 13, color: "#64748B" }}>Manage employees, security, branding, targets and workspace configuration.</p>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingTop: 4 }}>
+          {SHORTCUTS.map(({ label, id }) => (
+            <button key={id} className="sv-settings-shortcut" onClick={() => scrollTo(id)}
+              style={{ display: "inline-flex", alignItems: "center", padding: "5px 11px", borderRadius: 6, border: "1px solid #E2E8F0", background: "#F8FAFC", color: "#475569", fontSize: 11.5, fontWeight: 500, cursor: "pointer", transition: "all .15s", lineHeight: 1 }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Summary stats ────────────────────────────────────── */}
+      <div className="sv-settings-stats" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10, marginBottom: 16 }}>
         {stats.map((s) => (
-          <div key={s.label} className="sv-leave-stat">
-            <span className="sv-leave-stat-ic" style={{ background: `${s.color}1A`, color: s.color }}>{s.icon}</span>
-            <div><div className="sv-leave-stat-v">{s.value}</div><div className="sv-leave-stat-l">{s.label}</div></div>
+          <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", background: "var(--c-surface, #fff)", border: "1px solid var(--c-border, #E9EEF4)", borderRadius: 12, boxShadow: "0 1px 3px rgba(15,23,42,.04)" }}>
+            <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 8, background: `${s.color}18`, color: s.color, flexShrink: 0 }}>{s.icon}</span>
+            <div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "var(--c-text, #0F172A)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{s.value}</div>
+              <div style={{ fontSize: 10.5, color: "#64748B", fontWeight: 500, marginTop: 2, whiteSpace: "nowrap" }}>{s.label}</div>
+            </div>
           </div>
         ))}
       </div>
 
+      {/* ── Settings lock bar ─────────────────────────────────── */}
       <SettingsLockBar editMode={editMode} setEditMode={setEditMode} settingsPwd={settingsPwd} setSettingsPwd={setSettingsPwd} showToast={showToast} />
-      <div className="sv-grid-2 sv-gap-md">
-        <div className="sv-card">
-          <SecHead icon={<Users size={16} />} title="Employee Management" desc="Add employees and manage their details" />
-          <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap" }}>
-            <input className="sv-input" placeholder="Full name" value={newEmp} onChange={(e) => setNewEmp(e.target.value)} style={{ flex: "1 1 150px" }} />
-            <input className="sv-input" type="email" placeholder="Email (for login)" value={newEmpEmail} onChange={(e) => setNewEmpEmail(e.target.value)} style={{ flex: "1 1 190px" }} />
-            <input className="sv-input" placeholder="Password (default 1234)" value={newEmpPwd} onChange={(e) => setNewEmpPwd(e.target.value)} style={{ flex: "1 1 150px" }} />
-            <button className="sv-btn sv-btn--primary" onClick={addEmployeeQuick}><Plus size={14} /> Add</button>
-          </div>
-          {/* Compact employee list — ACTIVE staff only; shows 4, scrollable, View All toggle */}
-          <EmployeeListCompact employees={activeEmps} onUpdateEmp={onUpdateEmp} onTerminate={onTerminateEmp} onResetPwd={onResetPwd} departments={departments} />
-        </div>
 
-        <div className="sv-card">
+      {/* ── Row 1: People ─────────────────────────────────────── */}
+      <div className="sv-grid-2 sv-gap-md" style={{ marginBottom: 16 }}>
+        <div id="sv-s-emp" className="sv-card">
+          <SecHead icon={<Users size={16} />} title="Employee Management" desc="Add employees and manage their profiles" />
+          <div style={{ marginBottom: 14 }}>
+            <button className="sv-btn sv-btn--primary" onClick={() => setAddEmpOpen(true)} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, padding: "9px 18px" }}>
+              <UserPlus size={15} /> Add Employee
+            </button>
+          </div>
+          <EmployeeListCompact employees={activeEmps} onUpdateEmp={onUpdateEmp} onTerminate={onTerminateEmp} onResetPwd={onResetPwd} departments={departments} onViewProfile={setViewingEmp} />
+        </div>
+        <div id="sv-s-former" className="sv-card">
           <FormerEmployeesCard formerEmps={formerEmps} submissions={submissions} onReactivate={onReactivateEmp} onDeleteEmp={onDeleteEmp} showToast={showToast} />
         </div>
+      </div>
 
-        <div className="sv-card">
-          <SecHead icon={<ShieldCheck size={16} />} color="#16A34A" bg="rgba(22,163,74,.12)" title="Admin Security" desc="Two-step admin password change" />
-          <label className="sv-label">Current Password</label>
-          <input className="sv-input" type="password" value={curPwd} onChange={(e) => setCurPwd(e.target.value)} style={{ marginBottom: 8 }} />
-          <label className="sv-label">New Password</label>
-          <input className="sv-input" type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} style={{ marginBottom: 8 }} />
-          <label className="sv-label">Confirm New Password</label>
-          <input className="sv-input" type="password" value={confirmPwd} onChange={(e) => setConfirmPwd(e.target.value)} style={{ marginBottom: 12 }} />
-          <button className="sv-btn sv-btn--primary" onClick={changeAdminPwd} disabled={!editMode}>Update Password</button>
+      {/* ── Row 2: Security + Branding ────────────────────────── */}
+      <div className="sv-grid-2 sv-gap-md" style={{ marginBottom: 16 }}>
+        <div id="sv-s-security" className="sv-card">
+          <SecHead icon={<ShieldCheck size={16} />} color="#16A34A" bg="#16A34A18" title="Admin Security" desc="Change the admin account password" />
+          {lockHint()}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+            {[
+              { label: "Current Password", val: curPwd, set: setCurPwd },
+              { label: "New Password", val: newPwd, set: setNewPwd },
+              { label: "Confirm New Password", val: confirmPwd, set: setConfirmPwd },
+            ].map(({ label, val, set }) => (
+              <label key={label} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: "#475569" }}>{label}</span>
+                <input className="sv-input" type="password" value={val} onChange={(e) => set(e.target.value)} disabled={!editMode} />
+              </label>
+            ))}
+          </div>
+          <button className="sv-btn sv-btn--primary" style={{ marginTop: 14 }} onClick={changeAdminPwd} disabled={!editMode}>Update Password</button>
         </div>
 
-        <div className="sv-card">
-          <SecHead icon={<MessageSquare size={16} />} color="#7C3AED" bg="rgba(124,58,237,.12)" title="Message an Employee" desc="Send a direct message to any employee" />
+        <div id="sv-s-branding" className="sv-card">
+          <SecHead icon={<ImageIcon size={16} />} color="#EA580C" bg="#EA580C18" title="Company Branding" desc="Logo displayed across the dashboard" />
+          {lockHint()}
+          <div style={{ display: "flex", gap: 20, alignItems: "center", marginTop: 12 }}>
+            <div style={{ width: 96, height: 96, borderRadius: 14, border: "1.5px dashed #CBD5E1", display: "flex", alignItems: "center", justifyContent: "center", background: "#F8FAFC", overflow: "hidden", flexShrink: 0 }}>
+              {logo
+                ? <img src={logo} alt="Logo" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                : <span style={{ fontSize: 24, fontWeight: 800, color: "#CBD5E1", letterSpacing: -1 }}>SV</span>}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <label style={{ cursor: editMode ? "pointer" : "not-allowed", opacity: editMode ? 1 : 0.55, display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 8, background: "#EFF6FF", color: "#2563EB", fontSize: 12.5, fontWeight: 600, border: "1px solid #BFDBFE" }}>
+                <ImageIcon size={13} /> Upload Logo
+                <input type="file" accept="image/*" disabled={!editMode} style={{ display: "none" }} onChange={(e) => e.target.files[0] && onLogoFile(e.target.files[0])} />
+              </label>
+              {logo && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ color: "#DC2626", borderColor: "#FCA5A5", fontSize: 12 }} onClick={onLogoRemove} disabled={!editMode}>Remove</button>}
+              <p style={{ margin: 0, fontSize: 11, color: "#94A3B8", lineHeight: 1.5 }}>PNG, JPG or SVG<br />Recommended 200×60 px</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Row 3: Targets + Messaging ────────────────────────── */}
+      <div className="sv-grid-2 sv-gap-md" style={{ marginBottom: 16 }}>
+        <div id="sv-s-targets" className="sv-card">
+          <SecHead icon={<Target size={16} />} color="#0EA5E9" bg="#0EA5E918" title="Daily Performance Targets" desc="Daily goals employees are measured against" />
+          {lockHint()}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 16px", marginTop: 10 }}>
+            {[
+              { key: "emailsSent", label: "Emails Sent" },
+              { key: "newLeads", label: "New Leads" },
+              { key: "callsMade", label: "Calls Made" },
+              { key: "salesGenerated", label: "Sales (₹)" },
+              { key: "followUps", label: "Follow-Ups" },
+              { key: "meetings", label: "Meetings" },
+            ].map(({ key, label }) => (
+              <label key={key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#64748B", letterSpacing: ".03em" }}>{label}</span>
+                <input className="sv-input" type="number" min="0" disabled={!editMode}
+                  value={tDraft[key] ?? targets?.[key] ?? ""}
+                  onChange={(e) => setTDraft((d) => ({ ...d, [key]: Number(e.target.value) || 0 }))} />
+              </label>
+            ))}
+          </div>
+          <button className="sv-btn sv-btn--primary" style={{ marginTop: 14 }} disabled={!editMode}
+            onClick={() => { if (setTargets) { setTargets(tDraft); showToast("Targets saved.", "success"); } }}>Save Targets</button>
+        </div>
+
+        <div id="sv-s-messages" className="sv-card">
+          <SecHead icon={<MessageSquare size={16} />} color="#7C3AED" bg="#7C3AED18" title="Message an Employee" desc="Send a direct message to any team member" />
           <select className="sv-select" value={msgEmpId} onChange={(e) => setMsgEmpId(e.target.value)}>
-            <option value="">Select employee...</option>
+            <option value="">Select employee…</option>
             {activeEmps.map((e) => <option key={e.id} value={e.id}>{empLabel(e)}</option>)}
           </select>
-          <textarea className="sv-textarea" placeholder="Message..." value={msgText} onChange={(e) => setMsgText(e.target.value)} style={{ marginTop: 8 }} />
-          <button className="sv-btn sv-btn--primary" style={{ marginTop: 8 }} onClick={sendMessage}>Send</button>
-          <div style={{ marginTop: 12, maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-            {messages.length === 0 ? (
-              <span className="sv-text-muted" style={{ fontSize: 12.5 }}>No messages sent yet.</span>
-            ) : messages.map((m) => {
-              const nm = employees.find((e) => e.id === m.empId)?.name || "Employee";
-              const raw = m.text || "";
-              const sv = /\[SVPAY\]([\s\S]*?)\[\/SVPAY\]/.exec(raw);
-              let label = raw.trim();
-              if (sv) { let extra = ""; try { const d = JSON.parse(sv[1]); extra = ` — ${d.month} ${d.year} · Net ₹${Number(d.total || 0).toLocaleString("en-IN")}`; } catch (e) { /* ignore */ } label = `Payslip sent${extra}`; }
-              return (
-                <div key={m.id} className="sv-flex sv-flex--between sv-items-center" style={{ gap: 10, padding: "8px 12px", background: "#F8FAFC", border: "1px solid #EEF2F7", borderRadius: 10 }}>
-                  <span style={{ minWidth: 0, fontSize: 12.5, color: "#334155", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}><b className="sv-text-navy">{nm}:</b> {label}</span>
-                  <button className="sv-btn sv-btn--sm sv-btn--danger" style={{ flexShrink: 0 }} onClick={() => deleteMessage(m.id)}>Delete</button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+          <textarea className="sv-textarea" placeholder="Type your message…" value={msgText} onChange={(e) => setMsgText(e.target.value)} style={{ marginTop: 8, minHeight: 80 }} />
+          <button className="sv-btn sv-btn--primary" style={{ marginTop: 8 }} onClick={sendMessage}>Send Message</button>
 
-
-        <div className="sv-card">
-          <SecHead icon={<ImageIcon size={16} />} color="#EA580C" bg="rgba(234,88,12,.12)" title="Company Branding" desc="Logo shown across the dashboard" />
-          {lockHint()}
-          <div className="sv-logo-preview">
-            {logo ? <img src={logo} alt="Logo" /> : <span>SV</span>}
-          </div>
-          <input type="file" accept="image/*" disabled={!editMode} onChange={(e) => e.target.files[0] && onLogoFile(e.target.files[0])} />
-          <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ marginTop: 8 }} onClick={onLogoRemove} disabled={!editMode}>Remove</button>
-        </div>
-
-        <div className="sv-card">
-          <SecHead icon={<Globe2 size={16} />} color="#16A34A" bg="rgba(22,163,74,.12)" title="Website Management" desc="Websites your team works on" />
-          <div className="sv-info-note">
-            <Globe2 size={15} />
-            <span>These are the websites your team works on. When an employee fills their <b>Daily Status Report</b>, they pick a website from this list and describe what they did on it that day. Add every site your team handles so it appears as an option in their report.</span>
-          </div>
-          {lockHint()}
-          <label className="sv-label" style={{ marginTop: 12 }}>Add a website</label>
-          <div className="sv-flex sv-gap-sm">
-            <input className="sv-input" placeholder="e.g. Main Website, Company Blog" disabled={!editMode} value={newWebsite} onChange={(e) => setNewWebsite(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && editMode) addWebsite(); }} />
-            <button className="sv-btn sv-btn--primary" onClick={addWebsite} disabled={!editMode}><Plus size={14} /> Add</button>
-          </div>
-          <div className="sv-website-list">
-            <span className="sv-website-list-label">Employees can report on {websites.length} website{websites.length !== 1 ? "s" : ""}:</span>
-            {websites.length === 0 ? (
-              <span className="sv-text-muted" style={{ fontSize: 12.5 }}>None yet — add your first website above.</span>
-            ) : (
-              <div className="sv-flex sv-gap-xs" style={{ flexWrap: "wrap", marginTop: 6 }}>
-                {websites.map((w) => <span key={w} className="sv-chip">{w} <button disabled={!editMode} onClick={() => removeWebsite(w)} style={{ border: "none", background: "transparent", cursor: editMode ? "pointer" : "not-allowed", marginLeft: 4 }}>×</button></span>)}
+          {messages.length > 0 && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 6 }}>Sent ({messages.length})</div>
+              <div style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
+                {messages.map((m) => {
+                  const nm = employees.find((e) => e.id === m.empId)?.name || "Employee";
+                  const raw = m.text || "";
+                  const sv = /\[SVPAY\]([\s\S]*?)\[\/SVPAY\]/.exec(raw);
+                  let label = raw.trim();
+                  if (sv) { let extra = ""; try { const d = JSON.parse(sv[1]); extra = ` — ${d.month} ${d.year} · Net ₹${Number(d.total || 0).toLocaleString("en-IN")}`; } catch (e) { /* ignore */ } label = `Payslip sent${extra}`; }
+                  return (
+                    <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "#F8FAFC", border: "1px solid #EEF2F7", borderRadius: 8 }}>
+                      <span style={{ minWidth: 0, flex: 1, fontSize: 12, color: "#334155", overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}><b style={{ color: "#0F172A", fontWeight: 600 }}>{nm}:</b> {label}</span>
+                      <button className="sv-btn sv-btn--sm sv-btn--danger" style={{ flexShrink: 0, fontSize: 11 }} onClick={() => deleteMessage(m.id)}>Delete</button>
+                    </div>
+                  );
+                })}
               </div>
-            )}
-          </div>
+            </div>
+          )}
+          {messages.length === 0 && (
+            <div style={{ marginTop: 14, padding: "16px 0", textAlign: "center", color: "#CBD5E1", fontSize: 12.5 }}>No messages sent yet.</div>
+          )}
         </div>
+      </div>
 
-        <div className="sv-card">
-          <SecHead icon={<Globe2 size={16} />} color="#2563EB" bg="rgba(37,99,235,.12)" title="Websites / Domains" desc="One shared domain list — powers the Sales Pipeline and every DSR (Operation, Social, Magazine Live). Add once, appears everywhere." />
-          <div className="sv-info-note">
-            <Globe2 size={15} />
-            <span>These domains appear automatically in the <b>Sales Pipeline</b> and in the <b>Operation DSR</b> (Website Work, Social Media, Magazine Live). Add or remove one here and it updates everywhere.</span>
-          </div>
+      {/* ── Row 4: Domains ───────────────────────────────────── */}
+      <div>
+        <div id="sv-s-domains" className="sv-card">
+          <SecHead icon={<Globe2 size={16} />} color="#2563EB" bg="#2563EB18" title="Domains / Pipeline" desc="Shared domains used in Sales Pipeline and DSR" />
           {lockHint()}
-          <label className="sv-label" style={{ marginTop: 12 }}>Add a domain</label>
-          <div className="sv-flex sv-gap-sm">
-            <input className="sv-input" placeholder="e.g. AWL, CIO Visionaries" disabled={!editMode} value={newDomain} onChange={(e) => setNewDomain(e.target.value)} onKeyDown={async (e) => { if (e.key === "Enter" && editMode && newDomain.trim()) { const ok = await addDomain(newDomain); if (ok) setNewDomain(""); } }} />
-            <button className="sv-btn sv-btn--primary" disabled={!editMode || !newDomain.trim()} onClick={async () => { const ok = await addDomain(newDomain); if (ok) setNewDomain(""); }}><Plus size={14} /> Add</button>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <input className="sv-input" placeholder="e.g. AWL, CIO Visionaries" disabled={!editMode} value={newDomain} onChange={(e) => setNewDomain(e.target.value)} onKeyDown={async (e) => { if (e.key === "Enter" && editMode && newDomain.trim()) { const ok = await addDomain(newDomain); if (ok) setNewDomain(""); } }} style={{ flex: 1 }} />
+            <button className="sv-btn sv-btn--primary" disabled={!editMode || !newDomain.trim()} onClick={async () => { const ok = await addDomain(newDomain); if (ok) setNewDomain(""); }} style={{ flexShrink: 0 }}><Plus size={14} /> Add</button>
           </div>
-          <div className="sv-website-list">
-            <span className="sv-website-list-label">{domains.length} domain{domains.length !== 1 ? "s" : ""} available across Pipeline &amp; DSR:</span>
+          <div style={{ marginTop: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".06em" }}>{domains.length} domain{domains.length !== 1 ? "s" : ""} across Pipeline &amp; DSR</span>
             {domains.length === 0 ? (
-              <span className="sv-text-muted" style={{ fontSize: 12.5 }}>None yet — add your first domain above.</span>
+              <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "#CBD5E1" }}>None yet — add your first domain above.</p>
             ) : (
-              <div className="sv-flex sv-gap-xs" style={{ flexWrap: "wrap", marginTop: 6 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
                 {domains.map((d) => (
                   editDomainId === d.id ? (
-                    <span key={d.id} className="sv-chip" style={{ gap: 4 }}>
-                      <input className="sv-input" style={{ height: 26, padding: "2px 6px", fontSize: 12.5, width: 150 }} value={editDomainVal} autoFocus onChange={(e) => setEditDomainVal(e.target.value)} onKeyDown={async (e) => { if (e.key === "Enter" && editDomainVal.trim()) { await updateDomain(d.id, editDomainVal); setEditDomainId(null); } if (e.key === "Escape") setEditDomainId(null); }} />
+                    <span key={d.id} className="sv-chip" style={{ gap: 4, display: "inline-flex", alignItems: "center" }}>
+                      <input className="sv-input" style={{ height: 26, padding: "2px 6px", fontSize: 12, width: 140 }} value={editDomainVal} autoFocus onChange={(e) => setEditDomainVal(e.target.value)} onKeyDown={async (e) => { if (e.key === "Enter" && editDomainVal.trim()) { await updateDomain(d.id, editDomainVal); setEditDomainId(null); } if (e.key === "Escape") setEditDomainId(null); }} />
                       <button onClick={async () => { if (editDomainVal.trim()) { await updateDomain(d.id, editDomainVal); setEditDomainId(null); } }} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#16A34A", fontWeight: 700 }}>✓</button>
                       <button onClick={() => setEditDomainId(null)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#94A3B8" }}>×</button>
                     </span>
                   ) : (
-                    <span key={d.id} className="sv-chip">{d.name}
-                      <button disabled={!editMode} title="Edit" onClick={() => { setEditDomainId(d.id); setEditDomainVal(d.name); }} style={{ border: "none", background: "transparent", cursor: editMode ? "pointer" : "not-allowed", marginLeft: 6, color: "#2563EB" }}><Pencil size={12} /></button>
-                      <button disabled={!editMode} title="Delete" onClick={() => { if (window.confirm(`Delete domain "${d.name}"?`)) deleteDomain(d.id); }} style={{ border: "none", background: "transparent", cursor: editMode ? "pointer" : "not-allowed", marginLeft: 2 }}>×</button>
+                    <span key={d.id} className="sv-chip" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                      {d.name}
+                      <button disabled={!editMode} title="Edit" onClick={() => { setEditDomainId(d.id); setEditDomainVal(d.name); }} style={{ border: "none", background: "transparent", cursor: editMode ? "pointer" : "not-allowed", color: "#2563EB", padding: 0 }}><Pencil size={11} /></button>
+                      <button disabled={!editMode} title="Delete" onClick={() => { if (window.confirm(`Delete domain "${d.name}"?`)) deleteDomain(d.id); }} style={{ border: "none", background: "transparent", cursor: editMode ? "pointer" : "not-allowed", color: "#94A3B8", padding: 0, fontSize: 14, lineHeight: 1 }}>×</button>
                     </span>
                   )
                 ))}
@@ -1768,13 +1967,28 @@ export function SettingsTab({ employees, setEmployees, submissions = [], departm
         </div>
       </div>
     </div>
+
+    {addEmpOpen && (
+      <AddEmployeeModal
+        onClose={() => setAddEmpOpen(false)}
+        onAdded={() => setAddEmpOpen(false)}
+      />
+    )}
+    {viewingEmp && (
+      <EmployeeProfileModal
+        emp={viewingEmp}
+        onClose={() => setViewingEmp(null)}
+        onSave={async (updated) => { await onUpdateEmp(updated); setViewingEmp(updated); showToast("Profile saved.", "success"); }}
+      />
+    )}
+    </>
   );
 }
 
 
 /* Single employee row in admin Settings. Holds a local draft and persists
    text edits on blur (avoids per-keystroke writes & save races). */
-function EmployeeRow({ emp, onUpdateEmp, onTerminate, onResetPwd, departments = [] }) {
+function EmployeeRow({ emp, onUpdateEmp, onTerminate, onResetPwd, departments = [], onViewProfile }) {
   const [draft, setDraft] = useState(emp);
   const [open, setOpen] = useState(false);
   const [terming, setTerming] = useState(false);   // reason panel open?
@@ -1788,57 +2002,32 @@ function EmployeeRow({ emp, onUpdateEmp, onTerminate, onResetPwd, departments = 
     setBusy(false);
     if (ok !== false) { setTerming(false); setReason(""); }
   };
+  const isComplete = !!(emp.mobile && emp.dob && emp.personalEmail && emp.address &&
+    emp.bankAccount && emp.bankName && emp.bankIfsc && emp.bankBranch && emp.bankHolder);
   return (
-    <li className={`sv-emp-row${open ? " sv-emp-row--open" : ""}`}>
-      <div className="sv-emp-head" onClick={() => setOpen((v) => !v)}>
+    <li className="sv-emp-row" style={{ cursor: "default" }}>
+      <div className="sv-emp-head" style={{ cursor: "default" }}>
         <span className="sv-flex sv-items-center sv-gap-2">
           <Avatar name={draft.name} photo={draft.photo} size={30} />
           <span className="sv-emp-name">{draft.name}</span>
           <span className="sv-emp-dept">{draft.department}</span>
+          {!isComplete && <span style={{ fontSize: 10, background: "#FFF7ED", color: "#EA580C", border: "1px solid #FED7AA", borderRadius: 20, padding: "1px 7px", fontWeight: 600 }}>Incomplete</span>}
         </span>
         <span className="sv-flex sv-items-center sv-gap-2">
-          <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ color: "#B45309", borderColor: "#FDE68A" }} title="End employment — preserves all data & history; the employee can no longer sign in and moves to Former Employees." onClick={(ev) => { ev.stopPropagation(); setOpen(true); setTerming((v) => !v); }}><UserX size={13} /> Terminate</button>
-          <span className="sv-emp-chevron">{open ? "▲" : "▼"}</span>
+          <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ color: "#2563EB", borderColor: "#BFDBFE" }} title="View & edit full profile" onClick={() => onViewProfile?.(emp)}><Eye size={13} /> Profile</button>
+          <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ color: "#B45309", borderColor: "#FDE68A" }} title="End employment" onClick={(ev) => { ev.stopPropagation(); setTerming((v) => !v); }}><UserX size={13} /> Terminate</button>
         </span>
       </div>
-      {open && (
-      <div className="sv-emp-body">
       {terming && (
-        <div style={{ marginBottom: 10, padding: "10px 12px", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8 }}>
+        <div style={{ margin: "0 12px 10px", padding: "10px 12px", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginBottom: 6 }}>End employment for {emp.name}?</div>
-          <div style={{ fontSize: 11, color: "#B45309", marginBottom: 8 }}>Their data, DSRs, salary and history are kept. They can no longer sign in and will move to Former Employees. You can Reactivate them later.</div>
+          <div style={{ fontSize: 11, color: "#B45309", marginBottom: 8 }}>Data, DSRs, salary and history are preserved. They move to Former Employees and can be reactivated.</div>
           <input className="sv-input" placeholder="Reason (optional) — e.g. Resigned, Contract ended" value={reason} onChange={(e) => setReason(e.target.value)} style={{ marginBottom: 8 }} />
           <div style={{ display: "flex", gap: 8 }}>
             <button className="sv-btn sv-btn--sm" style={{ background: "#D97706", color: "#fff" }} disabled={busy} onClick={doTerminate}>{busy ? "Terminating…" : "Confirm Terminate"}</button>
             <button className="sv-btn sv-btn--sm sv-btn--outline" disabled={busy} onClick={() => { setTerming(false); setReason(""); }}>Cancel</button>
           </div>
         </div>
-      )}
-      <div className="sv-emp-grid">
-        <label className="sv-field"><span>Department</span>
-          <select className="sv-select" value={draft.department || ""} onChange={(e) => { const v = e.target.value; const next = { ...draft, department: v }; setDraft(next); onUpdateEmp(next); }}>
-            <option value="">— Select department —</option>
-            {(() => {
-              // Dynamic list from the Departments section; keep the employee's current
-              // value even if it isn't in the list, so editing never drops it.
-              const seen = new Set(); const opts = [];
-              [...(draft.department ? [draft.department] : []), ...departments].forEach((d) => {
-                const k = (d || "").trim().toLowerCase();
-                if (d && !seen.has(k)) { seen.add(k); opts.push(d); }
-              });
-              return opts.map((d) => <option key={d} value={d}>{d}</option>);
-            })()}
-          </select>
-        </label>
-        <label className="sv-field"><span>Employee Code</span>
-          <input className="sv-input" maxLength={4} placeholder="e.g. 1234" value={draft.code || ""} onChange={(e) => set("code", e.target.value)} onBlur={() => onUpdateEmp(draft)} />
-        </label>
-        <label className="sv-field"><span>Email</span>
-          <input className="sv-input" placeholder="name@company.com" value={draft.email || ""} onChange={(e) => set("email", e.target.value)} onBlur={() => onUpdateEmp(draft)} />
-        </label>
-      </div>
-      <ResetPasswordInline empId={emp.id} empName={emp.name} onResetPwd={onResetPwd} />
-      </div>
       )}
     </li>
   );
@@ -1911,14 +2100,14 @@ function ResetPasswordInline({ empId, empName, onResetPwd }) {
 
 // ── EmployeeListCompact ──────────────────────────────────────
 // Shows 4 employees by default with a scrollable "View All" expansion
-function EmployeeListCompact({ employees, onUpdateEmp, onTerminate, onResetPwd, departments = [] }) {
+function EmployeeListCompact({ employees, onUpdateEmp, onTerminate, onResetPwd, departments = [], onViewProfile }) {
   return (
     <div style={{ marginTop: 12 }}>
-      <div className="sv-emp-count">{employees.length} active employee{employees.length === 1 ? "" : "s"} — click a name to view details</div>
+      <div className="sv-emp-count">{employees.length} active employee{employees.length === 1 ? "" : "s"} — click a name to expand</div>
       <div className="sv-emp-list">
         <ul className="sv-list" style={{ margin: 0, padding: 0 }}>
           {employees.map((e) => (
-            <EmployeeRow key={e.id} emp={e} onUpdateEmp={onUpdateEmp} onTerminate={onTerminate} onResetPwd={onResetPwd} departments={departments} />
+            <EmployeeRow key={e.id} emp={e} onUpdateEmp={onUpdateEmp} onTerminate={onTerminate} onResetPwd={onResetPwd} departments={departments} onViewProfile={onViewProfile} />
           ))}
         </ul>
       </div>
@@ -2109,30 +2298,38 @@ function SettingsLockBar({ editMode, setEditMode, settingsPwd, setSettingsPwd, s
 
   return (
     <div style={{
-      padding: "10px 16px", marginBottom: 4,
-      background: editMode ? "#DCFCE7" : "#FEF3C7",
-      border: `1.5px solid ${editMode ? "#86EFAC" : "#FDE68A"}`,
+      padding: "11px 16px", marginBottom: 16,
+      background: editMode ? "#F0FDF4" : "var(--c-surface, #fff)",
+      border: `1px solid ${editMode ? "#86EFAC" : "#E2E8F0"}`,
       borderRadius: 10,
     }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 18 }}>{editMode ? "🔓" : "🔒"}</span>
+          <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 8, background: editMode ? "#DCFCE7" : "#F1F5F9", color: editMode ? "#16A34A" : "#64748B", flexShrink: 0 }}>
+            {editMode ? <ShieldCheck size={16} /> : <ShieldCheck size={16} />}
+          </span>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: editMode ? "#166534" : "#92400E" }}>
-              {editMode ? "Settings & Salary — editing unlocked" : "Settings & Salary are locked"}
+            <div style={{ fontSize: 13, fontWeight: 700, color: editMode ? "#15803D" : "#334155" }}>
+              {editMode ? "Settings & Salary unlocked" : "Settings & Salary are protected"}
             </div>
-            <div style={{ fontSize: 11, color: editMode ? "#15803D" : "#B45309" }}>
-              {editMode ? "Config fields and the Salary tab are editable. Click Lock when done." : "Enter the Settings Password to edit config & salary. Employee info stays editable without it."}
+            <div style={{ fontSize: 11.5, color: editMode ? "#16A34A" : "#94A3B8", marginTop: 1 }}>
+              {editMode ? "Config fields and Salary tab are editable. Lock when done." : "Enter the Settings Password to edit config and salary."}
             </div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           {editMode ? (
-            <button onClick={() => { setEditMode(false); closeAll(); }} style={{ padding: "8px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, background: "#DC2626", color: "#fff" }}>🔒 Lock</button>
+            <button onClick={() => { setEditMode(false); closeAll(); }} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "1px solid #FCA5A5", cursor: "pointer", fontWeight: 600, fontSize: 12.5, background: "#FFF1F2", color: "#DC2626" }}>
+              <ShieldCheck size={13} /> Lock Settings
+            </button>
           ) : (
             <>
-              <button onClick={() => setPanel(panel === "unlock" ? null : "unlock")} style={{ padding: "8px 18px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, background: "#1D4ED8", color: "#fff" }}><Pencil size={14} /> Edit</button>
-              <button onClick={() => { setPanel(panel === "reset" ? null : "reset"); setRVerified(false); }} style={{ padding: "8px 14px", borderRadius: 8, border: "1.5px solid #CBD5E1", cursor: "pointer", fontWeight: 700, fontSize: 12.5, background: "#fff", color: "#475569" }}>Reset Password</button>
+              <button onClick={() => setPanel(panel === "unlock" ? null : "unlock")} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 12.5, background: "#1D4ED8", color: "#fff" }}>
+                <Pencil size={13} /> Unlock to Edit
+              </button>
+              <button onClick={() => { setPanel(panel === "reset" ? null : "reset"); setRVerified(false); }} style={{ display: "inline-flex", alignItems: "center", padding: "7px 12px", borderRadius: 8, border: "1px solid #E2E8F0", cursor: "pointer", fontWeight: 600, fontSize: 12, background: "transparent", color: "#64748B" }}>
+                Reset Password
+              </button>
             </>
           )}
         </div>
@@ -2140,7 +2337,7 @@ function SettingsLockBar({ editMode, setEditMode, settingsPwd, setSettingsPwd, s
 
       {/* Unlock panel */}
       {!editMode && panel === "unlock" && (
-        <div style={{ marginTop: 10, padding: "10px 12px", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ marginTop: 10, padding: "10px 12px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input className="sv-input" type="password" placeholder="Settings Password" value={unlockPwd} onChange={(e) => setUnlockPwd(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") doUnlock(); }} style={{ maxWidth: 220 }} />
           <button className="sv-btn sv-btn--primary" onClick={doUnlock}>Unlock</button>
         </div>
@@ -2193,7 +2390,7 @@ function SettingsLockBar({ editMode, setEditMode, settingsPwd, setSettingsPwd, s
 const EXP_CURRENCIES = ["INR", "USD", "AED", "AUD", "EUR", "GBP", "CAD", "Other"];
 const EXP_METHODS = ["PayPal", "Skydo", "Bank Transfer", "Wise", "Stripe", "Cash", "Other"];
 const CO_CATEGORIES = ["Office Rent", "Internet", "Electricity", "Software Subscriptions", "Marketing", "Travel", "Food", "Office Equipment", "Miscellaneous"];
-const CO_BLANK = { type: "company", title: "", category: "Miscellaneous", clientName: "", amount: "", currency: "INR", paymentDate: "", paymentMethod: "", paymentStatus: "Paid", notes: "", details: { vendor: "" } };
+const CO_BLANK = { type: "company", title: "", category: "Miscellaneous", clientName: "", amount: "", currency: "INR", paymentDate: "", paymentMethod: "", paymentStatus: "Paid", notes: "", details: { vendor: "", files: [] } };
 const EXP_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 function expMoney(v, code) {
@@ -2276,6 +2473,7 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
   const [insSaving, setInsSaving] = useState(false);
   const [insUploading, setInsUploading] = useState(false);
   const [addFilesBusy, setAddFilesBusy] = useState(false); // adding files to an already-saved order
+  const [coUploading, setCoUploading] = useState(false);   // uploading files in the company add/edit form
 
   const io = expenses.filter((e) => e.type === "insertion_order");
   const pay = expenses.filter((e) => e.type === "payment_received");
@@ -2316,6 +2514,19 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
     setSaving(false);
     if (ok !== false) setForm(null);
   };
+  const uploadCompanyFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setCoUploading(true);
+    try {
+      for (const file of files) {
+        const r = await uploadFile(file);
+        if (r) setForm((f) => ({ ...f, details: { ...(f.details || {}), files: [...((f.details || {}).files || []), { url: r.url, name: r.name }] } }));
+      }
+    } catch (e) { alert("Could not upload a file: " + (e.message || "unknown error")); }
+    finally { setCoUploading(false); }
+  };
+  const removeCompanyFile = (idx) => setForm((f) => ({ ...f, details: { ...(f.details || {}), files: ((f.details || {}).files || []).filter((_, i) => i !== idx) } }));
 
   // Shared file uploader → returns { url, name } or null
   const uploadFile = async (file) => {
@@ -2572,11 +2783,12 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
 
       {/* ── Monthly dashboard (CA review) ── */}
       {section === "dashboard" && (() => {
-        const dashKeys = fYear ? monthKeys.filter((k) => k.slice(0, 4) === fYear) : monthKeys;
+        const dashKeys = monthKeys
+          .filter((k) => (!fYear || k.slice(0, 4) === fYear) && (!fMonth || k.slice(5, 7) === fMonth));
         // The dashboard reports in INR (the standard reporting currency). Every record is converted
         // to INR — the final bank credit if entered, else the live conversion — and currencies are
         // never mixed on the INR charts. Original amounts drive the separate currency-wise chart.
-        const scope = dashKeys.flatMap((k) => monthMap[k]);
+        const scope = dashKeys.flatMap((k) => monthMap[k] || []);
         const isFree = (e) => e.type === "salary" && e.category === "Freelancer";
         const fPay = (e) => e.type === "payment_received", fEmp = (e) => e.type === "salary" && !isFree(e), fCo = (e) => e.type === "company";
         const inrSum = (f) => scope.filter(f).reduce((s, e) => s + (inrOf(e) || 0), 0);
@@ -2599,30 +2811,73 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
           { name: "Company", value: Math.round(coInr), color: "#8B5CF6" },
         ].filter((d) => d.value > 0);
         const card = (label, valueInr, color, sub) => (
-          <div style={{ flex: "1 1 160px", minWidth: 160, background: "#fff", border: "1px solid #E9EEF4", borderTop: `3px solid ${color}`, borderRadius: 12, padding: "14px 16px" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.3 }}>{label}</div>
+          <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderTop: `3px solid ${color}`, borderRadius: 12, padding: "14px 16px", minWidth: 0 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
             <div style={{ fontSize: 17, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{formatINR(valueInr)}</div>
             {sub && <div style={{ fontSize: 11, color: "#94A3B8", marginTop: 2 }}>{sub}</div>}
           </div>
         );
         return (
         <div className="sv-card">
-          <div className="sv-flex sv-justify-between" style={{ alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-            <h3 style={{ margin: 0 }}>Financial Summary{fYear ? ` · ${fYear}` : ""} <span style={{ fontSize: 12, fontWeight: 600, color: "#64748B" }}>· reported in INR</span></h3>
-            <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", alignItems: "center" }}>
-              <select className="sv-select" value={fYear} onChange={(e) => setFYear(e.target.value)} style={{ maxWidth: 130 }}>
+          {/* ── Dashboard header: title + filters in one aligned row ── */}
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", paddingBottom: 14, borderBottom: "1px solid #F1F5F9" }}>
+
+            {/* Left: title + active-filter chip */}
+            <div style={{ flex: "1 1 180px", minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#162B55", whiteSpace: "nowrap" }}>
+                Financial Summary
+                {(fYear || fMonth) && (
+                  <span style={{ marginLeft: 8, fontSize: 12.5, fontWeight: 700, color: "#2563EB", background: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 6, padding: "2px 8px", verticalAlign: "middle" }}>
+                    {fMonth ? EXP_MONTHS[(+fMonth) - 1] : ""}{fMonth && fYear ? " " : ""}{fYear || ""}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11.5, color: "#94A3B8", marginTop: 2, fontWeight: 500 }}>All amounts reported in INR</div>
+            </div>
+
+            {/* Centre: month + year selects */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#F8FAFC", border: "1px solid #E9EEF4", borderRadius: 10, padding: "6px 10px" }}>
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: "#94A3B8", whiteSpace: "nowrap" }}>Filter by</span>
+              <select value={fMonth} onChange={(e) => setFMonth(e.target.value)}
+                style={{ fontSize: 12.5, fontWeight: 600, color: "#334155", background: "transparent", border: "none", outline: "none", cursor: "pointer", padding: "2px 4px" }}>
+                <option value="">All months</option>
+                {EXP_MONTHS.map((m, i) => <option key={m} value={String(i + 1).padStart(2, "0")}>{m}</option>)}
+              </select>
+              <span style={{ color: "#D1D5DB", fontSize: 14 }}>|</span>
+              <select value={fYear} onChange={(e) => setFYear(e.target.value)}
+                style={{ fontSize: 12.5, fontWeight: 600, color: "#334155", background: "transparent", border: "none", outline: "none", cursor: "pointer", padding: "2px 4px" }}>
                 <option value="">All years</option>
                 {years.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
-              <button className="sv-btn sv-btn--ghost" onClick={() => doExportLedger("csv")} disabled={expenses.length === 0}><Download size={15} /> Full Ledger CSV</button>
-              <button className="sv-btn sv-btn--ghost" onClick={() => doExportLedger("excel")} disabled={expenses.length === 0}><Download size={15} /> Full Ledger Excel</button>
+              {(fYear || fMonth) && (
+                <button onClick={() => { setFYear(""); setFMonth(""); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#94A3B8", fontSize: 14, lineHeight: 1, padding: "0 2px" }} title="Clear filters">✕</button>
+              )}
+            </div>
+
+            {/* Right: export buttons */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+              <button onClick={() => doExportLedger("csv")} disabled={expenses.length === 0}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, fontWeight: 600, color: "#475569", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "6px 12px", cursor: "pointer", opacity: expenses.length === 0 ? 0.4 : 1 }}>
+                <Download size={13} /> CSV
+              </button>
+              <button onClick={() => doExportLedger("excel")} disabled={expenses.length === 0}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, fontWeight: 600, color: "#475569", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "6px 12px", cursor: "pointer", opacity: expenses.length === 0 ? 0.4 : 1 }}>
+                <Download size={13} /> Excel
+              </button>
             </div>
           </div>
 
           {monthKeys.length === 0 ? (
             <p className="sv-text-muted" style={{ padding: "24px 0", textAlign: "center" }}>No financial records yet. Records are created automatically when a Confirmation Order is downloaded, a salary is released, or a freelancer is paid — and you can add company expenses manually. If this stays empty after those actions, run <b>supabase/expenses-fix.sql</b> once in Supabase.</p>
+          ) : dashKeys.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "32px 16px", color: "#64748B" }}>
+              <div style={{ fontSize: 32 }}>📅</div>
+              <p style={{ fontWeight: 700, color: "#334155", margin: "8px 0 2px" }}>No records for {fMonth ? EXP_MONTHS[(+fMonth) - 1] : ""}{fYear ? " " + fYear : ""}</p>
+              <button className="sv-btn sv-btn--ghost" style={{ marginTop: 8 }} onClick={() => { setFYear(""); setFMonth(""); }}>Clear filters</button>
+            </div>
           ) : (<>
-            <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", margin: "14px 0 4px" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, margin: "14px 0 4px" }}>
               {card("Payments Received (Income)", incomeInr, "#3B82F6", ordersBag && Object.keys(ordersBag).length ? `By currency: ${expFmtBag(ordersBag)}` : "Client payments")}
               {card("Employee Salary", empSalInr, "#16A34A", "Released payroll")}
               {card("Freelancer Payments", freeInr, "#F59E0B", "Contractors")}
@@ -2630,11 +2885,13 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
               {card("Total Outflow", outInr, "#DC2626", "Salary + Freelancer + Company")}
             </div>
 
-            {/* Charts */}
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)", gap: 16, marginTop: 18, alignItems: "stretch" }}>
-              <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", minHeight: 320 }}>
+            {/* Charts — all 3 in one row */}
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,5fr) minmax(0,3fr) minmax(0,2fr)", gap: 16, marginTop: 18, alignItems: "stretch" }}>
+
+              {/* Col 1: Income vs Outflow */}
+              <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", minHeight: 300 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 8 }}>Income vs Outflow by Month <span style={{ fontWeight: 600, color: "#64748B" }}>(INR)</span></div>
-                <ResponsiveContainer width="100%" height={260}>
+                <ResponsiveContainer width="100%" height={240}>
                   <BarChart data={barData} barGap={2} barCategoryGap="22%">
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="label" tick={TICK} /><YAxis tick={TICK} width={64} tickFormatter={(v) => v >= 1000 ? "₹" + (v / 1000) + "k" : "₹" + v} />
@@ -2647,12 +2904,14 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                   </BarChart>
                 </ResponsiveContainer>
               </div>
-              <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", minHeight: 320 }}>
+
+              {/* Col 2: Outflow Composition donut */}
+              <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", minHeight: 300 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 8 }}>Outflow Composition <span style={{ fontWeight: 600, color: "#64748B" }}>(INR)</span></div>
                 {donutData.length === 0 ? (
                   <p className="sv-text-muted" style={{ fontSize: 12, textAlign: "center", margin: "auto" }}>No outflow yet.</p>
                 ) : (
-                  <ResponsiveContainer width="100%" height={260}>
+                  <ResponsiveContainer width="100%" height={240}>
                     <PieChart>
                       <Pie data={donutData} dataKey="value" nameKey="name" innerRadius={52} outerRadius={84} paddingAngle={2}>
                         {donutData.map((d, i) => <Cell key={i} fill={d.color} />)}
@@ -2663,26 +2922,35 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                   </ResponsiveContainer>
                 )}
               </div>
-            </div>
 
-            {/* Currency-wise Payments — auto-detects whichever original currencies were used. */}
-            <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "14px 16px", marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 8 }}>Payments by Currency <span style={{ fontWeight: 600, color: "#64748B" }}>(original amounts received)</span></div>
-              {currencyData.length === 0 ? (
-                <p className="sv-text-muted" style={{ fontSize: 12, textAlign: "center", padding: "24px 0" }}>No payments recorded yet.</p>
-              ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={currencyData} barCategoryGap="30%">
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="currency" tick={TICK} /><YAxis tick={TICK} width={64} tickFormatter={(v) => v >= 1000 ? (v / 1000) + "k" : v} />
-                    <Tooltip {...TT} formatter={(v, n, item) => [`${Number(v).toLocaleString("en-US")} ${(item && item.payload && item.payload.currency) || ""}`.trim(), "Received"]} />
-                    <Bar dataKey="amount" name="Amount Received" radius={[4, 4, 0, 0]}>
-                      {currencyData.map((d, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-              <p className="sv-text-muted" style={{ fontSize: 11, marginTop: 6 }}>Each bar is that currency's own total (currencies are not summed together). The INR-converted totals are in the Income vs Outflow chart above.</p>
+              {/* Col 3: Payments by Currency — compact premium list */}
+              <div style={{ background: "#fff", border: "1px solid #E9EEF4", borderRadius: 12, padding: "16px 18px", display: "flex", flexDirection: "column", minHeight: 300 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "#162B55", marginBottom: 4 }}>By Currency</div>
+                <div style={{ fontSize: 11, color: "#94A3B8", marginBottom: 14 }}>original amounts received</div>
+                {currencyData.length === 0 ? (
+                  <p className="sv-text-muted" style={{ fontSize: 12, textAlign: "center", margin: "auto" }}>No payments yet.</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14, flex: 1, justifyContent: "center" }}>
+                    {currencyData.map((d, i) => {
+                      const max = currencyData[0].amount;
+                      const pct = max > 0 ? Math.round((d.amount / max) * 100) : 0;
+                      const color = CHART_COLORS[i % CHART_COLORS.length];
+                      return (
+                        <div key={d.currency}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 800, color: "#162B55", letterSpacing: 0.3 }}>{d.currency}</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "#475569" }}>{Number(d.amount).toLocaleString("en-US")}</span>
+                          </div>
+                          <div style={{ height: 7, background: "#F1F5F9", borderRadius: 999, overflow: "hidden" }}>
+                            <div style={{ height: 7, width: pct + "%", background: `linear-gradient(90deg, ${color}CC, ${color})`, borderRadius: 999, transition: "width .5s ease" }} />
+                          </div>
+                          <div style={{ fontSize: 10.5, color: "#94A3B8", marginTop: 3, textAlign: "right" }}>{pct}% of top</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
             <div style={{ overflowX: "auto", marginTop: 12 }}>
@@ -2726,62 +2994,124 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
       })()}
 
       {/* ── List sections ── */}
-      {section !== "dashboard" && (
+      {section !== "dashboard" && (() => {
+        const SEC = {
+          insertion: { label: "Insertion Orders",          sub: "Order documents with attachments",              color: "#0EA5E9", icon: <Receipt size={15} /> },
+          payment:   { label: "Payments Received",         sub: "Client income — reflected in dashboard",        color: "#16A34A", icon: <CheckCircle2 size={15} /> },
+          salary:    { label: "Salary & Freelancer",       sub: "Auto-created when a salary or freelancer pay is released", color: "#F59E0B", icon: <UsersIcon size={15} /> },
+          company:   { label: "Company Expenses",          sub: "Operating costs, manually logged",              color: "#8B5CF6", icon: <Building2 size={15} /> },
+        };
+        const sec = SEC[section] || SEC.company;
+        const hasActiveFilter = search || fMonth || fYear || fCur || fStatus || fCat;
+        const clearFilters = () => { setSearch(""); setFMonth(""); setFYear(""); setFCur(""); setFStatus(""); setFCat(""); };
+        const selStyle = { fontSize: 12.5, fontWeight: 600, color: "#334155", background: "transparent", border: "none", outline: "none", cursor: "pointer", padding: "2px 4px" };
+        return (
         <div className="sv-card">
-          <div className="sv-flex sv-justify-between" style={{ alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 12 }}>
-            <div>
-              <h3 style={{ margin: 0 }}>{section === "insertion" ? "Insertion Orders" : section === "payment" ? "Payments Received" : section === "salary" ? "Salary & Freelancer Payments" : "SuccessViews Expenses"}</h3>
-              <p className="sv-text-muted" style={{ fontSize: 12.5, margin: "2px 0 0" }}>
-                {section === "insertion" ? "Insertion order documents — add a name and attach the order file." : section === "payment" ? "Client payments received (income) — reflected in the dashboard and charts." : section === "salary" ? "Auto-created when a salary is released or a freelancer is paid." : "Company operating expenses (manually added)."}
-              </p>
+
+          {/* ── Section header ── */}
+          <div style={{ display: "flex", alignItems: "center", gap: 14, paddingBottom: 14, borderBottom: "1px solid #F1F5F9", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flex: "1 1 200px", minWidth: 0 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 9, background: sec.color + "15", color: sec.color, flexShrink: 0 }}>{sec.icon}</span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: "#162B55" }}>{sec.label}
+                  <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 700, color: "#64748B", background: "#F1F5F9", borderRadius: 6, padding: "2px 8px" }}>{currentList.length}</span>
+                </div>
+                <div style={{ fontSize: 11.5, color: "#94A3B8", marginTop: 1 }}>{sec.sub}</div>
+              </div>
             </div>
-            <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap" }}>
-              <button className="sv-btn sv-btn--ghost" onClick={doExportCSV} disabled={currentList.length === 0}><Download size={15} /> CSV</button>
-              <button className="sv-btn sv-btn--ghost" onClick={doExportExcel} disabled={currentList.length === 0}><Download size={15} /> Excel</button>
-              {section === "insertion" && <button className="sv-btn sv-btn--primary" onClick={openAddInsertion}><Plus size={15} /> Add Insertion Order</button>}
-              {section === "payment" && <button className="sv-btn" style={{ background: "#16A34A", color: "#fff", border: "none" }} onClick={() => openAddIO("Received")}><CheckCircle2 size={15} /> Add Payment Received</button>}
-              {section === "company" && <button className="sv-btn sv-btn--primary" onClick={openAddCompany}><Plus size={15} /> Add Expense</button>}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
+              <button onClick={doExportCSV} disabled={currentList.length === 0}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, fontWeight: 600, color: "#475569", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "6px 12px", cursor: "pointer", opacity: currentList.length === 0 ? 0.4 : 1 }}>
+                <Download size={13} /> CSV
+              </button>
+              <button onClick={doExportExcel} disabled={currentList.length === 0}
+                style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12.5, fontWeight: 600, color: "#475569", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "6px 12px", cursor: "pointer", opacity: currentList.length === 0 ? 0.4 : 1 }}>
+                <Download size={13} /> Excel
+              </button>
+              {section === "insertion" && (
+                <button onClick={openAddInsertion}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#fff", background: sec.color, border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer" }}>
+                  <Plus size={14} /> Add Order
+                </button>
+              )}
+              {section === "payment" && (
+                <button onClick={() => openAddIO("Received")}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#fff", background: sec.color, border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer" }}>
+                  <Plus size={14} /> Add Payment
+                </button>
+              )}
+              {section === "company" && (
+                <button onClick={openAddCompany}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "#fff", background: sec.color, border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer" }}>
+                  <Plus size={14} /> Add Expense
+                </button>
+              )}
             </div>
           </div>
 
-          {/* Filters */}
-          <div className="sv-flex sv-gap-sm" style={{ flexWrap: "wrap", marginBottom: 14 }}>
-            <input className="sv-input" placeholder="Search…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 200, flex: 1 }} />
-            <select className="sv-select" value={fMonth} onChange={(e) => setFMonth(e.target.value)} style={{ maxWidth: 140 }}>
-              <option value="">All months</option>
-              {EXP_MONTHS.map((m, i) => <option key={m} value={String(i + 1).padStart(2, "0")}>{m}</option>)}
-            </select>
-            <select className="sv-select" value={fYear} onChange={(e) => setFYear(e.target.value)} style={{ maxWidth: 110 }}>
-              <option value="">All years</option>
-              {years.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-            <select className="sv-select" value={fCur} onChange={(e) => setFCur(e.target.value)} style={{ maxWidth: 120 }}>
-              <option value="">Currency</option>
-              {EXP_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select className="sv-select" value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={{ maxWidth: 130 }}>
-              <option value="">Status</option>
-              {["Paid", "Pending", "Partial", "Overdue"].map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            {section === "company" && (
-              <select className="sv-select" value={fCat} onChange={(e) => setFCat(e.target.value)} style={{ maxWidth: 160 }}>
-                <option value="">Category</option>
-                {CO_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+          {/* ── Filter bar ── */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "12px 0", flexWrap: "wrap" }}>
+            {/* Search */}
+            <div style={{ flex: "1 1 180px", minWidth: 160, position: "relative", display: "flex", alignItems: "center" }}>
+              <SearchIcon size={13} style={{ position: "absolute", left: 10, color: "#94A3B8", pointerEvents: "none" }} />
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search…"
+                style={{ width: "100%", paddingLeft: 30, paddingRight: 10, height: 34, fontSize: 12.5, color: "#334155", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            {/* Month / Year pill */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 10px", height: 34 }}>
+              <select value={fMonth} onChange={(e) => setFMonth(e.target.value)} style={selStyle}>
+                <option value="">All months</option>
+                {EXP_MONTHS.map((m, i) => <option key={m} value={String(i + 1).padStart(2, "0")}>{m}</option>)}
               </select>
+              <span style={{ color: "#D1D5DB" }}>|</span>
+              <select value={fYear} onChange={(e) => setFYear(e.target.value)} style={selStyle}>
+                <option value="">All years</option>
+                {years.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+            {/* Currency */}
+            <div style={{ display: "flex", alignItems: "center", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 10px", height: 34 }}>
+              <select value={fCur} onChange={(e) => setFCur(e.target.value)} style={selStyle}>
+                <option value="">Currency</option>
+                {EXP_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            {/* Status */}
+            <div style={{ display: "flex", alignItems: "center", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 10px", height: 34 }}>
+              <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={selStyle}>
+                <option value="">Status</option>
+                {["Paid", "Pending", "Partial", "Overdue"].map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            {/* Category — company only */}
+            {section === "company" && (
+              <div style={{ display: "flex", alignItems: "center", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 10px", height: 34 }}>
+                <select value={fCat} onChange={(e) => setFCat(e.target.value)} style={selStyle}>
+                  <option value="">Category</option>
+                  {CO_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+            )}
+            {/* Clear */}
+            {hasActiveFilter && (
+              <button onClick={clearFilters}
+                style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: "#64748B", background: "none", border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 10px", height: 34, cursor: "pointer" }}>
+                ✕ Clear
+              </button>
             )}
           </div>
 
-          {/* Payments Received — total-received summary (currency-aware, like the Overview card) */}
-          {section === "payment" && (
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
-              <div style={{ flex: "1 1 220px", minWidth: 200, borderRadius: 12, padding: "16px 18px", background: "linear-gradient(135deg,#ECFDF5,#D1FAE5)", border: "1px solid #C9F7D8" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#047857", fontWeight: 700, fontSize: 12.5, textTransform: "uppercase", letterSpacing: 0.3 }}><Wallet size={16} /> Total Received (INR)</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: "#065F46", marginTop: 6 }}>{formatINR(inrTotal(currentList))}</div>
-                <div style={{ fontSize: 11.5, color: "#047857", marginTop: 4, fontWeight: 500 }}>By currency: {expFmtBag(expBag(currentList))}</div>
+          {/* Payments Received — summary strip */}
+          {section === "payment" && currentList.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 14 }}>
+              <div style={{ borderRadius: 10, padding: "12px 16px", background: "#F0FDF4", border: "1px solid #BBF7D0" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#15803D", textTransform: "uppercase", letterSpacing: 0.4, display: "flex", alignItems: "center", gap: 5 }}><Wallet size={13} /> Total Received (INR)</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#14532D", marginTop: 4 }}>{formatINR(inrTotal(currentList))}</div>
+                <div style={{ fontSize: 11, color: "#16A34A", marginTop: 2 }}>By currency: {expFmtBag(expBag(currentList))}</div>
               </div>
-              <div style={{ flex: "1 1 160px", minWidth: 150, borderRadius: 12, padding: "16px 18px", background: "#fff", border: "1px solid #E9EEF4" }}>
-                <div style={{ color: "#64748B", fontWeight: 700, fontSize: 12.5, textTransform: "uppercase", letterSpacing: 0.3 }}>Payments</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 6 }}>{currentList.length}</div>
+              <div style={{ borderRadius: 10, padding: "12px 16px", background: "#F8FAFC", border: "1px solid #E2E8F0" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: 0.4 }}>Transactions</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{currentList.length}</div>
               </div>
             </div>
           )}
@@ -2798,7 +3128,7 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                 {section === "insertion" && <thead><tr><th>Name</th><th>Date</th><th>File</th><th></th></tr></thead>}
                 {section === "payment" && <thead><tr><th>Client</th><th>ID</th><th>Amount</th><th>Date</th><th>Invoice</th><th>Status</th><th></th></tr></thead>}
                 {section === "salary" && <thead><tr><th>Name</th><th>Type</th><th>Dept</th><th>Month</th><th>Final Salary</th><th>Paid On</th><th>Status</th></tr></thead>}
-                {section === "company" && <thead><tr><th>Title</th><th>Category</th><th>Vendor</th><th>Amount</th><th>Date</th><th>Status</th></tr></thead>}
+                {section === "company" && <thead><tr><th>Title</th><th>Category</th><th>Vendor</th><th>Amount</th><th>Date</th><th>Files</th><th>Status</th></tr></thead>}
                 <tbody>
                   {currentList.map((e) => {
                     const d = e.details || {};
@@ -2807,7 +3137,7 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                         {section === "insertion" && <>
                           <td style={{ fontWeight: 600 }}>{e.clientName || e.title || "—"}</td>
                           <td>{e.paymentDate ? fmtDate(e.paymentDate) : "—"}</td>
-                          <td>{(() => { const files = (d.files && d.files.length) ? d.files : (d.invoiceUrl ? [{ url: d.invoiceUrl, name: d.invoiceName }] : []); if (!files.length) return "—"; return <a href={files[0].url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {files.length > 1 ? `${files.length} files` : (files[0].name || "View file")}</a>; })()}</td>
+                          <td>{(() => { const files = (d.files && d.files.length) ? d.files : (d.invoiceUrl ? [{ url: d.invoiceUrl, name: d.invoiceName }] : []); if (!files.length) return "—"; return <a href={files[0].url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {files.length > 1 ? `Show (${files.length})` : "Show"}</a>; })()}</td>
                           <td><button className="sv-del-icon" title="Delete" onClick={(ev) => { ev.stopPropagation(); setConfirmDel(e); }}><Trash2 size={15} /></button></td>
                         </>}
                         {section === "payment" && <>
@@ -2822,7 +3152,7 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                             )}
                           </td>
                           <td>{e.paymentDate ? fmtDate(e.paymentDate) : "—"}</td>
-                          <td>{d.invoiceUrl ? <a href={d.invoiceUrl} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ color: "#2563EB" }}>File</a> : (d.invoice || "—")}</td>
+                          <td>{d.invoiceUrl ? <a href={d.invoiceUrl} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> Show</a> : (d.invoice || "—")}</td>
                           <td><span className={`sv-badge sv-badge--${(e.paymentStatus === "Received" ? "paid" : (e.paymentStatus || "pending")).toLowerCase()}`}>{e.paymentStatus || "Received"}</span></td>
                           <td><button className="sv-del-icon" title="Delete" onClick={(ev) => { ev.stopPropagation(); setConfirmDel(e); }}><Trash2 size={15} /></button></td>
                         </>}
@@ -2839,6 +3169,7 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                           <td>{e.category || "—"}</td><td>{d.vendor || "—"}</td>
                           <td>{expMoney(e.amount, e.currency)}</td>
                           <td>{e.paymentDate ? fmtDate(e.paymentDate) : "—"}</td>
+                          <td>{(() => { const files = (d.files && d.files.length) ? d.files : []; if (!files.length) return "—"; return <a href={files[0].url} target="_blank" rel="noreferrer" onClick={(ev) => ev.stopPropagation()} style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {files.length > 1 ? `Show (${files.length})` : "Show"}</a>; })()}</td>
                           <td><span className={`sv-badge sv-badge--${(e.paymentStatus || "paid").toLowerCase()}`}>{e.paymentStatus || "Paid"}</span></td>
                         </>}
                       </tr>
@@ -2849,7 +3180,8 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Detail modal ── */}
       {detail && (
@@ -2890,11 +3222,12 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                   ["Deductions", expMoney(d.deductionTotal, "INR")], ["Final Salary", expMoney(detail.amount, "INR")],
                   ["Payment Date", detail.paymentDate ? fmtDate(detail.paymentDate) : "—"], ["Status", detail.paymentStatus || "Paid"],
                 ].map(([l, v]) => metaCell(l, v)); })()}
-                {detail.type === "company" && (() => { const d = detail.details || {}; return [
+                {detail.type === "company" && (() => { const d = detail.details || {}; const files = (d.files && d.files.length) ? d.files : []; return [
                   ["Title", detail.title || detail.clientName], ["Category", detail.category || "—"],
                   ["Vendor", d.vendor || "—"], ["Amount", expMoney(detail.amount, detail.currency)],
                   ["Payment Date", detail.paymentDate ? fmtDate(detail.paymentDate) : "—"], ["Method", detail.paymentMethod || "—"],
                   ["Status", detail.paymentStatus || "—"], ["Currency", detail.currency || "—"],
+                  ...(files.length ? [["Files", <span style={{ display: "grid", gap: 4 }}>{files.map((f, i) => <a key={i} href={f.url} target="_blank" rel="noreferrer" style={{ color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 4 }}><FileText size={13} /> {f.name || "File " + (i + 1)}</a>)}</span>]] : []),
                 ].map(([l, v]) => metaCell(l, v)); })()}
               </div>
 
@@ -2915,6 +3248,25 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                     </label>
                   </div>
                   <p className="sv-text-muted" style={{ fontSize: 11, gridColumn: "1 / -1", margin: 0 }}>Changing the date moves this record to that month across the dashboard and charts.</p>
+                </div>
+              )}
+
+              {/* Manage files on a saved Company Expense — add more or remove, saved instantly. */}
+              {editing && detail.type === "company" && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: "#475569", marginBottom: 8 }}>Attachments</div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {recFiles(detail).map((f, i) => (
+                      <div key={i} className="sv-flex" style={{ alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8 }}>
+                        <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}><FileText size={13} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name || "File " + (i + 1)}</span></a>
+                        <button type="button" className="sv-chip-btn sv-chip-btn--red" disabled={addFilesBusy} onClick={() => removeFileFromRecord(detail, i)}><X size={12} /> Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                  <label className="sv-btn sv-btn--ghost" style={{ cursor: "pointer", margin: "8px 0 0" }}>
+                    <Plus size={14} /> {addFilesBusy ? "Uploading…" : "Add files"}
+                    <input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} disabled={addFilesBusy} onChange={(e) => addFilesToRecord(detail, e.target.files)} />
+                  </label>
                 </div>
               )}
 
@@ -2983,6 +3335,23 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
               </label>
               <div style={{ gridColumn: "1 / -1" }}>
                 <label style={lblS}>Notes / Remarks<textarea className="sv-input" rows={3} value={form.notes} onChange={(e) => updF("notes", e.target.value)} style={{ resize: "vertical" }} /></label>
+              </div>
+              <div style={{ gridColumn: "1 / -1" }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, color: "#475569", marginBottom: 6 }}>Attachments <span style={{ color: "#94A3B8", fontWeight: 500 }}>(optional — receipts, invoices, screenshots)</span></div>
+                <label className="sv-btn sv-btn--ghost" style={{ cursor: "pointer", margin: 0 }}>
+                  <Plus size={14} /> {coUploading ? "Uploading…" : ((form.details || {}).files || []).length ? "Add more files" : "Attach files"}
+                  <input type="file" multiple accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx" style={{ display: "none" }} disabled={coUploading} onChange={(e) => uploadCompanyFiles(e.target.files)} />
+                </label>
+                {((form.details || {}).files || []).length > 0 && (
+                  <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                    {((form.details || {}).files || []).map((f, i) => (
+                      <div key={i} className="sv-flex" style={{ alignItems: "center", justifyContent: "space-between", gap: 8, padding: "6px 10px", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8 }}>
+                        <a href={f.url} target="_blank" rel="noreferrer" style={{ fontSize: 12.5, color: "#2563EB", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}><FileText size={13} /> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name || "File " + (i + 1)}</span></a>
+                        <button type="button" className="sv-chip-btn sv-chip-btn--red" onClick={() => removeCompanyFile(i)}><X size={12} /> Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div className="sv-flex sv-justify-between" style={{ padding: "12px 20px", borderTop: "1px solid #F1F5F9", flexShrink: 0, alignItems: "center" }}>

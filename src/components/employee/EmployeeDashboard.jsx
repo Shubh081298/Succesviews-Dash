@@ -60,9 +60,10 @@ export default function EmployeeDashboard({
   emp, empTab, setEmpTab, dsrDate, dsrForm, setDsrForm, onDateChange, onSave,
   submissions, websites, onLogout, histSearch, setHistSearch, viewingDsr, setViewingDsr,
   customFields = [], announcements = [], onDismissAnn, myMessages = [], onDismissMsg,
-  theme = "light", onToggleTheme, leaves = [], leaveForm, setLeaveForm, onApplyLeave,
+  theme = "light", onToggleTheme, leaves = [], leaveForm, setLeaveForm, onApplyLeave, onCancelLeave,
   onUpdatePhoto, employees = [], logo = "", onSaveAssignedIds,
   bankDetails = {}, onSaveBank, domains = [],
+  onUpdateProfile, allLeaves = [], attendanceOverrides = [],
 }) {
   const today = getTodayStr();
   const dark = theme === "dark";
@@ -105,9 +106,9 @@ export default function EmployeeDashboard({
   const removeWebsiteRow = (i) => setDsrForm({ ...dsrForm, websites: dsrForm.websites.filter((_, idx) => idx !== i) });
   const setCustomVal = (id, val) => setDsrForm({ ...dsrForm, customFields: { ...dsrForm.customFields, [id]: val } });
 
-  // Operation DSR — the common admin-managed domain list (falls back to websites list).
+  // Operation DSR — merge Domains/Pipeline + Website Management, deduplicated.
   const domainNames = (domains || []).filter((d) => d.status !== false).map((d) => d.name);
-  const domainOptions = domainNames.length ? domainNames : websites;
+  const domainOptions = [...new Set([...domainNames, ...(websites || [])])];
   const opUpdate = (key, i, field, val) => setDsrForm({ ...dsrForm, [key]: (dsrForm[key] || []).map((r, idx) => (idx === i ? { ...r, [field]: val } : r)) });
   const opAdd = (key, blank) => setDsrForm({ ...dsrForm, [key]: [...(dsrForm[key] || []), blank] });
   const opRemove = (key, i) => setDsrForm({ ...dsrForm, [key]: (dsrForm[key] || []).filter((_, idx) => idx !== i) });
@@ -119,6 +120,11 @@ export default function EmployeeDashboard({
   function backdateMin() {
     const d = new Date();
     d.setDate(d.getDate() - 30);
+    return d.toISOString().split("T")[0];
+  }
+  function dsrMin() {
+    const d = new Date();
+    d.setDate(d.getDate() - 2);
     return d.toISOString().split("T")[0];
   }
 
@@ -191,6 +197,14 @@ export default function EmployeeDashboard({
 
       {empTab === "form" && (
         <div className="sv-dsr" style={{ marginTop: 14 }}>
+          {/* Absence warning */}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "12px 16px", background: "linear-gradient(135deg,#FFF7ED,#FEF3C7)", border: "1.5px solid #FCD34D", borderRadius: 10, marginBottom: 14 }}>
+            <span style={{ fontSize: 20, flexShrink: 0, marginTop: 1 }}>⚠️</span>
+            <div>
+              <div style={{ fontWeight: 800, color: "#92400E", fontSize: 13.5, marginBottom: 2 }}>DSR is mandatory every working day</div>
+              <div style={{ fontSize: 12.5, color: "#B45309", lineHeight: 1.55 }}>If you do not submit your Daily Status Report, you will be considered <strong>Absent</strong> for that day. DSR can only be submitted for today or up to 2 previous days.</div>
+            </div>
+          </div>
           {/* Premium header */}
           <div className="sv-dsr-head">
             <div style={{ minWidth: 0 }}>
@@ -201,7 +215,7 @@ export default function EmployeeDashboard({
               <span className={`sv-dsr-status ${existingForDate?.status === "Submitted" ? "is-submitted" : "is-draft"}`}>
                 {existingForDate?.status === "Submitted" ? <><CheckCheck size={13} /> Submitted</> : <>Draft</>}
               </span>
-              <label className="sv-dsr-date"><CalendarDays size={14} /><input type="date" value={dsrDate} max={today} onChange={(e) => onDateChange(e.target.value)} /></label>
+              <label className="sv-dsr-date"><CalendarDays size={14} /><input type="date" value={dsrDate} min={dsrMin()} max={today} onChange={(e) => onDateChange(e.target.value)} /></label>
               {!locked && <span className="sv-dsr-autosave"><span className="dot" /> Auto-saving</span>}
             </div>
           </div>
@@ -417,16 +431,35 @@ export default function EmployeeDashboard({
             </div>
             <div className="sv-flex-col sv-gap-2">
               {filteredHist.length === 0 && <p className="sv-text-muted" style={{ fontSize: 13 }}>No reports found.</p>}
-              {filteredHist.map((r) => (
-                <div key={r.id} className="sv-flex sv-items-center sv-gap-3" style={{ padding: "10px 12px", background: "var(--bg-muted)", border: "1.5px solid var(--border-light)", borderRadius: 8, flexWrap: "wrap" }}>
-                  <div className="sv-text-navy sv-font-700" style={{ minWidth: 96, fontSize: 13 }}>{fmtDate(r.date)}{r.ts ? <span className="sv-text-muted" style={{ display: "block", fontSize: 11, fontWeight: 400 }}>{fmtDateTime(r.ts)}</span> : null}</div>
-                  <span className={badgeClass(r.attendance === "Present" ? "Completed" : r.attendance === "Absent" ? "Pending" : "In Progress")}>{r.attendance}</span>
-                  <span className={badgeClass(r.status === "Submitted" ? "Completed" : "Pending")}>{r.status}</span>
-                  <div className="sv-flex sv-gap-2" style={{ marginLeft: "auto" }}>
-                    <button onClick={() => setViewingDsr(r)} style={{ padding: "5px 12px", borderRadius: 7, border: `1.5px solid ${BLUE}`, background: "#fff", color: BLUE, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>View</button>
+              {filteredHist.map((r) => {
+                const attMeta = r.attendance === "Present" ? { bg: "#F0FDF4", bd: "#BBF7D0", fg: "#15803D", dot: "#22C55E" }
+                  : r.attendance === "Absent" ? { bg: "#FEF2F2", bd: "#FECACA", fg: "#B91C1C", dot: "#EF4444" }
+                  : { bg: "#FFFBEB", bd: "#FDE68A", fg: "#A16207", dot: "#F59E0B" };
+                const stMeta = r.status === "Submitted" ? { bg: "#F0FDF4", bd: "#BBF7D0", fg: "#15803D", dot: "#22C55E", label: "Submitted", icon: "✓" }
+                  : r.status === "Under Review" ? { bg: "#EFF6FF", bd: "#BFDBFE", fg: "#1D4ED8", dot: "#3B82F6", label: "Under Review", icon: "◎" }
+                  : { bg: "#FFFBEB", bd: "#FDE68A", fg: "#A16207", dot: "#F59E0B", label: "Draft", icon: "○" };
+                return (
+                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 14px", background: dark ? "#1E293B" : "#FAFBFC", border: `1px solid ${dark ? "#334155" : "#EEF2F7"}`, borderRadius: 10, borderLeft: `3px solid ${stMeta.dot}`, transition: "box-shadow .15s", cursor: "default" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,.06)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}>
+                    <div style={{ minWidth: 90 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: dark ? "#E2E8F0" : "#0F172A", letterSpacing: "-.01em" }}>{fmtDate(r.date)}</div>
+                      {r.ts && <div style={{ fontSize: 10.5, color: "#94A3B8", fontWeight: 500, marginTop: 1 }}>{fmtDateTime(r.ts)}</div>}
+                    </div>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 20, background: attMeta.bg, border: `1px solid ${attMeta.bd}`, fontSize: 11, fontWeight: 700, color: attMeta.fg, whiteSpace: "nowrap" }}>
+                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: attMeta.dot, flexShrink: 0 }} />{r.attendance}
+                    </span>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 20, background: stMeta.bg, border: `1px solid ${stMeta.bd}`, fontSize: 11, fontWeight: 700, color: stMeta.fg, whiteSpace: "nowrap" }}>
+                      <span style={{ fontSize: 10, lineHeight: 1 }}>{stMeta.icon}</span>{stMeta.label}
+                    </span>
+                    <div style={{ marginLeft: "auto", flexShrink: 0 }}>
+                      <button onClick={() => setViewingDsr(r)} style={{ padding: "5px 14px", borderRadius: 8, border: "none", background: dark ? "#1E3A8A" : "#EFF6FF", color: "#2563EB", cursor: "pointer", fontSize: 12, fontWeight: 700, transition: "background .15s" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = dark ? "#1E40AF" : "#DBEAFE"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = dark ? "#1E3A8A" : "#EFF6FF"; }}>View</button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -459,32 +492,112 @@ export default function EmployeeDashboard({
       )}
 
       {empTab === "leave" && (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.3fr", gap: 14, marginTop: 14 }}>
-          <div className={cardClass}>
-            <p className={dark ? "sv-text-white sv-font-700" : "sv-text-navy sv-font-700"} style={{ margin: "0 0 4px", fontSize: 15 }}>🏖️ Apply for Leave</p>
-            <p className="sv-text-muted" style={{ margin: "0 0 14px", fontSize: 11.5 }}>You can back-date a leave request up to 30 days.</p>
-            <FormLabel text="From Date" />
-            <input type="date" className="sv-input" value={leaveForm.fromDate} min={backdateMin()} onChange={(e) => setLeaveForm({ ...leaveForm, fromDate: e.target.value })} style={{ marginBottom: 12 }} />
-            <FormLabel text="To Date" />
-            <input type="date" className="sv-input" value={leaveForm.toDate} min={leaveForm.fromDate || backdateMin()} onChange={(e) => setLeaveForm({ ...leaveForm, toDate: e.target.value })} style={{ marginBottom: 12 }} />
-            <FormLabel text="Reason" />
-            <textarea rows={3} className="sv-textarea" value={leaveForm.reason} onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })} placeholder="Reason for leave…" style={{ marginBottom: 14 }} />
-            <button className="sv-btn sv-btn--primary sv-btn--full" onClick={onApplyLeave}>📨 Submit Leave Application</button>
-          </div>
-          <div className={cardClass}>
-            <p className={dark ? "sv-text-white sv-font-700" : "sv-text-navy sv-font-700"} style={{ margin: "0 0 14px", fontSize: 15 }}>📋 My Leave Applications</p>
-            <div className="sv-flex-col sv-gap-2">
-              {leaves.length === 0 && <p className="sv-text-muted" style={{ fontSize: 13 }}>No leave applications yet.</p>}
-              {leaves.map((l) => (
-                <div key={l.id} className="sv-flex sv-items-center sv-gap-3" style={{ padding: "10px 12px", background: dark ? "#1E293B" : "var(--bg-muted)", border: `1.5px solid ${dark ? "#334155" : "var(--border-light)"}`, borderRadius: 8, flexWrap: "wrap" }}>
-                  <div className="sv-font-700" style={{ fontSize: 12.5 }}>{fmtDate(l.fromDate)} → {fmtDate(l.toDate)}</div>
-                  <div className="sv-text-muted" style={{ fontSize: 12, flex: 1, minWidth: 120 }}>{l.reason}{l.remark ? ` · Note: ${l.remark}` : ""}</div>
-                  {l.status === "Pending" ? <span className="sv-badge sv-badge--pending">⏳ Waiting for Manager Approval</span> : <span className={badgeClass(l.status === "Approved" ? "Approved" : "Rejected")}>{l.status}</span>}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 16, marginTop: 16 }}>
+          {/* Apply form */}
+          <div className={cardClass} style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+                <span style={{ background: dark ? "#1E3A8A" : "#EFF6FF", color: "#2563EB", borderRadius: 8, padding: "6px 8px", display: "flex" }}><CalendarDays size={17} /></span>
+                <div>
+                  <p className={dark ? "sv-text-white sv-font-800" : "sv-text-navy sv-font-800"} style={{ margin: 0, fontSize: 15.5 }}>Apply for Leave</p>
+                  <p className="sv-text-muted" style={{ margin: 0, fontSize: 11.5 }}>Back-date up to 30 days. All requests need manager approval.</p>
                 </div>
-              ))}
+              </div>
+            </div>
+
+            <FormLabel text="Leave Type" />
+            <select className="sv-select" value={leaveForm.leaveType} onChange={(e) => setLeaveForm({ ...leaveForm, leaveType: e.target.value })} style={{ marginBottom: 12 }}>
+              <option value="">-- Select type --</option>
+              <option value="Sick Leave">Sick Leave</option>
+              <option value="Casual Leave">Casual Leave</option>
+              <option value="Annual Leave">Annual Leave</option>
+              <option value="Emergency Leave">Emergency Leave</option>
+            </select>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+              <div>
+                <FormLabel text="From Date" />
+                <input type="date" className="sv-input" value={leaveForm.fromDate} min={backdateMin()} max={today}
+                  onChange={(e) => setLeaveForm({ ...leaveForm, fromDate: e.target.value, toDate: leaveForm.toDate && leaveForm.toDate < e.target.value ? e.target.value : leaveForm.toDate })} />
+              </div>
+              <div>
+                <FormLabel text="To Date" />
+                <input type="date" className="sv-input" value={leaveForm.toDate} min={leaveForm.fromDate || backdateMin()}
+                  onChange={(e) => setLeaveForm({ ...leaveForm, toDate: e.target.value })} />
+              </div>
+            </div>
+
+            {leaveForm.fromDate && leaveForm.toDate && leaveForm.fromDate <= leaveForm.toDate && (
+              <div style={{ padding: "8px 12px", background: dark ? "#0F2942" : "#EFF6FF", borderRadius: 8, marginBottom: 12, fontSize: 12.5, color: "#2563EB", fontWeight: 600 }}>
+                {(() => { try { const a = new Date(leaveForm.fromDate+"T00:00:00"), b = new Date(leaveForm.toDate+"T00:00:00"); const d = Math.round((b-a)/86400000)+1; return `📅 ${d} day${d>1?"s":""} selected`; } catch { return null; } })()}
+              </div>
+            )}
+
+            <FormLabel text="Reason" />
+            <textarea rows={3} className="sv-textarea" value={leaveForm.reason}
+              onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })}
+              placeholder="Briefly describe why you need this leave…" style={{ marginBottom: 16 }} />
+
+            <button className="sv-btn sv-btn--primary sv-btn--full" onClick={onApplyLeave} style={{ marginTop: "auto" }}>
+              <CalendarDays size={15} style={{ marginRight: 6 }} /> Submit Leave Application
+            </button>
+          </div>
+
+          {/* My applications */}
+          <div className={cardClass}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+              <span style={{ background: dark ? "#14532D" : "#F0FDF4", color: "#16A34A", borderRadius: 8, padding: "6px 8px", display: "flex" }}><ClipboardList size={17} /></span>
+              <div>
+                <p className={dark ? "sv-text-white sv-font-800" : "sv-text-navy sv-font-800"} style={{ margin: 0, fontSize: 15.5 }}>My Applications</p>
+                <p className="sv-text-muted" style={{ margin: 0, fontSize: 11.5 }}>{leaves.length} request{leaves.length !== 1 ? "s" : ""} submitted</p>
+              </div>
+            </div>
+            <div className="sv-flex-col sv-gap-2">
+              {leaves.length === 0 && (
+                <div style={{ textAlign: "center", padding: "28px 16px", color: "#94A3B8" }}>
+                  <CalendarDays size={32} style={{ marginBottom: 8, opacity: 0.4 }} />
+                  <p style={{ margin: 0, fontSize: 13 }}>No leave applications yet.</p>
+                </div>
+              )}
+              {[...leaves].sort((a,b) => (b.ts||0)-(a.ts||0)).map((l) => {
+                const isPending = l.status === "Pending";
+                const isApproved = l.status === "Approved";
+                const accentColor = isPending ? "#F59E0B" : isApproved ? "#16A34A" : "#EF4444";
+                const bgColor = isPending ? (dark?"#1C1A09":"#FFFBEB") : isApproved ? (dark?"#052E16":"#F0FDF4") : (dark?"#2D0A0A":"#FEF2F2");
+                const bdColor = isPending ? "#FDE68A" : isApproved ? "#86EFAC" : "#FECACA";
+                return (
+                  <div key={l.id} style={{ padding: "12px 14px", background: bgColor, border: `1.5px solid ${bdColor}`, borderRadius: 10, borderLeft: `4px solid ${accentColor}` }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 800, fontSize: 13, color: dark ? "#F1F5F9" : "#1E293B", marginBottom: 3 }}>
+                          {fmtDate(l.fromDate)}{l.toDate !== l.fromDate ? ` → ${fmtDate(l.toDate)}` : ""}
+                          {(() => { try { const d = Math.round((new Date(l.toDate+"T00:00:00")-new Date(l.fromDate+"T00:00:00"))/86400000)+1; return <span style={{ marginLeft: 6, fontWeight: 600, fontSize: 11, color: accentColor }}>{d}d</span>; } catch { return null; } })()}
+                        </div>
+                        {l.leaveType && <div style={{ fontSize: 11, fontWeight: 700, color: accentColor, marginBottom: 3 }}>{l.leaveType}</div>}
+                        <div style={{ fontSize: 12, color: dark?"#CBD5E1":"#475569" }}>{l.reason}</div>
+                        {l.remark && <div style={{ fontSize: 11.5, color: dark?"#94A3B8":"#64748B", marginTop: 4, fontStyle: "italic" }}>Admin note: {l.remark}</div>}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+                        <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 800, background: isPending?"#FEF3C7":isApproved?"#DCFCE7":"#FEE2E2", color: accentColor, whiteSpace: "nowrap" }}>
+                          {isPending ? "⏳ Pending" : isApproved ? "✓ Approved" : "✗ Rejected"}
+                        </span>
+                        {isPending && (
+                          <button onClick={() => onCancelLeave?.(l.id)} style={{ padding: "3px 10px", borderRadius: 20, border: "1.5px solid #EF4444", background: "transparent", color: "#EF4444", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
+      )}
+
+      {empTab === "attendance" && (
+        <EmployeeAttendanceCalendar emp={emp} submissions={submissions} allLeaves={allLeaves} attendanceOverrides={attendanceOverrides} dark={dark} />
       )}
 
       {empTab === "settings" && (
@@ -513,8 +626,8 @@ export default function EmployeeDashboard({
             <div className="sv-meta-cell"><div className="sv-meta-label">Team Lead</div><div className="sv-meta-value">{teamLeadName}</div></div>
             <div className="sv-meta-cell"><div className="sv-meta-label">Email</div><div className="sv-meta-value">{emp.email || "—"}</div></div>
           </div>
+          <ProfileDetailsSection emp={emp} onSave={onUpdateProfile} dark={dark} />
           <ChangePasswordSection empId={emp.id} dark={dark} />
-          <BankDetailsSection record={bankDetails[emp.id]} onSave={(b) => onSaveBank?.(emp.id, b)} dark={dark} />
         </div>
       )}
 
@@ -631,6 +744,113 @@ export default function EmployeeDashboard({
 
       {cropSrc && (
         <PhotoCropper src={cropSrc} onCancel={() => setCropSrc(null)} onSave={(dataUrl) => { onUpdatePhoto?.(dataUrl); setCropSrc(null); }} />
+      )}
+    </div>
+  );
+}
+
+function ProfileDetailsSection({ emp, onSave, dark }) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState({
+    mobile: emp?.mobile || "",
+    dob: emp?.dob || "",
+    personalEmail: emp?.personalEmail || "",
+    address: emp?.address || "",
+    bankAccount: emp?.bankAccount || "",
+    bankName: emp?.bankName || "",
+    bankIfsc: emp?.bankIfsc || "",
+    bankBranch: emp?.bankBranch || "",
+    bankHolder: emp?.bankHolder || "",
+    bankUpi: emp?.bankUpi || "",
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k, v) => setDraft((p) => ({ ...p, [k]: v }));
+
+  // When emp refreshes (enrichment from old bank_details, real-time update),
+  // absorb newly-available values into draft fields that are still empty.
+  // Never overwrite a field the employee has already typed into.
+  useEffect(() => {
+    if (!emp) return;
+    setDraft((prev) => ({
+      mobile: prev.mobile || emp.mobile || "",
+      dob: prev.dob || emp.dob || "",
+      personalEmail: prev.personalEmail || emp.personalEmail || "",
+      address: prev.address || emp.address || "",
+      bankAccount: prev.bankAccount || emp.bankAccount || "",
+      bankName: prev.bankName || emp.bankName || "",
+      bankIfsc: prev.bankIfsc || emp.bankIfsc || "",
+      bankBranch: prev.bankBranch || emp.bankBranch || "",
+      bankHolder: prev.bankHolder || emp.bankHolder || "",
+      bankUpi: prev.bankUpi || emp.bankUpi || "",
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [emp?.bankAccount, emp?.bankHolder, emp?.bankIfsc, emp?.mobile, emp?.dob, emp?.personalEmail, emp?.bankUpi]);
+
+  const handleSave = async () => {
+    if (!onSave) return;
+    setSaving(true);
+    await onSave(draft);
+    setSaving(false);
+    setOpen(false);
+  };
+  const isComplete = !!(draft.mobile && draft.dob && draft.personalEmail && draft.address &&
+    draft.bankHolder && draft.bankAccount && draft.bankName && draft.bankIfsc && draft.bankBranch);
+  const borderCol = dark ? "rgba(255,255,255,.1)" : "#E9EEF4";
+  const bg = dark ? "#1E293B" : "#F8FAFC";
+  return (
+    <div style={{ marginTop: 18, border: `1px solid ${borderCol}`, borderRadius: 12, overflow: "hidden" }}>
+      <button onClick={() => setOpen((v) => !v)} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", background: bg, border: "none", cursor: "pointer" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ width: 26, height: 26, borderRadius: 7, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563EB" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: dark ? "#E2E8F0" : "#0F172A" }}>Personal &amp; Bank Details</span>
+          {!isComplete && <span style={{ fontSize: 10.5, background: "#FFF7ED", color: "#EA580C", border: "1px solid #FED7AA", borderRadius: 20, padding: "1px 8px", fontWeight: 600 }}>Incomplete</span>}
+        </span>
+        <span style={{ fontSize: 18, color: "#94A3B8" }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ padding: "16px", borderTop: `1px solid ${borderCol}` }}>
+          <p style={{ margin: "0 0 14px", fontSize: 12, color: "#64748B" }}>These details are used for payroll, HR records and communication. Fill in what your admin hasn't provided yet.</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 16px", marginBottom: 14 }}>
+            {[
+              { label: "Mobile Number", key: "mobile", placeholder: "+91 9876543210" },
+              { label: "Date of Birth", key: "dob", type: "date" },
+              { label: "Personal Email", key: "personalEmail", placeholder: "personal@email.com" },
+            ].map(({ label, key, placeholder, type }) => (
+              <label key={key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: "#475569" }}>{label}</span>
+                <input type={type || "text"} className="sv-input" value={draft[key]} placeholder={placeholder}
+                  onChange={(e) => set(key, e.target.value)} style={{ width: "100%" }} />
+              </label>
+            ))}
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, gridColumn: "1 / -1" }}>
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: "#475569" }}>Residential Address</span>
+              <textarea className="sv-input" value={draft.address} rows={2} placeholder="Full residential address"
+                onChange={(e) => set("address", e.target.value)} style={{ width: "100%", resize: "vertical" }} />
+            </label>
+          </div>
+          <p style={{ margin: "0 0 10px", fontSize: 11.5, fontWeight: 700, color: "#475569", textTransform: "uppercase", letterSpacing: "0.05em" }}>Bank Details</p>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px 16px", marginBottom: 16 }}>
+            {[
+              { label: "Account Holder Name", key: "bankHolder", placeholder: "As per bank records" },
+              { label: "Account Number", key: "bankAccount", placeholder: "XXXXXXXXXXXX" },
+              { label: "Bank Name", key: "bankName", placeholder: "e.g. HDFC Bank" },
+              { label: "IFSC Code", key: "bankIfsc", placeholder: "e.g. HDFC0001234" },
+              { label: "Branch Location", key: "bankBranch", placeholder: "e.g. Pune Main" },
+              { label: "UPI ID (optional)", key: "bankUpi", placeholder: "name@bank" },
+            ].map(({ label, key, placeholder }) => (
+              <label key={key} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 600, color: "#475569" }}>{label}</span>
+                <input className="sv-input" value={draft[key]} placeholder={placeholder}
+                  onChange={(e) => set(key, e.target.value)} style={{ width: "100%" }} />
+              </label>
+            ))}
+          </div>
+          <button onClick={handleSave} disabled={saving} style={{ background: saving ? "#93C5FD" : "#2563EB", color: "#fff", border: "none", borderRadius: 8, padding: "9px 22px", fontSize: 13, fontWeight: 600, cursor: saving ? "default" : "pointer" }}>
+            {saving ? "Saving…" : "Save Profile Details"}
+          </button>
+        </div>
       )}
     </div>
   );
@@ -801,6 +1021,102 @@ function RepeatSection({ label, fieldKey, factory, columns, gridCols, dsrForm, l
           </div>
         ))
       )}
+    </div>
+  );
+}
+
+function EmployeeAttendanceCalendar({ emp, submissions = [], allLeaves = [], attendanceOverrides = [], dark }) {
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const y = calMonth.getFullYear(), mo = calMonth.getMonth();
+  const monthLbl = calMonth.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const pad = (n) => String(n).padStart(2, "0");
+  const keyOf = (day) => `${y}-${pad(mo + 1)}-${pad(day)}`;
+  const daysInMonth = new Date(y, mo + 1, 0).getDate();
+  const dowOf = (day) => new Date(y, mo, day).getDay();
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const firstDow = new Date(y, mo, 1).getDay();
+  const cells = []; for (let i = 0; i < firstDow; i++) cells.push(null); for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const STc = {
+    present: { bg: "#DCFCE7", bd: "#86EFAC", fg: "#15803D", label: "Present" },
+    leave: { bg: "#FEE2E2", bd: "#FCA5A5", fg: "#B91C1C", label: "Leave" },
+    absent: { bg: "#E2E8F0", bd: "#94A3B8", fg: "#334155", label: "Absent" },
+    half: { bg: "#FEF3C7", bd: "#FDE68A", fg: "#B45309", label: "Half Day" },
+    holiday: { bg: "#EDE9FE", bd: "#C4B5FD", fg: "#6D28D9", label: "Holiday" },
+    weekend: { bg: "#F1F5F9", bd: "#E2E8F0", fg: "#94A3B8", label: "Weekend" },
+    none: { bg: dark ? "#1E293B" : "#fff", bd: dark ? "#334155" : "#EEF2F7", fg: "#CBD5E1", label: "No data" },
+  };
+  const overrideMap = Object.fromEntries((attendanceOverrides || []).map((o) => [`${o.empId}|${o.date}`, o]));
+  const ovKey = (s) => ({ "Present": "present", "Half Day": "half", "Leave": "leave", "Absent": "absent", "Holiday": "holiday" }[s] || "present");
+  const leaveDates = new Set();
+  (allLeaves || []).filter((l) => l.empId === emp.id && l.status === "Approved").forEach((l) => {
+    try { let d = new Date(l.fromDate + "T00:00:00"); const end = new Date((l.toDate || l.fromDate) + "T00:00:00"); let g = 0;
+      while (d <= end && g < 400) { leaveDates.add(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`); d.setDate(d.getDate() + 1); g++; } } catch { /* */ }
+  });
+  const subMap = {};
+  (submissions || []).filter((s) => s.empId === emp.id).forEach((s) => { subMap[s.date] = s; });
+
+  const statusOf = (day) => {
+    const key = keyOf(day); const dow = dowOf(day);
+    const ov = overrideMap[`${emp.id}|${key}`];
+    if (ov) return ovKey(ov.status);
+    if (leaveDates.has(key)) return "leave";
+    const s = subMap[key];
+    if (s) { if (s.attendance === "Absent") return "absent"; if (s.attendance === "Half Day") return "half"; return "present"; }
+    if (dow === 0 || dow === 6) return "weekend";
+    return "none";
+  };
+
+  let cP = 0, cL = 0, cA = 0, cH = 0;
+  for (let d = 1; d <= daysInMonth; d++) { const st = statusOf(d); if (st === "present") cP++; else if (st === "leave") cL++; else if (st === "absent") cA++; else if (st === "half") cH++; }
+  let workingDays = 0; for (let d = 1; d <= daysInMonth; d++) { const dw = dowOf(d); if (dw !== 0 && dw !== 6) workingDays++; }
+
+  const cardBg = dark ? "#0F172A" : "#fff";
+  const cardBd = dark ? "#1E293B" : "#EEF2F7";
+  const legendItem = (k) => (<span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: dark ? "#94A3B8" : "#475569" }}><span style={{ width: 11, height: 11, borderRadius: 4, background: STc[k].bg, border: `1px solid ${STc[k].bd}` }} />{STc[k].label}</span>);
+
+  return (
+    <div className={dark ? "sv-card sv-dark" : "sv-card"} style={{ marginTop: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ background: dark ? "#1E3A8A" : "rgba(37,99,235,.12)", color: "#2563EB", borderRadius: 8, padding: "6px 8px", display: "flex" }}><CalendarDays size={17} /></span>
+          <div>
+            <p className={dark ? "sv-text-white sv-font-800" : "sv-text-navy sv-font-800"} style={{ margin: 0, fontSize: 15.5 }}>My Attendance</p>
+            <p className="sv-text-muted" style={{ margin: 0, fontSize: 11.5 }}>{workingDays} working days · {cP} present · {cL} leave{cA ? ` · ${cA} absent` : ""}{cH ? ` · ${cH} half day` : ""}</p>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 4, border: `1px solid ${cardBd}`, borderRadius: 10, padding: 3 }}>
+          <button type="button" onClick={() => setCalMonth(new Date(y, mo - 1, 1))} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, fontWeight: 700, color: "#64748B", padding: "2px 8px", borderRadius: 6 }}>‹</button>
+          <span style={{ fontWeight: 800, color: dark ? "#E2E8F0" : "#162B55", fontSize: 13, minWidth: 120, textAlign: "center" }}>{monthLbl}</span>
+          <button type="button" onClick={() => setCalMonth(new Date(y, mo + 1, 1))} style={{ border: "none", background: "transparent", cursor: "pointer", fontSize: 18, fontWeight: 700, color: "#64748B", padding: "2px 8px", borderRadius: 6 }}>›</button>
+          <button type="button" onClick={() => { const d = new Date(); setCalMonth(new Date(d.getFullYear(), d.getMonth(), 1)); }} style={{ marginLeft: 4, border: "none", background: dark ? "#1E293B" : "#F1F5F9", color: "#64748B", borderRadius: 6, cursor: "pointer", padding: "4px 10px", fontSize: 11, fontWeight: 700 }}>Today</button>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 5 }}>
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => <div key={w} style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase" }}>{w}</div>)}
+        {cells.map((day, i) => {
+          if (day == null) return <div key={`b${i}`} />;
+          const st = statusOf(day); const c = STc[st]; const isToday = keyOf(day) === todayKey; const show = st !== "none" && st !== "weekend";
+          return (
+            <div key={day} title={`${monthLbl.split(" ")[0]} ${day} — ${c.label}`}
+              style={{ minHeight: 50, borderRadius: 9, background: st === "weekend" ? (dark ? "#1E293B" : "#F8FAFC") : (show ? c.bg : (dark ? "#0F172A" : "#fff")), border: `1px solid ${isToday ? "#2563EB" : (show ? c.bd : cardBd)}`, padding: "5px 7px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: show ? c.fg : "#64748B" }}>{day}</span>
+              {show && <span style={{ fontSize: 8.5, fontWeight: 800, color: c.fg, textTransform: "uppercase" }}>{c.label}</span>}
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 12, fontSize: 12.5, fontWeight: 600, alignItems: "center" }}>
+        <span style={{ color: "#15803D" }}>{cP} Present</span>
+        <span style={{ color: "#B91C1C" }}>{cL} Leave</span>
+        {cH > 0 && <span style={{ color: "#B45309" }}>{cH} Half Day</span>}
+        {cA > 0 && <span style={{ color: "#334155" }}>{cA} Absent</span>}
+      </div>
+      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 8 }}>
+        {["present", "leave", "absent", "half", "holiday", "weekend"].map(legendItem)}
+      </div>
     </div>
   );
 }

@@ -29,7 +29,12 @@ export default function AdminLoginPage() {
   const [showPwd, setShowPwd] = useState(false);
   const [success, setSuccess] = useState(false);
   const [mode, setMode] = useState("password"); // "password" | "key"
-  const [keyInput, setKeyInput] = useState("");
+  const [keyInput, setKeyInput] = useState(() => {
+    try { return localStorage.getItem("svd_admin_saved_key") || ""; } catch { return ""; }
+  });
+  const [rememberKey, setRememberKey] = useState(() => {
+    try { return !!localStorage.getItem("svd_admin_saved_key"); } catch { return false; }
+  });
   const [showKey, setShowKey] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -57,7 +62,7 @@ export default function AdminLoginPage() {
     return () => { active = false; };
   }, [adminEmail]);
 
-  if (adminLoggedIn && !forgot) {
+  if (adminLoggedIn === true && !forgot) {
     const redirectTo = location.state?.from || "/admin";
     navigate(redirectTo, { replace: true });
     return null;
@@ -90,7 +95,14 @@ export default function AdminLoginPage() {
     if (!keyInput) { showToast("Enter your access key.", "error"); return; }
     const { error } = await supabase.auth.signInWithPassword({ email, password: keyInput });
     if (!error) {
-      setKeyInput("");
+      try {
+        if (rememberKey) {
+          localStorage.setItem("svd_admin_saved_key", keyInput);
+        } else {
+          localStorage.removeItem("svd_admin_saved_key");
+          setKeyInput("");
+        }
+      } catch { /* ignore */ }
       logAudit && logAudit("login", "admin", "team-access", { portal: "admin", method: "access-key" });
       setSuccess(true);
       setTimeout(() => { setAdminLoggedIn(true); navigate("/admin", { replace: true }); }, 1300);
@@ -206,7 +218,12 @@ export default function AdminLoginPage() {
                   </span>
                 </label>
 
-                <div className="sv-auth-row" style={{ justifyContent: "flex-start" }}>
+                <div className="sv-auth-row" style={{ justifyContent: "space-between" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 13, color: "#475569", userSelect: "none" }}>
+                    <input type="checkbox" checked={rememberKey} onChange={(e) => setRememberKey(e.target.checked)}
+                      style={{ width: 15, height: 15, accentColor: "#2563EB", cursor: "pointer" }} />
+                    Remember my access key
+                  </label>
                   <button type="button" className="sv-auth-link" onClick={() => setMode("password")}>Use email &amp; password</button>
                 </div>
 

@@ -13,6 +13,8 @@ export default function ProtectedAdminRoute({ children }) {
   const { adminLoggedIn } = useAdminAuth();
   const location = useLocation();
 
+  // null = session check still in flight — render nothing to avoid a flash redirect.
+  if (adminLoggedIn === null) return null;
   if (!adminLoggedIn) {
     return <Navigate to="/admin/login" state={{ from: location.pathname }} replace />;
   }

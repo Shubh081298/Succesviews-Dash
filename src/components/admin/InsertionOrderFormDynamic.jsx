@@ -15,6 +15,27 @@ const LS_MAGS = 'svd_io_magazines';
 const LS_CURRENT = 'svd_io_current';
 const LS_DRAFT = 'svd_io_draft'; // last order form (auto-saved so the previous order is retained)
 const LS_SAVED = 'svd_io_saved'; // saved insertion orders (local mirror so they always show, even if the DB write is unavailable)
+const LS_COUNTERS = 'svd_io_counters'; // per-magazine sequential order ID counters
+
+const loadCounters = () => { try { const r = localStorage.getItem(LS_COUNTERS); if (r) return JSON.parse(r); } catch (e) {} return {}; };
+const saveCounters = (c) => { try { localStorage.setItem(LS_COUNTERS, JSON.stringify(c)); } catch (e) {} };
+
+// Derive a short uppercase prefix from the magazine name for the Order ID (e.g. "AWL", "CIO").
+const getMagPrefix = (name, custom) => {
+  if (custom && String(custom).trim()) return String(custom).trim().toUpperCase();
+  const n = String(name || '').toUpperCase();
+  if (n.includes('CIO')) return 'CIO';
+  if (n.includes('AWL') || n.includes('ARAB')) return 'AWL';
+  const w = n.split(/\s+/).filter(Boolean);
+  return w[0] ? w[0].slice(0, 3) : 'ORD';
+};
+
+// Current Indian fiscal year as "YY-YY+1" (e.g. "26-27").
+const getFiscalYear = () => {
+  const d = new Date(); const y = d.getFullYear();
+  const fy = d.getMonth() >= 3 ? y : y - 1;
+  return `${String(fy).slice(2)}-${String(fy + 1).slice(2)}`;
+};
 
 const DEFAULT_PERKS = [
   "You'll be on the Cover page of the magazine.",
@@ -65,12 +86,14 @@ const DEFAULT_MAGAZINES = () => [
     repEmail: 'ryan@ciovisionaries.com',
     website: 'www.ciovisionaries.com',
     footerEmail: 'info@ciovisionaries.com',
-    docTitle: 'CONFIRMATION ORDER',
+    docTitle: 'INSERTION ORDER',
     acceptanceText: '',
     hClient: '', hPublisher: '', hAdvertising: '', hDeliverables: '',
     hCommercial: '', hPayment: '', hTerms: '', hAcceptance: '',
     payTerms: '100% advance payment',
     payMethod: 'Bank Transfer / Online Payment',
+    bgColor: '',
+    publisherAddress: '', publisherPhone: '',
     perksHtml: CIO_PERKS_HTML,
     termsHtml: CIO_TERMS_HTML,
   },
@@ -90,12 +113,14 @@ const DEFAULT_MAGAZINES = () => [
     repEmail: '',
     website: '',
     footerEmail: '',
-    docTitle: 'CONFIRMATION ORDER',
+    docTitle: 'INSERTION ORDER',
     acceptanceText: '',
     hClient: '', hPublisher: '', hAdvertising: '', hDeliverables: '',
     hCommercial: '', hPayment: '', hTerms: '', hAcceptance: '',
     payTerms: '100% advance payment',
     payMethod: 'Bank Transfer / Online Payment',
+    bgColor: '',
+    publisherAddress: '', publisherPhone: '',
     perksHtml: '',
     termsHtml: '',
   },
@@ -218,11 +243,14 @@ function RichTextEditor({ initialHtml, onChange, placeholder }) {
 // name) when the order is reopened/edited/printed. `publisherCompany` is the publisher org name.
 const magSnap = (m) => ({
   id: m.id, name: m.name, publisherCompany: m.publisherCompany || "",
+  publisherAddress: m.publisherAddress || "", publisherPhone: m.publisherPhone || "",
   repName: m.repName, repTitle: m.repTitle, repEmail: m.repEmail,
-  accentColor: m.accentColor, headingColor: m.headingColor, stampScale: m.stampScale, logoText: m.logoText, logoSubText: m.logoSubText,
+  approverName: m.approverName || '', approverTitle: m.approverTitle || '',
+  orderPrefix: m.orderPrefix || '',
+  accentColor: m.accentColor, headingColor: m.headingColor, bgColor: m.bgColor || '',
+  stampScale: m.stampScale, logoText: m.logoText, logoSubText: m.logoSubText,
   logoScale: m.logoScale, watermarkOpacity: m.watermarkOpacity,
-  watermarkSize: m.watermarkSize, perksHtml: m.perksHtml, termsHtml: m.termsHtml,
-  // document fields (footer + editable headings/text)
+  watermarkSize: m.watermarkSize, docFontSize: m.docFontSize, perksHtml: m.perksHtml, termsHtml: m.termsHtml,
   website: m.website, footerEmail: m.footerEmail,
   docTitle: m.docTitle, acceptanceText: m.acceptanceText,
   hClient: m.hClient, hPublisher: m.hPublisher, hAdvertising: m.hAdvertising,
@@ -231,233 +259,221 @@ const magSnap = (m) => ({
   payTerms: m.payTerms, payMethod: m.payMethod,
 });
 
-// Build the Confirmation Order document HTML from a magazine template + order data.
-// Simplified single-page (A4) layout — every section heading, the acceptance text and
-// the footer are editable per magazine. Reused by Download, re-open and the live preview.
 function genOrderHtml(m, data, preview = false) {
   m = m || {}; data = data || {};
   const D = (v, def) => (v == null || String(v).trim() === '' ? def : v);
-  const accent = m.accentColor || '#D32F2F';
-  // Section-heading colour is admin-settable per magazine; falls back to the accent colour.
-  const headingColor = D(m.headingColor, accent);
+  const accent = m.accentColor || '#C41E1E';
+  const bg = '#ffffff';
   const cur = data.currency || 'USD';
   const num = (v) => { const n = Number(String(v).replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
   const money = (v) => `${num(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fee = num(data.cost);
   const hasCost = !(data.cost === '' || data.cost == null);
-  // Digital stamp zoom (per magazine): 100% => 96px tall cap; scales up/down from there.
-  const stampMax = Math.round(96 * (Number(m.stampScale) || 100) / 100);
-  // Logo: uploaded image, else the text lockup.
+  const lScale = (Number(m.logoScale) || 100) / 100;
   const logoHtml = m.logoDataUrl
-    ? `<img src="${m.logoDataUrl}" style="max-height:60px;max-width:320px;object-fit:contain;display:block;" alt="" />`
-    : `<span style="display:inline-flex;align-items:baseline;gap:10px;font-family:Georgia,'Times New Roman',serif;">
-         <span style="font-size:38px;font-weight:800;color:${accent};line-height:1;">${esc(D(m.logoText, 'CIO'))}</span>
-         <span style="font-size:27px;font-weight:800;letter-spacing:2px;color:#111;line-height:1;">${esc(D(m.logoSubText, 'VISIONARIES'))}</span>
-       </span>`;
-  const kv = (k, v) => `<div class="kv"><div class="k">${esc(k)}</div><div class="v">${esc(v || '—')}</div></div>`;
-  const advRow = (k, v) => `<div class="adv"><div class="ak">${esc(k)}</div><div class="av">${esc(v || '—')}</div></div>`;
-  // Editable, per-magazine section headings / text (fall back to sensible defaults).
-  const hClient = D(m.hClient, 'Client Information');
-  const hPublisher = D(m.hPublisher, 'Publisher Information');
-  const hAdvertising = D(m.hAdvertising, 'Advertising / Editorial Details');
-  const hDeliverables = D(m.hDeliverables, 'Deliverables');
-  const hCommercial = D(m.hCommercial, 'Commercial Summary');
-  const hPayment = D(m.hPayment, 'Payment Details');
-  const hTerms = D(m.hTerms, 'Terms & Conditions');
-  const hAcceptance = D(m.hAcceptance, 'Client Acceptance');
-  const docTitle = D(m.docTitle, 'CONFIRMATION ORDER');
-  const acceptanceText = D(m.acceptanceText,
-    'By signing below, the client confirms acceptance of this Confirmation Order along with the terms and conditions mentioned above.');
+    ? `<img src="${m.logoDataUrl}" style="max-height:${Math.round(56 * lScale)}px;max-width:${Math.round(240 * lScale)}px;object-fit:contain;display:block;" alt="" />`
+    : `<div style="display:inline-flex;align-items:baseline;gap:6px;"><span style="font-size:${Math.round(38 * lScale)}px;font-weight:800;color:${accent};line-height:1;letter-spacing:1px;">${esc(D(m.logoText, 'CIO'))}</span><span style="font-size:${Math.round(20 * lScale)}px;font-weight:700;letter-spacing:3px;color:#222;line-height:1;">${esc(D(m.logoSubText, 'VISIONARIES'))}</span></div>`;
+  const docTitle = D(m.docTitle, 'INSERTION ORDER');
+  const magName = D(m.name, 'CIO Visionaries Business Magazine');
+  const footerSite = D(m.website, 'www.ciovisionaries.com');
+  const hClient = D(m.hClient, 'ADVERTISER DETAILS');
+  const hPublisher = D(m.hPublisher, 'PUBLISHER DETAILS');
+  const hFeature = D(m.hAdvertising, 'FEATURE DETAILS');
+  const hPackage = D(m.hCommercial, 'PARTICIPATION PACKAGE');
+  const hDeliverables = D(m.hDeliverables, 'DELIVERABLES');
+  const hSignOff = D(m.hAcceptance, 'SIGN OFF');
+  const hTerms = D(m.hTerms, 'TERMS & CONDITIONS');
   const payTerms = D(data.paymentTerms, D(m.payTerms, '100% advance payment'));
   const payMethod = D(data.paymentMethod, D(m.payMethod, 'Bank Transfer / Online Payment'));
-  const footerSite = D(m.website, 'www.ciovisionaries.com');
-  // Subtle background watermark — kept faint so it never hurts readability, and forced to
-  // print via color-adjust. Uses the uploaded watermark image, else a faint logo-text mark.
-  // Honor the opacity chosen in the magazine config (selector), defaulting to a subtle value.
-  const wmOpacity = m.watermarkOpacity != null && m.watermarkOpacity !== '' ? Number(m.watermarkOpacity) : 0.08;
-  const wmSize = Math.max(30, Math.min(Number(m.watermarkSize) || 52, 65));
-  // Centered, fully contained watermark (never cropped): width caps at wmSize%, height caps so it
-  // always fits the page. object-fit:contain keeps the aspect ratio.
+  const wmOpacity = m.watermarkOpacity != null && m.watermarkOpacity !== '' ? Number(m.watermarkOpacity) : 0.04;
+  const wmSize = Math.max(30, Math.min(Number(m.watermarkSize) || 45, 60));
   const watermarkHtml = m.watermarkDataUrl
-    ? `<div class="wm"><img src="${m.watermarkDataUrl}" style="width:${wmSize}%;max-width:66%;max-height:55%;opacity:${wmOpacity};" alt="" /></div>`
-    : `<div class="wm"><div class="wmtext" style="opacity:${wmOpacity};color:${accent};">${esc(D(m.logoText, 'CIO'))} ${esc(D(m.logoSubText, 'VISIONARIES'))}</div></div>`;
+    ? `<div class="wm"><img src="${m.watermarkDataUrl}" style="width:${wmSize}%;max-width:55%;max-height:45%;opacity:${wmOpacity};" alt="" /></div>`
+    : `<div class="wm"><div style="font-size:54px;font-weight:800;letter-spacing:6px;opacity:${wmOpacity};color:${accent};transform:rotate(-20deg);white-space:nowrap;user-select:none;">${esc(D(m.logoText, 'CIO'))} ${esc(D(m.logoSubText, 'VISIONARIES'))}</div></div>`;
+  const fontSize = m.docFontSize ? `${m.docFontSize}pt` : '11.5pt';
+  const stampMax = Math.round(80 * (Number(m.stampScale) || 100) / 100);
+  const stampHtml = m.stampDataUrl
+    ? `<div class="stamp-overlay"><img src="${m.stampDataUrl}" style="max-height:${stampMax}px;max-width:100%;object-fit:contain;" alt="" /></div>`
+    : '';
   return `<!doctype html><html><head><meta charset="utf-8" />
-<meta name="viewport" content="width=794, initial-scale=1, maximum-scale=1" />
+<meta name="viewport" content="width=794, initial-scale=1" />
 <title>${esc(docTitle)}</title>
 <style>
   *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  /* Lock mobile font inflation — without this, mobile browsers auto-enlarge the small
-     print fonts, overflowing the A4 box onto a 2nd page. Keeps the PDF device-independent. */
-  html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
-  html,body{margin:0;padding:0}
-  body{font-family:Arial,Helvetica,sans-serif;color:#1f2937;font-size:10.5px;line-height:1.32;background:#fff}
-  .wm{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:0;pointer-events:none}
-  .wm img{max-width:66%;max-height:55%;height:auto;object-fit:contain}
-  .wmtext{font-family:Georgia,'Times New Roman',serif;font-size:66px;font-weight:800;letter-spacing:5px;transform:rotate(-18deg);white-space:nowrap;text-align:center}
-  /* On screen: an A4-proportioned sheet (794×1122 @96dpi) so the preview looks exactly like the
-     printed page — footer sits at the bottom of the sheet, not the bottom of the browser window. */
-  /* Transparent doc so the fixed background watermark (z-index:0, behind) shows through — the
-     white sheet colour comes from <body>. An opaque .doc background hides the watermark. */
-  .doc{position:relative;z-index:1;width:100%;max-width:794px;min-height:1122px;margin:0 auto;padding:26px 30px 18px;display:flex;flex-direction:column;background:transparent}
-  .hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
-  .co-title{font-family:Georgia,'Times New Roman',serif;font-size:21px;font-weight:700;letter-spacing:1px;text-align:right;color:#111;margin-bottom:6px;white-space:nowrap}
-  .meta{display:grid;grid-template-columns:auto auto;column-gap:16px;row-gap:2px;justify-content:end;font-size:10.5px}
-  .meta .mk{font-weight:700;color:#111}
-  .meta .mv{color:#374151;text-align:right}
-  .rule{position:relative;height:1px;background:#d1d5db;margin:9px 0 11px}
-  .rule::before{content:'';position:absolute;left:0;top:-1px;height:3px;width:104px;background:${accent};border-radius:2px}
-  .cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;align-items:start}
-  .panel{border:1px solid #e2e5ea;border-radius:5px;overflow:hidden}
-  .panel-h{font-weight:700;font-size:12px;color:${headingColor};padding:6px 10px;border-bottom:1px solid #eceef2;background:rgba(251,252,253,0.72)}
-  .kv{display:grid;grid-template-columns:112px 1fr}
-  .kv>div{padding:4px 10px;border-bottom:1px solid #f0f1f4;font-size:10.5px}
-  .kv:last-child>div{border-bottom:none}
-  .kv .k{font-weight:700;color:#111;border-right:1px solid #f0f1f4}
-  .kv .v{color:#374151;word-break:break-word}
-  .sec{border:1px solid #e2e5ea;border-radius:5px;margin-bottom:10px}
-  .sec-h{font-weight:700;font-size:12px;color:${headingColor};padding:6px 10px;border-bottom:1px solid #eceef2;background:rgba(251,252,253,0.72)}
-  .adv{display:grid;grid-template-columns:150px 1fr;column-gap:10px;padding:5px 10px;font-size:10.5px;border-bottom:1px solid #f4f5f7;align-items:start}
-  .adv:last-child{border-bottom:none}
-  .adv .ak{font-weight:700;color:#111}
-  .adv .av{color:#374151;word-break:break-word;overflow-wrap:anywhere;line-height:1.4}
-  .rich{padding:6px 12px;font-size:10px;color:#374151}
-  .rich ul,.rich ol{margin:0;padding-left:16px}
-  .rich li{padding:1.5px 0}
-  .ctable{width:100%;border-collapse:collapse;font-size:10.5px;table-layout:fixed}
-  .ctable th,.ctable td{padding:5px 10px;border-bottom:1px solid #eceef2;text-align:left;vertical-align:top;word-break:break-word}
-  .ctable th{background:rgba(248,250,252,0.72);font-weight:700;color:#111}
-  .ctable td.amt,.ctable th.amt{text-align:right;white-space:nowrap;width:46%}
-  .ctable tr.total td{font-weight:800;color:${accent};border-top:1px solid #e2e5ea}
-  .ctable tr.total td.amt{font-size:11px;letter-spacing:.2px}
-  .pay{padding:2px 10px 8px}
-  .pay .row{display:grid;grid-template-columns:120px 1fr;padding:4px 0;font-size:10.5px;border-bottom:1px solid #f4f5f7}
-  .pay .row:last-child{border-bottom:none}
-  .pay .pk{color:#6b7280}
-  .pay .pv{color:${headingColor};font-weight:700}
-  /* Bold/emphasised words in body copy (e.g. Terms) use the brand heading colour so they stand out. */
-  .rich b,.rich strong,.rich.terms b,.rich.terms strong{color:${headingColor}}
-  .rich.terms ol,.rich.terms ul{padding-left:16px}
-  .rich.terms li{padding:2px 0}
-  .accept{padding:7px 12px;font-size:10.5px}
-  .accept .intro{color:#374151;margin-bottom:11px}
-  .accept .acc2{display:grid;grid-template-columns:1fr 1fr;gap:0 32px;align-items:stretch}
-  .accept .acc-col{display:flex;flex-direction:column;gap:13px}
-  .accept .acc-stamp{display:flex;align-items:center;justify-content:center;min-height:70px}
-  .accept .acc-stamp img{max-width:100%;max-height:96px;object-fit:contain}
-  .accept .fld{display:flex;align-items:flex-end;gap:8px}
-  .accept .fld .lbl{color:#111;font-weight:600;white-space:nowrap}
-  .accept .fld .line{flex:1;border-bottom:1px solid #9ca3af;height:14px}
-  /* Footer is pinned to the bottom of the A4 sheet: the .doc is a full-height flex column,
-     so margin-top:auto pushes the footer to the physical bottom (screen preview + print match). */
-  .foot-wrap{margin-top:auto}
-  .footer{border-top:2px solid ${accent};margin-top:12px;padding-top:7px;text-align:center;font-size:10.5px;font-weight:600;color:#374151}
-  /* Never split a section across pages. */
-  .hdr,.cols,.sec,.panel,.accept,.foot-wrap,.ctable{break-inside:avoid;page-break-inside:avoid}
-  @page{size:A4;margin:8mm}
-  /* Print = fixed A4 box in millimetres, independent of screen/device width, so desktop and
-     mobile produce the exact same single-page document. Screen keeps the responsive layout above. */
+  html,body{margin:0;padding:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-family:'Times New Roman',Times,serif;color:#1a1a1a;font-size:${fontSize};line-height:1.3}
+  .wm{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:0;pointer-events:none}
+  .wm img{object-fit:contain}
+  .doc{position:relative;width:100%;max-width:794px;min-height:1122px;margin:0 auto;padding:16px 32px 0;display:flex;flex-direction:column;background:#fff;overflow:hidden}
+  @media screen{.doc{box-shadow:0 0 12px rgba(0,0,0,.08)}}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start}
+  .hdr-meta{text-align:right}
+  .hdr-meta .row{display:flex;justify-content:flex-end;align-items:baseline;gap:4px;margin-bottom:1px}
+  .hdr-meta .lbl{color:#666;font-weight:600}
+  .hdr-meta .val{min-width:130px;padding-left:4px;font-weight:600;color:#1a1a1a;min-height:14px}
+  .title-block{text-align:center;margin:5px 0 2px}
+  .title-block h1{font-size:16pt;font-weight:700;letter-spacing:2px;color:#1a1a1a;margin:0;line-height:1.1}
+  .title-block .subtitle{font-size:9.5pt;color:#666;letter-spacing:.3px;margin-top:1px;font-weight:500}
+  .accent-rule{height:1.5px;background:${accent};margin:5px 0 8px}
+  .content{flex:1}
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;margin-bottom:8px}
+  .sh{font-size:10pt;font-weight:700;text-transform:uppercase;color:${accent};letter-spacing:.8px;margin-bottom:3px}
+  .field{margin-bottom:2px;display:flex;align-items:baseline;gap:4px}
+  .field .label{color:#555;font-weight:700;min-width:105px;white-space:nowrap}
+  .field .value{flex:1;color:#1a1a1a;min-height:13px}
+  .section{margin-bottom:6px}
+  .section .sh{border-bottom:1px solid #eee;padding-bottom:2px;margin-bottom:4px}
+  .feat-row{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}
+  .pkg-table{width:100%;border-collapse:collapse;margin-top:2px;border:2px solid ${accent}}
+  .pkg-table th{background:#f9f9f9;border:1px solid #e0e0e0;padding:3px 8px;font-weight:700;color:#1a1a1a;text-align:left;text-transform:uppercase;letter-spacing:.3px}
+  .pkg-table td{border:1px solid #e8e8e8;padding:3px 8px}
+  .pkg-table th.amt,.pkg-table td.amt{text-align:right;width:38%}
+  .pkg-table .total-row td{font-weight:700;border:2px solid ${accent};color:${accent};background:#fff8f8}
+  .pay-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:4px;font-size:9.5pt;padding:2px 0}
+  .pay-item{display:flex;gap:3px;align-items:baseline}
+  .pay-item .pk{color:#666;font-weight:600}
+  .pay-item .pv{color:#1a1a1a;font-weight:700}
+  .sign-wrap{position:relative}
+  .sign-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 24px;margin-top:4px}
+  .sign-col{position:relative}
+  .sign-label{font-size:9.5pt;font-weight:700;color:#555;text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px}
+  .sign-field{display:flex;align-items:baseline;gap:3px;margin-bottom:4px}
+  .sign-field .sl{color:#555;font-weight:600;min-width:70px;white-space:nowrap}
+  .sign-field .sv{flex:1;min-height:14px}
+  .auto-sig{font-family:'Segoe Script','Brush Script MT','Dancing Script',cursive;font-size:14pt;color:#1a1a1a;font-weight:400;letter-spacing:.5px}
+  .stamp-overlay{position:absolute;top:-5px;right:-5px;opacity:.85;pointer-events:none}
+  .deliverables-block{line-height:1.3;color:#1a1a1a;font-size:${fontSize}}
+  .deliverables-block ol,.deliverables-block ul{margin:1px 0;padding-left:16px}
+  .deliverables-block li{margin-bottom:1px}
+  .terms-block{font-size:7.5pt;color:#555;line-height:1.35}
+  .terms-block ol,.terms-block ul{margin:1px 0;padding-left:14px}
+  .terms-block li{margin-bottom:1px}
+  .terms-block b,.terms-block strong{color:#333}
+  .fwrap{margin-top:auto;padding:8px 0}
+  .foot{text-align:center;margin:0;font-size:9pt;color:#555;font-weight:600;letter-spacing:.4px}
+  .doc > *:not(.wm){position:relative;z-index:1}
+  .hdr,.content,.two-col,.section,.sign-grid,.fwrap{break-inside:avoid;page-break-inside:avoid}
+  @page{size:A4;margin:6mm}
   @media print{
-    html,body{width:210mm;height:auto;background:#fff}
-    /* Fill exactly ONE A4 page. Printable area = 297mm − 16mm (8mm top+bottom @page margins) = 281mm.
-       The doc fills that height so the footer sits flush at the very bottom edge (no dead space
-       below it) while content stays on a single page. */
-    /* One A4 page box (printable area = 210−16 × 297−16 = 194 × 281mm with the 8mm @page margin).
-       The .doc is a plain block of exactly that height and the footer is ABSOLUTELY anchored to its
-       bottom — this is deterministic in Chrome's print engine, unlike flex margin-top:auto which
-       Chrome collapses to content height during pagination (the cause of the mid-page footer). */
-    .doc{position:relative;width:194mm;max-width:194mm;min-height:281mm;height:281mm;margin:0;padding:0 0 16mm;display:block;overflow:hidden}
-    .foot-wrap{position:absolute;left:0;right:0;bottom:0;margin:0}
-    .wm{position:fixed;inset:0}
+    html,body{width:210mm;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .doc{width:198mm;max-width:198mm;min-height:284mm;margin:0;padding:16px 32px 0;display:flex;flex-direction:column;background:#fff;box-shadow:none}
+    .fwrap{margin-top:auto;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .wm{position:fixed;inset:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   }
 </style></head><body>
-  ${watermarkHtml}
   <div class="doc">
+    ${watermarkHtml}
+
     <div class="hdr">
-      <div class="brand">
-        ${logoHtml}
+      <div>${logoHtml}</div>
+      <div class="hdr-meta">
+        <div class="row"><span class="lbl">Order No.:</span><span class="val">${esc(D(data.orderId, ''))}</span></div>
+        <div class="row"><span class="lbl">Date:</span><span class="val">${esc(D(data.date, ''))}</span></div>
       </div>
-      <div>
-        <div class="co-title">${esc(docTitle)}</div>
-        <div class="meta">
-          <div class="mk">Order ID:</div><div class="mv">${esc(D(data.orderId, '—'))}</div>
-          <div class="mk">Order Date:</div><div class="mv">${esc(D(data.date, '—'))}</div>
-          <div class="mk">Edition:</div><div class="mv">${esc(D(data.edition, '—'))}</div>
+    </div>
+    <div class="title-block">
+      <h1>${esc(docTitle)}</h1>
+      <div class="subtitle">${esc(magName)}</div>
+    </div>
+    <div class="accent-rule"></div>
+
+    <div class="content">
+
+      <div class="two-col">
+        <div class="col">
+          <div class="sh">${esc(hPublisher)}</div>
+          <div class="field"><span class="label">Company</span><span class="value">${esc(D(m.publisherCompany, ''))}</span></div>
+          <div class="field"><span class="label">Contact Person</span><span class="value">${esc(m.repName || '')}</span></div>
+          <div class="field"><span class="label">Designation</span><span class="value">${esc(m.repTitle || '')}</span></div>
+          <div class="field"><span class="label">Email</span><span class="value">${esc(m.repEmail || '')}</span></div>
+        </div>
+        <div class="col">
+          <div class="sh">${esc(hClient)}</div>
+          <div class="field"><span class="label">Company</span><span class="value">${esc(data.clientCompany || '')}</span></div>
+          <div class="field"><span class="label">Contact Person</span><span class="value">${esc(data.clientName || '')}</span></div>
+          <div class="field"><span class="label">Designation</span><span class="value">${esc(data.clientTitle || '')}</span></div>
+          <div class="field"><span class="label">Email</span><span class="value">${esc(data.clientEmail || '')}</span></div>
         </div>
       </div>
-    </div>
-    <div class="rule"></div>
 
-    <div class="cols">
-      <div class="panel">
-        <div class="panel-h">${esc(hClient)}</div>
-        ${kv('Company', data.clientCompany)}
-        ${kv('Contact Person', data.clientName)}
-        ${kv('Designation', data.clientTitle)}
-        ${kv('Email', data.clientEmail)}
+      <div class="section">
+        <div class="sh">${esc(hFeature)}</div>
+        <div class="feat-row">
+          <div class="field"><span class="label">Feature / Package</span><span class="value">${esc(data.featureTitle || '')}</span></div>
+          <div class="field"><span class="label">Edition / Event</span><span class="value">${esc(data.edition || '')}</span></div>
+        </div>
+        <div class="field"><span class="label">Publication</span><span class="value">${esc(data.publication || '')}</span></div>
       </div>
-      <div class="panel">
-        <div class="panel-h">${esc(hPublisher)}</div>
-        ${kv('Company', D(m.publisherCompany, m.name))}
-        ${kv('Contact Person', m.repName)}
-        ${kv('Designation', m.repTitle)}
-        ${kv('Email', m.repEmail)}
-      </div>
-    </div>
 
-    <div class="sec">
-      <div class="sec-h">${esc(hAdvertising)}</div>
-      ${advRow('Feature Title', data.featureTitle)}
-      ${advRow('Participation Type', data.participationType)}
-      ${advRow('Publication', data.publication)}
-    </div>
+      ${m.perksHtml ? `<div class="section">
+        <div class="sh">${esc(hDeliverables)}</div>
+        <div class="deliverables-block">${m.perksHtml}</div>
+      </div>` : ''}
 
-    <div class="cols">
-      <div class="panel">
-        <div class="panel-h">${esc(hDeliverables)}</div>
-        <div class="rich">${m.perksHtml || '<ul></ul>'}</div>
-      </div>
-      <div class="panel">
-        <div class="panel-h">${esc(hCommercial)}</div>
-        <table class="ctable">
-          <thead><tr><th>Description</th><th class="amt">Amount (${esc(cur)})</th></tr></thead>
+      <div class="section">
+        <div class="sh">${esc(hPackage)}</div>
+        <table class="pkg-table">
+          <thead><tr><th>DESCRIPTION</th><th class="amt">AMOUNT (${esc(cur)})</th></tr></thead>
           <tbody>
-            <tr><td>Participation Fee</td><td class="amt">${hasCost ? money(fee) : '—'}</td></tr>
-            <tr class="total"><td>Total Amount</td><td class="amt">${hasCost ? `${esc(cur)} ${money(fee)}` : '—'}</td></tr>
+            <tr><td>${esc(data.participationType || '')}</td><td class="amt">${hasCost ? money(fee) : ''}</td></tr>
+            <tr><td>&nbsp;</td><td class="amt"></td></tr>
+            <tr class="total-row"><td>NET AMOUNT PAYABLE</td><td class="amt">${hasCost ? `${esc(cur)} ${money(fee)}` : ''}</td></tr>
           </tbody>
         </table>
-        <div class="panel-h" style="border-top:1px solid #eceef2;border-bottom:none;">${esc(hPayment)}</div>
-        <div class="pay">
-          <div class="row"><div class="pk">Payment Terms:</div><div class="pv">${esc(payTerms)}</div></div>
-          <div class="row"><div class="pk">Payment Method:</div><div class="pv">${esc(payMethod)}</div></div>
-          <div class="row"><div class="pk">Payment Currency:</div><div class="pv">${esc(cur)}</div></div>
+        <div class="pay-row">
+          <div class="pay-item"><span class="pk">Payment Terms:</span><span class="pv">${esc(payTerms)}</span></div>
+          <div class="pay-item"><span class="pk">Payment Method:</span><span class="pv">${esc(payMethod)}</span></div>
+          <div class="pay-item"><span class="pk">Currency:</span><span class="pv">${esc(cur)}</span></div>
         </div>
       </div>
-    </div>
 
-    <div class="sec">
-      <div class="sec-h">${esc(hTerms)}</div>
-      <div class="rich terms">${m.termsHtml || '<ul></ul>'}</div>
-    </div>
-
-    <div class="sec">
-      <div class="sec-h">${esc(hAcceptance)}</div>
-      <div class="accept">
-        <div class="intro">${esc(acceptanceText)}</div>
-        <div class="acc2">
-          <div class="acc-col">
-            <div class="fld"><span class="lbl">Client Name:</span><span class="line"></span></div>
-            <div class="fld"><span class="lbl">Signature:</span><span class="line"></span></div>
-            <div class="fld"><span class="lbl">Date:</span><span class="line"></span></div>
+      <div class="section sign-wrap">
+        <div class="sh">${esc(hSignOff)}</div>
+        <div class="sign-grid">
+          <div class="sign-col">
+            <div class="sign-label">Agreed by (Advertiser)</div>
+            <div class="sign-field"><span class="sl">Name:</span><span class="sv"></span></div>
+            <div class="sign-field"><span class="sl">Title:</span><span class="sv"></span></div>
+            <div class="sign-field"><span class="sl">Signature:</span><span class="sv"></span></div>
+            <div class="sign-field"><span class="sl">Date:</span><span class="sv"></span></div>
           </div>
-          <div class="acc-stamp">${m.stampDataUrl ? `<img src="${m.stampDataUrl}" alt="Stamp" style="max-height:${stampMax}px" />` : ''}</div>
+          <div class="sign-col">
+            <div class="sign-label">Approved by (${esc(D(m.name, 'CIO Visionaries'))})</div>
+            <div class="sign-field"><span class="sl">Name:</span><span class="sv">${esc(D(m.approverName, ''))}</span></div>
+            <div class="sign-field"><span class="sl">Title:</span><span class="sv">${esc(D(m.approverTitle, ''))}</span></div>
+            <div class="sign-field"><span class="sl">Signature:</span><span class="sv">${(m.approverName || '').trim() ? `<span class="auto-sig">${esc(m.approverName.trim())}</span>` : ''}</span></div>
+            <div class="sign-field"><span class="sl">Date:</span><span class="sv">${esc(D(data.date, ''))}</span></div>
+            ${stampHtml}
+          </div>
         </div>
       </div>
+
+      <div class="section" style="margin-bottom:0">
+        <div class="sh">${esc(hTerms)}</div>
+        <div class="terms-block">${m.termsHtml || '<ol><li>All rates are exclusive of applicable taxes.</li><li>Payment terms as specified, 100% advance prior to publication.</li><li>Cancellation within 7 days of publication date will incur full charges.</li><li>Content and materials must be submitted at least 14 days before publication.</li><li>Publisher reserves the right to reject material deemed inappropriate.</li></ol>'}</div>
+      </div>
+
     </div>
 
+    <div class="fwrap">
+      <div class="foot">${esc(footerSite)}</div>
+    </div>
   </div>
   ${preview ? '' : '<script>window.onload=function(){setTimeout(function(){window.focus();window.print();},350);};</script>'}
 </body></html>`;
 }
+
+// Merge a saved draft over the blank form — always apply today's date when the draft has none,
+// and clear orderId so the auto-generate effect assigns the next sequential number.
+// Old-format SV/... IDs (from the hash-based system) are cleared so the new sequential
+// format (AWL26-27/101, CIO26-27/101, etc.) is generated on next load.
+const mergeDraft = (blankForm, draft) => {
+  if (!draft) return { ...blankForm };
+  const merged = { ...blankForm, ...draft };
+  if (!draft.date) merged.date = blankForm.date;
+  if (!draft.orderId || /^SV\//.test(draft.orderId)) merged.orderId = '';
+  return merged;
+};
 
 export default function InsertionOrderForm({ onCapture, sharedMagazines = null, onSaveMagazines } = {}) {
   const { expenses = [], showToast, deleteExpense, loading } = useAppData();
@@ -494,6 +510,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
   const [showSaved, setShowSaved] = useState(false);
   const [newConfirm, setNewConfirm] = useState(false);
   const [busyDl, setBusyDl] = useState(false);
+  const [busySave, setBusySave] = useState(false);
   const [magazines, setMagazines] = useState(loadMagazines);
   const hydratedRef = useRef(false);   // becomes true once DB config is applied
   const skipSaveRef = useRef(true);    // skip the initial mount + hydration echo when persisting to DB
@@ -544,24 +561,24 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     // and reused on every edit, so each order maps to exactly one DB row (source_key) —
     // new orders never collide/overwrite, and edits update in place.
     orderKey: '',
-    date: '',
+    date: todayStr(),
     orderId: '', edition: '',
     featureTitle: '',
-    clientCompany: '', // record-only (not shown on the document)
+    clientCompany: '',
     clientName: '', clientTitle: '', clientEmail: '',
     participationType: '', publication: '',
     cost: '', currency: 'USD',
     paymentTerms: '', paymentMethod: '',
-    repName: '', repTitle: '', repEmail: '', // per-order publisher contact (blank = magazine default)
+    repName: '', repTitle: '', repEmail: '',
   };
   // Restore THIS magazine's auto-saved draft so each magazine keeps its own previous order.
   const [form, setForm] = useState(() => {
     try {
       const drafts = loadDrafts();
       const mine = drafts[currentId] || drafts.__legacy;
-      if (mine) return { ...BLANK_FORM, ...mine };
+      if (mine) return mergeDraft(BLANK_FORM, mine);
     } catch (e) { /* ignore */ }
-    return BLANK_FORM;
+    return { ...BLANK_FORM };
   });
   // Effective magazine for the document/preview — per-order contact person overrides the template.
   const docMag = {
@@ -598,6 +615,18 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     saveDrafts(map);
   }, [form, currentId, editingKey, orderSnap]);
 
+  // Auto-populate the Order ID for new (unsaved) orders with the next sequential number.
+  // Runs when the magazine changes or after a "Start New" clears the form.
+  useEffect(() => {
+    if (form.orderKey || form.orderId) return; // already has an ID — don't overwrite
+    const hasCustom = !!(liveMag.orderPrefix && String(liveMag.orderPrefix).trim());
+    const prefix = getMagPrefix(liveMag.name, liveMag.orderPrefix);
+    const fullPrefix = hasCustom ? prefix : prefix + getFiscalYear();
+    const counters = loadCounters();
+    const next = (counters[fullPrefix] || 100) + 1;
+    updateField('orderId', `${fullPrefix}/${next}`);
+  }, [currentId, form.orderKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const updateField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
   const updateMag = (patch) =>
@@ -621,15 +650,24 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
       {
         id,
         name: 'New Magazine',
+        // Branding starts fresh — admin fills in logo, colors, contact
         logoText: '', logoSubText: '', logoDataUrl: '',
         watermarkDataUrl: '', watermarkOpacity: 0.5, logoScale: 100, watermarkSize: 60,
-        accentColor: '#1a1a1a', headingColor: '',
-        publisherCompany: '', repName: '', repTitle: '', repEmail: '',
-        website: '', footerEmail: '', docTitle: 'CONFIRMATION ORDER', acceptanceText: '',
-        hClient: '', hPublisher: '', hAdvertising: '', hDeliverables: '',
-        hCommercial: '', hPayment: '', hTerms: '', hAcceptance: '',
-        payTerms: '100% advance payment', payMethod: 'Bank Transfer / Online Payment',
-        perksHtml: '', termsHtml: '',
+        accentColor: '#1a1a1a', headingColor: '', bgColor: '',
+        publisherCompany: '', publisherAddress: '', publisherPhone: '',
+        repName: '', repTitle: '', repEmail: '',
+        approverName: '', approverTitle: '', orderPrefix: '',
+        stampDataUrl: '', stampScale: 100, docFontSize: '',
+        website: '', footerEmail: '', docTitle: 'INSERTION ORDER', acceptanceText: '',
+        // Section headings inherit from current magazine so the document topology is identical
+        hClient: liveMag.hClient || '', hPublisher: liveMag.hPublisher || '',
+        hAdvertising: liveMag.hAdvertising || '', hDeliverables: liveMag.hDeliverables || '',
+        hCommercial: liveMag.hCommercial || '', hPayment: liveMag.hPayment || '',
+        hTerms: liveMag.hTerms || '', hAcceptance: liveMag.hAcceptance || '',
+        payTerms: liveMag.payTerms || '100% advance payment',
+        payMethod: liveMag.payMethod || 'Bank Transfer / Online Payment',
+        // Copy deliverables and terms so the new magazine has the same content structure
+        perksHtml: liveMag.perksHtml || '', termsHtml: liveMag.termsHtml || '',
       },
     ]);
     setCurrentId(id); setOrderSnap(null); setEditingKey(''); setAutoSaveState('');
@@ -649,7 +687,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     setMagazines(remaining);
     setCurrentId(nextId); setOrderSnap(null); setEditingKey(''); setAutoSaveState('');
     const saved = loadDrafts()[nextId];
-    setForm(saved ? { ...BLANK_FORM, ...saved } : { ...BLANK_FORM });
+    setForm(mergeDraft(BLANK_FORM, saved));
   };
 
   const accent = mag.accentColor || '#1a1a1a';
@@ -714,7 +752,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     const m = hydrateSnap(dd.magSnapshot, dd.magazine) || magazines.find((x) => x.name === dd.magazine) || mag;
     const html = genOrderHtml(m, {
       orderId: dd.orderId || dd.confirmationNo || '',
-      date: rec.paymentDate || (dd.generatedAt ? String(dd.generatedAt).slice(0, 10) : ''),
+      date: rec.paymentDate || (() => { if (!dd.generatedAt) return ''; const p = String(dd.generatedAt).slice(0,10).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : ''; })(),
       edition: dd.edition || '',
       clientCompany: dd.companyName || '',
       clientName: dd.clientName || rec.clientName || '',
@@ -737,7 +775,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     setForm({
       // Reuse the saved order's stable identity so editing updates the SAME row (never a duplicate).
       orderKey: dd.orderKey || rec.sourceKey || '',
-      date: rec.paymentDate || (dd.generatedAt ? String(dd.generatedAt).slice(0, 10) : todayStr()),
+      date: rec.paymentDate || (dd.generatedAt ? (() => { const p = String(dd.generatedAt).slice(0,10).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : ''; })() : todayStr()),
       orderId: dd.orderId || '',
       edition: dd.edition || '',
       featureTitle: dd.featureTitle || '',
@@ -855,13 +893,13 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
   const persistOrder = async ({ html, confNo, src, orderId, orderKey }) => {
     let fileUrl = '', fileName = '';
     try {
-      setBusyDl(true);
+      setBusySave(true);
       const safe = `confirmation-order-${confNo.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}.html`;
       const path = `insertion-orders/${safe}`;
       const { error } = await supabase.storage.from('design-files').upload(path, new Blob([html], { type: 'text/html' }), { upsert: false });
       if (!error) { fileUrl = supabase.storage.from('design-files').getPublicUrl(path).data.publicUrl; fileName = `Confirmation Order ${confNo}.html`; }
     } catch (e) { /* upload optional — record still captured */ }
-    finally { setBusyDl(false); }
+    finally { setBusySave(false); }
     const rec = buildRecord({ confNo, orderId, orderKey: orderKey || src, fileUrl, fileName });
     // DB write is the SOURCE OF TRUTH — await it and know whether it actually persisted.
     let synced = false;
@@ -873,6 +911,12 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     // Editing this order from now on auto-saves silently to the same record.
     setEditingKey(rec.sourceKey);
     editMetaRef.current = { url: fileUrl, name: fileName, createdAt: rec.createdAt };
+    // Advance the per-magazine counter so the NEXT new order gets a higher sequential number.
+    const _hasCustom = !!(mag.orderPrefix && String(mag.orderPrefix).trim());
+    const _pfx = getMagPrefix(mag.name, mag.orderPrefix);
+    const _fullPfx = _hasCustom ? _pfx : _pfx + getFiscalYear();
+    const _num = parseInt(String(form.orderId || confNo).replace(/.*\//, ''), 10);
+    if (_num && !isNaN(_num)) { const _c = loadCounters(); _c[_fullPfx] = Math.max(_c[_fullPfx] || 0, _num); saveCounters(_c); }
     if (synced) showToast && showToast('Saved to Insertion Orders.', 'success');
     else showToast && showToast('Saved locally — could not reach the database. It will sync automatically when the connection is back.', 'error');
   };
@@ -901,9 +945,11 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
 
   /* ── Download: open the print dialog, then ask whether to save to memory ── */
   const handleDownload = async () => {
+    setBusyDl(true);
     const order = buildOrder();
     const w = window.open('', '_blank');
     if (w) { w.document.open(); w.document.write(order.html); w.document.close(); }
+    setBusyDl(false);
     if (window.confirm('Save this confirmation order to memory?\n\nIt will be added to Saved Insertion Orders.')) {
       await persistOrder(order);
       setShowSaved(true); // land directly in the Saved section
@@ -936,7 +982,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
               // Restore the target magazine's saved draft if it has one, else start a fresh order.
               // Publisher Information comes from the magazine template (single source), not the order.
               const saved = loadDrafts()[id];
-              setForm(saved ? { ...BLANK_FORM, ...saved } : { ...BLANK_FORM });
+              setForm(mergeDraft(BLANK_FORM, saved));
             }}
           >
             {magazines.map((m) => (
@@ -1018,17 +1064,76 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
               </div>
             </div>
 
+            {/* Approver / Manager — fills the "Approved by" column on the document */}
+            <div className="sv-iof-group">
+              <div className="sv-iof-gh">Approved By (Manager) <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 11 }}>(auto-fills sign-off + digital signature)</span></div>
+              <div className="sv-io-row-2">
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Manager name</label>
+                  <input className="sv-input" type="text" placeholder="e.g. Faraz Khan" value={liveMag.approverName || ''} onChange={(e) => updateMag({ approverName: e.target.value })} />
+                </div>
+                <div className="sv-io-field">
+                  <label className="sv-form-label">Title / Designation</label>
+                  <input className="sv-input" type="text" placeholder="e.g. Business Development Manager" value={liveMag.approverTitle || ''} onChange={(e) => updateMag({ approverTitle: e.target.value })} />
+                </div>
+              </div>
+              {liveMag.approverName && (
+                <div style={{ marginTop: 6, padding: '8px 12px', background: '#F8FAFC', borderRadius: 8, border: '1px solid #E2E8F0' }}>
+                  <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600 }}>Signature preview:</span>
+                  <div style={{ fontFamily: "'Segoe Script','Brush Script MT',cursive", fontSize: 20, color: '#1a1a1a', marginTop: 2 }}>{liveMag.approverName}</div>
+                </div>
+              )}
+            </div>
+
             {/* Order Information */}
             <div className="sv-iof-group">
               <div className="sv-iof-gh">Order Information</div>
               <div className="sv-io-row-2">
                 <div className="sv-io-field">
                   <label className="sv-form-label">Date</label>
-                  <input className="sv-input" type="text" placeholder="DD/MM/YYYY" value={form.date} onChange={(e) => updateField('date', e.target.value)} />
+                  <div className="sv-flex sv-gap-2" style={{ alignItems: 'center' }}>
+                    <input className="sv-input" type="text" readOnly value={form.date} style={{ flex: 1, cursor: 'default' }} />
+                    <input
+                      type="date"
+                      style={{ width: 36, height: 36, padding: 2, border: '1px solid #E2E8F0', borderRadius: 6, cursor: 'pointer', background: '#F8FAFC' }}
+                      onChange={(e) => {
+                        if (!e.target.value) return;
+                        const [y, mo, d] = e.target.value.split('-');
+                        updateField('date', `${d}/${mo}/${y}`);
+                      }}
+                    />
+                  </div>
                 </div>
                 <div className="sv-io-field">
-                  <label className="sv-form-label">Order ID <span style={{ color: '#94A3B8', fontWeight: 500 }}>(blank = auto)</span></label>
-                  <input className="sv-input" type="text" placeholder="Auto (SV/25-26/xxx)" value={form.orderId} onChange={(e) => updateField('orderId', e.target.value)} />
+                  <label className="sv-form-label">Order ID</label>
+                  {(() => {
+                    const _hc = !!(liveMag.orderPrefix && String(liveMag.orderPrefix).trim());
+                    const _pfx = getMagPrefix(liveMag.name, liveMag.orderPrefix);
+                    const currentPrefix = _hc ? _pfx : _pfx + getFiscalYear();
+                    const numStr = String(form.orderId || '').replace(/.*\//, '');
+                    const numVal = parseInt(numStr, 10) || 101;
+                    return (
+                      <div className="sv-flex sv-gap-2" style={{ alignItems: 'center' }}>
+                        <input className="sv-input" type="text"
+                          style={{ width: 100, fontWeight: 700, fontSize: 13 }}
+                          placeholder={getMagPrefix(liveMag.name) + getFiscalYear()}
+                          value={liveMag.orderPrefix || ''}
+                          onChange={(e) => updateMag({ orderPrefix: e.target.value })}
+                        />
+                        <span style={{ fontSize: 15, fontWeight: 700, color: '#334155' }}>/</span>
+                        <input className="sv-input" type="number" min="1" style={{ width: 68, textAlign: 'center', fontWeight: 700 }}
+                          value={numVal}
+                          onChange={(e) => updateField('orderId', currentPrefix + '/' + (e.target.value || '1'))}
+                        />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          <button type="button" onClick={() => updateField('orderId', currentPrefix + '/' + (numVal + 1))}
+                            style={{ border: '1px solid #E2E8F0', background: '#F8FAFC', borderRadius: '4px 4px 0 0', cursor: 'pointer', padding: '0 6px', fontSize: 11, lineHeight: '16px', fontWeight: 700, color: '#475569' }}>▲</button>
+                          <button type="button" onClick={() => updateField('orderId', currentPrefix + '/' + Math.max(1, numVal - 1))}
+                            style={{ border: '1px solid #E2E8F0', background: '#F8FAFC', borderRadius: '0 0 4px 4px', cursor: 'pointer', padding: '0 6px', fontSize: 11, lineHeight: '16px', fontWeight: 700, color: '#475569' }}>▼</button>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
               <div className="sv-io-row-2">
@@ -1047,11 +1152,11 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
               </div>
             </div>
 
-            {/* Advertising / Editorial Details */}
+            {/* Feature Details */}
             <div className="sv-iof-group">
-              <div className="sv-iof-gh">Advertising / Editorial Details <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 11 }}>(optional)</span></div>
+              <div className="sv-iof-gh">Feature Details</div>
               <div className="sv-io-field">
-                <label className="sv-form-label">Feature title</label>
+                <label className="sv-form-label">Feature / Package</label>
                 <input className="sv-input" type="text" placeholder='"The 10 Most Influential ... in 2025."' value={form.featureTitle} onChange={(e) => updateField('featureTitle', e.target.value)} />
               </div>
               <div className="sv-io-row-2">
@@ -1088,7 +1193,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
 
           {/* Magazine template — dynamic brand configuration */}
           <div className="sv-card sv-io-form-card">
-            <h3 className="sv-io-section-title">Magazine template</h3>
+            <h3 className="sv-io-section-title" style={{ marginBottom: 14 }}>Magazine template</h3>
 
             <div className="sv-io-field">
               <label className="sv-form-label">Magazine / brand name</label>
@@ -1248,24 +1353,6 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
                   />
                 </div>
               </div>
-              <div className="sv-io-field">
-                <label className="sv-form-label">Section heading color</label>
-                <div className="sv-io-color-row">
-                  <input
-                    type="color"
-                    className="sv-io-color"
-                    value={liveMag.headingColor || liveMag.accentColor || '#111111'}
-                    onChange={(e) => updateMag({ headingColor: e.target.value })}
-                  />
-                  <input
-                    className="sv-input"
-                    type="text"
-                    placeholder="e.g. #1A7F4B (blank = accent)"
-                    value={liveMag.headingColor || ''}
-                    onChange={(e) => updateMag({ headingColor: e.target.value })}
-                  />
-                </div>
-              </div>
             </div>
 
             {/* Logo & watermark size */}
@@ -1351,53 +1438,45 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
 
             {/* Editable section headings + acceptance text (per magazine) */}
             <h4 className="sv-io-subhead">Section headings <span style={{ color: '#94A3B8', fontWeight: 500, fontSize: 11 }}>(blank = default)</span></h4>
-            <div className="sv-io-field">
-              <label className="sv-form-label">Document title</label>
-              <input className="sv-input" type="text" placeholder="CONFIRMATION ORDER" value={liveMag.docTitle || ''} onChange={(e) => updateMag({ docTitle: e.target.value })} />
-            </div>
             <div className="sv-io-row-2">
               <div className="sv-io-field">
-                <label className="sv-form-label">Client Information</label>
-                <input className="sv-input" type="text" placeholder="Client Information" value={liveMag.hClient || ''} onChange={(e) => updateMag({ hClient: e.target.value })} />
+                <label className="sv-form-label">Document title</label>
+                <input className="sv-input" type="text" placeholder="INSERTION ORDER" value={liveMag.docTitle || ''} onChange={(e) => updateMag({ docTitle: e.target.value })} />
               </div>
               <div className="sv-io-field">
-                <label className="sv-form-label">Publisher Information</label>
-                <input className="sv-input" type="text" placeholder="Publisher Information" value={liveMag.hPublisher || ''} onChange={(e) => updateMag({ hPublisher: e.target.value })} />
+                <label className="sv-form-label">Font size (pt)</label>
+                <input className="sv-input" type="number" min="8" max="16" step="0.5" placeholder="11.5" value={liveMag.docFontSize || ''} onChange={(e) => updateMag({ docFontSize: e.target.value })} />
               </div>
             </div>
             <div className="sv-io-row-2">
               <div className="sv-io-field">
-                <label className="sv-form-label">Advertising / Editorial</label>
-                <input className="sv-input" type="text" placeholder="Advertising / Editorial Details" value={liveMag.hAdvertising || ''} onChange={(e) => updateMag({ hAdvertising: e.target.value })} />
+                <label className="sv-form-label">Advertiser Details</label>
+                <input className="sv-input" type="text" placeholder="ADVERTISER DETAILS" value={liveMag.hClient || ''} onChange={(e) => updateMag({ hClient: e.target.value })} />
               </div>
               <div className="sv-io-field">
-                <label className="sv-form-label">Deliverables</label>
-                <input className="sv-input" type="text" placeholder="Deliverables" value={liveMag.hDeliverables || ''} onChange={(e) => updateMag({ hDeliverables: e.target.value })} />
+                <label className="sv-form-label">Publisher Details</label>
+                <input className="sv-input" type="text" placeholder="PUBLISHER DETAILS" value={liveMag.hPublisher || ''} onChange={(e) => updateMag({ hPublisher: e.target.value })} />
               </div>
             </div>
             <div className="sv-io-row-2">
               <div className="sv-io-field">
-                <label className="sv-form-label">Commercial Summary</label>
-                <input className="sv-input" type="text" placeholder="Commercial Summary" value={liveMag.hCommercial || ''} onChange={(e) => updateMag({ hCommercial: e.target.value })} />
+                <label className="sv-form-label">Feature Details</label>
+                <input className="sv-input" type="text" placeholder="FEATURE DETAILS" value={liveMag.hAdvertising || ''} onChange={(e) => updateMag({ hAdvertising: e.target.value })} />
               </div>
               <div className="sv-io-field">
-                <label className="sv-form-label">Payment Details</label>
-                <input className="sv-input" type="text" placeholder="Payment Details" value={liveMag.hPayment || ''} onChange={(e) => updateMag({ hPayment: e.target.value })} />
+                <label className="sv-form-label">Participation Package</label>
+                <input className="sv-input" type="text" placeholder="PARTICIPATION PACKAGE" value={liveMag.hCommercial || ''} onChange={(e) => updateMag({ hCommercial: e.target.value })} />
               </div>
             </div>
             <div className="sv-io-row-2">
               <div className="sv-io-field">
                 <label className="sv-form-label">Terms &amp; Conditions</label>
-                <input className="sv-input" type="text" placeholder="Terms & Conditions" value={liveMag.hTerms || ''} onChange={(e) => updateMag({ hTerms: e.target.value })} />
+                <input className="sv-input" type="text" placeholder="TERMS & CONDITIONS" value={liveMag.hTerms || ''} onChange={(e) => updateMag({ hTerms: e.target.value })} />
               </div>
               <div className="sv-io-field">
-                <label className="sv-form-label">Client Acceptance</label>
-                <input className="sv-input" type="text" placeholder="Client Acceptance" value={liveMag.hAcceptance || ''} onChange={(e) => updateMag({ hAcceptance: e.target.value })} />
+                <label className="sv-form-label">Sign Off</label>
+                <input className="sv-input" type="text" placeholder="SIGN OFF" value={liveMag.hAcceptance || ''} onChange={(e) => updateMag({ hAcceptance: e.target.value })} />
               </div>
-            </div>
-            <div className="sv-io-field">
-              <label className="sv-form-label">Acceptance statement</label>
-              <textarea className="sv-input" rows={2} placeholder="By signing below, the client confirms acceptance of this Confirmation Order…" value={liveMag.acceptanceText || ''} onChange={(e) => updateMag({ acceptanceText: e.target.value })} />
             </div>
           </div>
         </div>
@@ -1414,10 +1493,10 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
 
           <div className="sv-io-actgrid">
             <button type="button" className="sv-io-actbtn sv-io-actbtn--blue" onClick={handleDownload} disabled={busyDl}>
-              <Download size={16} /> {busyDl ? 'Saving…' : 'Download PDF'}
+              <Download size={16} /> {busyDl ? 'Opening…' : 'Download PDF'}
             </button>
-            <button type="button" className="sv-io-actbtn sv-io-actbtn--green" onClick={handleSaveToMemory} disabled={busyDl}>
-              <Save size={16} /> {busyDl ? 'Saving…' : 'Save'}
+            <button type="button" className="sv-io-actbtn sv-io-actbtn--green" onClick={handleSaveToMemory} disabled={busySave}>
+              <Save size={16} /> {busySave ? 'Saving…' : 'Save'}
             </button>
             <button type="button" className="sv-io-actbtn sv-io-actbtn--slate" onClick={() => setShowSaved(true)}>
               <FolderOpen size={16} /> Saved Files <span className="sv-io-actbadge">({savedOrders.length})</span>
@@ -1463,7 +1542,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
                           <span style={{ display: 'inline-flex', gap: 12, alignItems: 'center' }}>
                             <button type="button" onClick={() => editSaved(e)} style={{ border: 'none', background: 'transparent', color: '#16A34A', fontWeight: 700, cursor: 'pointer', padding: 0 }}>Edit</button>
                             <button type="button" onClick={() => reopenSaved(e)} style={{ border: 'none', background: 'transparent', color: '#2563EB', fontWeight: 600, cursor: 'pointer', padding: 0 }}>Re-open</button>
-                            {d.invoiceUrl && <a href={d.invoiceUrl} target="_blank" rel="noreferrer" style={{ color: '#64748B', fontWeight: 600 }}>File</a>}
+                            {d.invoiceUrl && <a href={d.invoiceUrl} target="_blank" rel="noreferrer" style={{ color: '#64748B', fontWeight: 600 }}>Show</a>}
                             <button type="button" className="sv-btn sv-btn--danger sv-btn--sm" onClick={() => deleteSaved(e)}>Delete</button>
                           </span>
                         </td>

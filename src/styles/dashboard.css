@@ -2795,6 +2795,11 @@ body { font-size: 14px; line-height: 1.55; letter-spacing: -0.006em; color: #0F1
 @media (max-width: 1100px) { .sv-kpi-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 680px)  { .sv-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 420px)  { .sv-kpi-grid { grid-template-columns: 1fr; } }
+/* 4-column variant — used by admin overview (8 cards → 4×2 with no orphan gaps) */
+.sv-kpi-grid--4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1100px) { .sv-kpi-grid--4 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 680px)  { .sv-kpi-grid--4 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 420px)  { .sv-kpi-grid--4 { grid-template-columns: 1fr; } }
 
 /* =====================================================================
    BATCH 5.0 — UI/bug pass: header align (#1), Assign IDs projects (#5),
@@ -4914,3 +4919,14 @@ html,body{overflow-x:hidden;max-width:100%}
 .sv-io-actbtn--ghost{color:#334155;background:#fff;border:1px solid #DDE5EE}
 .sv-io-actbtn--ghost:hover:not(:disabled){background:#F8FAFC;border-color:#C7D2E0}
 .sv-io-actbadge{font-weight:700;opacity:.85}
+
+/* =====================================================================
+   BATCH 10.0 — Settings premium redesign responsive fixes
+   ===================================================================== */
+/* Stat grid: 6-col → 3-col → 2-col */
+@media (max-width: 1100px) { .sv-tab .sv-settings-stats { grid-template-columns: repeat(3, 1fr) !important; } }
+@media (max-width: 640px)  { .sv-tab .sv-settings-stats { grid-template-columns: repeat(2, 1fr) !important; } }
+/* Shortcut pill hover */
+.sv-settings-shortcut:hover { background: #EFF6FF !important; border-color: #BFDBFE !important; color: #1D4ED8 !important; }
+/* SecHead border in dark mode */
+.sv-dark .sv-sechead-border { border-bottom-color: rgba(255,255,255,.08) !important; }

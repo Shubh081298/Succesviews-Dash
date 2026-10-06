@@ -25,8 +25,8 @@ const money = (n) => fmtSalary(n || 0);
 const mKey = (d) => String(d || "").slice(0, 7);
 const PTYPES = ["Monthly", "Per Project", "Hourly"];
 
-export default function SalaryModule({ employees, salaries, setSalaries, showToast, pushNotification, addMessage, captureExpense, editMode = false, setEditMode, settingsPwd = "Settings@123", logo = "", freelancers = [], saveFreelancers, bankDetails = {}, saveBankDetails, deleteEmployee }) {
-  const [view, setView] = useState("payroll"); // payroll | freelancers | history | bank
+export default function SalaryModule({ employees, salaries, setSalaries, showToast, pushNotification, addMessage, captureExpense, editMode = false, setEditMode, settingsPwd = "Settings@123", logo = "", freelancers = [], saveFreelancers, bankDetails = {}, saveBankDetails, deleteEmployee, submissions = [], leaves = [], attendanceOverrides = [] }) {
+  const [view, setView] = useState("payroll"); // payroll | freelancers | history | bank | attendance
   // Current payroll / roster / bank views show ACTIVE staff only. The Salary
   // HISTORY list still resolves terminated employees' names (their past pay
   // records are preserved), so `employees` (full) is used there via .find().
@@ -70,7 +70,17 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   // ── Payroll Cycle (additive month-based workflow) state ──
   // Defaults to the current calendar month; the admin can pick any month, and the
   // payslip / expense are always mapped to the SELECTED payroll (salary) month.
-  const [payMonth, setPayMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [payMonth, setPayMonth] = useState(() => {
+    const d = new Date();
+    // Salary is credited between the 5th–8th for the PREVIOUS month's work.
+    // If we're in that processing window, default to the previous month so the
+    // admin lands on the right payroll period without manually switching.
+    if (d.getDate() <= 8) {
+      const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+      return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
+    }
+    return d.toISOString().slice(0, 7);
+  });
   // Optional "Salary month" stamp shown on the payslip. Empty => follows the payroll
   // month. Lets the admin label a payslip as e.g. "August 2026" even when processed in
   // another slot, without changing the payroll record or the expense mapping.
@@ -146,7 +156,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   const pcSetStatus = (empId, status) => saveMonthRec(empId, payMonth, { status });
   const pcAddEntry = async () => {
     if (!pcEntry) return; const amt = +pcAmt || 0;
-    if (amt <= 0 || !pcReason.trim()) { showToast("Enter amount and reason", "err"); return; }
+    if (amt <= 0 || !pcReason.trim()) { showToast("Enter amount and reason", "error"); return; }
     const { empId, type } = pcEntry; const rec = getMonthRec(empId, payMonth);
     const key = type === "incentive" ? "incentives" : "deductions";
     const item = { id: `${type}${Date.now()}`, amount: amt, reason: pcReason.trim(), date: getTodayStr() };
@@ -175,7 +185,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
     const already = (s.payments || []).some((p) => (p.monthKey || mKey(p.date)) === payMonth);
     const net = pcNet(rec);
     const date = rec.releaseDate || getTodayStr();
-    const pay = { id: `pay${Date.now()}`, amount: net, fixed: rec.fixed || 0, incentiveTotal: sumAmt(rec.incentives), deductionTotal: sumAmt(rec.deductions), incentives: rec.incentives || [], deductions: rec.deductions || [], date, monthKey: payMonth, salaryForMonth: payslipMK };
+    const pay = { id: `pay${Date.now()}`, amount: net, fixed: rec.fixed || 0, incentiveTotal: sumAmt(rec.incentives), deductionTotal: sumAmt(rec.deductions), incentives: rec.incentives || [], deductions: rec.deductions || [], date, monthKey: payMonth, salaryForMonth: payslipMK, empName: emp?.name || "", empDept: emp?.department || "" };
     const nextMonth = { ...rec, status: "Released", paidDate: getTodayStr(), releaseDate: date };
     // The released month's fixed becomes the LATEST approved fixed salary carried
     // forward to future months (salary versioning). Historical months[mk] keep their
@@ -201,7 +211,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
 
   /* ── Incentives (unchanged) ── */
   const addIncentive = async () => {
-    if (!incAmount || !incReason.trim()) { showToast("Enter amount and reason", "err"); return; }
+    if (!incAmount || !incReason.trim()) { showToast("Enter amount and reason", "error"); return; }
     const id = modal?.empId;
     const curr = getSal(id);
     const inc = { id: `inc${Date.now()}`, amount: +incAmount, reason: incReason.trim(), date: getTodayStr() };
@@ -225,7 +235,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
 
   /* ── Deductions (unchanged) ── */
   const addDeduction = async () => {
-    if (!dedAmount || !dedReason.trim()) { showToast("Enter deduction amount and reason", "err"); return; }
+    if (!dedAmount || !dedReason.trim()) { showToast("Enter deduction amount and reason", "error"); return; }
     const id = modal?.empId;
     const curr = getSal(id);
     const ded = { id: `ded${Date.now()}`, amount: +dedAmount, reason: dedReason.trim(), date: getTodayStr() };
@@ -253,7 +263,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
     const totalInc = sumAmt(curr.incentives);
     const totalDed = sumAmt(curr.deductions);
     const total = (curr.fixedSalary || 0) + totalInc - totalDed;
-    const pay = { id: `pay${Date.now()}`, amount: total, fixed: curr.fixedSalary || 0, incentiveTotal: totalInc, deductionTotal: totalDed, incentives: curr.incentives || [], deductions: curr.deductions || [], date: getTodayStr() };
+    const pay = { id: `pay${Date.now()}`, amount: total, fixed: curr.fixedSalary || 0, incentiveTotal: totalInc, deductionTotal: totalDed, incentives: curr.incentives || [], deductions: curr.deductions || [], date: getTodayStr(), empName: emp?.name || "", empDept: emp?.department || "" };
     const u = { ...salaries, [empId]: { ...curr, payments: [...(curr.payments || []), pay], incentives: [], deductions: [] } };
     setSalaries(u); await storageSet("svd_salaries", JSON.stringify(u));
     setConfirmPaid(null);
@@ -340,7 +350,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   const openAddF = () => { setFForm(blankF); setFModal({ mode: "add" }); };
   const openEditF = (fr) => { setFForm({ ...blankF, ...fr, amount: fr.amount ?? "" }); setFModal({ mode: "edit", id: fr.id }); };
   const saveF = () => {
-    if (!fForm.name.trim()) { showToast("Freelancer name is required", "err"); return; }
+    if (!fForm.name.trim()) { showToast("Freelancer name is required", "error"); return; }
     const clean = { name: fForm.name.trim(), company: fForm.company.trim(), role: fForm.role.trim(), paymentType: fForm.paymentType, amount: +fForm.amount || 0, paymentDate: fForm.paymentDate, status: fForm.status, notes: fForm.notes };
     if (fModal.mode === "add") {
       persistF([...(freelancers || []), { id: `fr${Date.now()}`, ...clean, payments: [] }]);
@@ -364,7 +374,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   const doPayF = () => {
     const fr = (freelancers || []).find((f) => f.id === fPay);
     const amt = +fPayForm.amount || 0;
-    if (!fr || amt <= 0) { showToast("Enter a valid amount", "err"); return; }
+    if (!fr || amt <= 0) { showToast("Enter a valid amount", "error"); return; }
     const payment = { id: `fp${Date.now()}`, amount: amt, date: fPayForm.date, note: fPayForm.note.trim(), method: "Freelance", monthKey: payMonth };
     persistF((freelancers || []).map((f) => (f.id === fr.id ? { ...f, payments: [...(f.payments || []), payment] } : f)));
     if (captureExpense) {
@@ -405,7 +415,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
     Object.entries(salaries || {}).forEach(([id, s]) => {
       const emp = employees.find((e) => e.id === id);
       (s.payments || []).forEach((p) => rows.push({
-        key: p.id || `${id}-${p.date}`, kind: "Employee", emp, name: emp?.name || id, sub: emp?.department || "—",
+        key: p.id || `${id}-${p.date}`, kind: "Employee", emp, name: emp?.name || p.empName || id, sub: emp?.department || p.empDept || "—",
         gross: p.fixed || 0, incentive: p.incentiveTotal || 0, deduction: p.deductionTotal || 0, final: p.amount || 0,
         date: p.date, payment: p, empId: id,
       }));
@@ -459,7 +469,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
       <div className="sv-card">
         <div className="sv-sal-head">
           <div className="sv-seg">
-            {[["payroll", "Salary"], ["freelancers", "Freelancers"], ["history", "History"], ["bank", "Bank Details"]].map(([k, l]) => (
+            {[["payroll", "Salary"], ["attendance", "Attendance"], ["freelancers", "Freelancers"], ["history", "History"], ["bank", "Bank Details"]].map(([k, l]) => (
               <button key={k} className={`sv-seg-btn${view === k ? " sv-seg-btn--on" : ""}`} onClick={() => setView(k)}>{l}</button>
             ))}
           </div>
@@ -544,24 +554,27 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
           const allResolved = recs.length > 0 && recs.every(({ rec }) => pcResolved(rec.status));
           return (
             <>
-              <div className="sv-flex sv-items-center sv-gap-2" style={{ flexWrap: "wrap", margin: "4px 0 14px" }}>
-                <div className="sv-flex sv-items-center sv-gap-2">
-                  <span className="sv-mod-icon" style={{ background: "rgba(37,99,235,.12)", color: "#2563EB" }}><CalendarDays size={16} /></span>
-                  <div><div className="sv-text-navy sv-font-800" style={{ fontSize: 15 }}>Payroll Cycle</div><div className="sv-text-muted" style={{ fontSize: 11.5 }}>Process each month on its own: Draft → Ready → Approved → Released. Only released pay reaches the employee & counts as paid.</div></div>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, margin: "4px 0 14px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                  <span className="sv-mod-icon" style={{ background: "rgba(37,99,235,.12)", color: "#2563EB", flexShrink: 0 }}><CalendarDays size={16} /></span>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="sv-text-navy sv-font-800" style={{ fontSize: 14 }}>Payroll Cycle</div>
+                    <div className="sv-text-muted" style={{ fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>Draft → Ready → Approved → Released</div>
+                  </div>
                 </div>
-                <div className="sv-flex" style={{ marginLeft: "auto", gap: 14, alignItems: "flex-end", flexWrap: "wrap" }}>
-                  <label className="sv-flex-col" style={{ gap: 3 }}>
-                    <span className="sv-text-muted" style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>Payroll Month</span>
-                    <select className="sv-select" value={payMonth} onChange={(e) => { setPayMonth(e.target.value); setSlipMK(""); }} style={{ width: 150, height: 34, fontSize: 12.5 }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select>
-                  </label>
-                  <label className="sv-flex-col" style={{ gap: 3 }} title="Month printed on the payslip as the salary month">
-                    <span className="sv-text-muted" style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".03em" }}>Payslip Month</span>
-                    <select className="sv-select" value={payslipMK} onChange={(e) => setSlipMK(e.target.value)} style={{ width: 150, height: 34, fontSize: 12.5 }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select>
-                  </label>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".04em" }}>Payroll Month</span>
+                    <select className="sv-select" value={payMonth} onChange={(e) => { setPayMonth(e.target.value); setSlipMK(""); }} style={{ width: 140, height: 30, fontSize: 12, padding: "0 6px" }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }} title="Month printed on the payslip">
+                    <span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".04em" }}>Payslip Month</span>
+                    <select className="sv-select" value={payslipMK} onChange={(e) => setSlipMK(e.target.value)} style={{ width: 140, height: 30, fontSize: 12, padding: "0 6px" }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select>
+                  </div>
                 </div>
               </div>
               <div className="sv-pc-summary">
-                {[["Draft", cnt.Draft, "#64748B"], ["Approved", cnt.Approved, "#1D4ED8"], ["Released", cnt.Released, "#15803D"], ["N/A", cnt.NA, "#94A3B8"], ["Released total", money(releasedTotal), "#15803D"], ["Net payable", money(netPayable), "#F59E0B"]].map(([l, v, c]) => (
+                {[["Draft", cnt.Draft, "#64748B"], ["Ready", cnt.Ready, "#B45309"], ["Approved", cnt.Approved, "#1D4ED8"], ["Released", cnt.Released, "#15803D"], ["N/A", cnt.NA, "#94A3B8"], ["Released total", money(releasedTotal), "#15803D"], ["Net payable", money(netPayable), "#F59E0B"]].map(([l, v, c]) => (
                   <div key={l} className="sv-pc-sum"><span className="sv-pc-sum-v" style={{ color: c }}>{v}</span><span className="sv-pc-sum-l">{l}</span></div>
                 ))}
               </div>
@@ -587,7 +600,7 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
                           {editMode && deleteEmployee && <button className="sv-icon-btn" title="Remove employee (offboard)" style={{ marginLeft: 6, color: "#DC2626" }} onClick={() => setDelEmp(e)}><Trash2 size={14} /></button>}
                         </div>
                         <div className="sv-sal-figs">
-                          <div className="sv-sal-fig"><span>Fixed</span><input type="number" min="0" disabled={!canEdit} className="sv-input sv-sal-fixed" value={rec.fixed || ""} placeholder="0" onChange={(ev) => saveMonthRec(e.id, payMonth, { fixed: +ev.target.value || 0 })} /></div>
+                          <div className="sv-sal-fig"><span>Fixed</span><input type="number" min="0" disabled={!canEdit} className="sv-input sv-sal-fixed" key={`${e.id}-${payMonth}`} defaultValue={rec.fixed || ""} placeholder="0" onBlur={(ev) => { const v = +ev.target.value || 0; if (v !== (rec.fixed || 0)) saveMonthRec(e.id, payMonth, { fixed: v }); }} /></div>
                           <div className="sv-sal-fig" style={{ cursor: canEdit && (rec.incentives || []).length ? "pointer" : "default" }} title={canEdit && (rec.incentives || []).length ? "Click to view / remove incentives" : undefined} onClick={() => { if (canEdit && (rec.incentives || []).length) setPcManage({ empId: e.id, type: "incentive" }); }}><span>Incentives{(rec.incentives || []).length ? ` (${rec.incentives.length})` : ""}</span><b style={{ color: GREEN }}>{money(sumAmt(rec.incentives))}</b></div>
                           <div className="sv-sal-fig" style={{ cursor: canEdit && (rec.deductions || []).length ? "pointer" : "default" }} title={canEdit && (rec.deductions || []).length ? "Click to view / remove deductions" : undefined} onClick={() => { if (canEdit && (rec.deductions || []).length) setPcManage({ empId: e.id, type: "deduction" }); }}><span>Deductions{(rec.deductions || []).length ? ` (${rec.deductions.length})` : ""}</span><b style={{ color: RED }}>{sumAmt(rec.deductions) > 0 ? money(sumAmt(rec.deductions)) : "N/A"}</b></div>
                           <div className="sv-sal-fig sv-sal-fig--net"><span>Net Salary</span><b>{money(net)}</b></div>
@@ -637,9 +650,18 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
 
         {/* ── Freelancers ── */}
         {view === "freelancers" && (<>
-          <div className="sv-flex sv-items-center sv-gap-2" style={{ flexWrap: "wrap", margin: "4px 0 12px" }}>
-            <div className="sv-flex sv-items-center sv-gap-2"><span className="sv-mod-icon" style={{ background: "rgba(139,92,246,.12)", color: "#8B5CF6" }}><Briefcase size={16} /></span><div><div className="sv-text-navy sv-font-800" style={{ fontSize: 15 }}>Freelancer Payments</div><div className="sv-text-muted" style={{ fontSize: 11.5 }}>Pay per month — once paid it locks for that month and renews next month.</div></div></div>
-            <div className="sv-flex sv-items-center sv-gap-2" style={{ marginLeft: "auto" }}><label className="sv-text-muted" style={{ fontSize: 12, fontWeight: 700 }}>Payroll Month</label><select className="sv-select" value={payMonth} onChange={(e) => setPayMonth(e.target.value)} style={{ minWidth: 170 }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select></div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, margin: "4px 0 12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span className="sv-mod-icon" style={{ background: "rgba(139,92,246,.12)", color: "#8B5CF6", flexShrink: 0 }}><Briefcase size={16} /></span>
+              <div>
+                <div className="sv-text-navy sv-font-800" style={{ fontSize: 14 }}>Freelancer Payments</div>
+                <div className="sv-text-muted" style={{ fontSize: 11 }}>Locks once paid — renews next month.</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase", letterSpacing: ".04em" }}>Payroll Month</span>
+              <select className="sv-select" value={payMonth} onChange={(e) => setPayMonth(e.target.value)} style={{ width: 140, height: 30, fontSize: 12, padding: "0 6px" }}>{PC_MONTHS.map((mk) => <option key={mk} value={mk}>{monthLabel(mk)}</option>)}</select>
+            </div>
           </div>
           {frFiltered.length === 0 ? (
             <div className="sv-leave-empty"><Briefcase size={26} /><span>No freelancers added yet.</span>
@@ -720,6 +742,9 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
             )}
           </div>
         )}
+
+        {/* ── Attendance Calendar ── */}
+        {view === "attendance" && <AttendanceCalendar employees={activeEmployees} submissions={submissions} leaves={leaves} attendanceOverrides={attendanceOverrides} search={search} />}
 
         {/* ── Bank Details ── */}
         {view === "bank" && (() => {
@@ -1122,6 +1147,170 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AttendanceCalendar({ employees, submissions = [], leaves = [], attendanceOverrides = [], search = "", empId: singleEmpId = null, readOnly = false }) {
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const [calDetail, setCalDetail] = useState(null);
+
+  const y = calMonth.getFullYear(), m = calMonth.getMonth();
+  const monthLbl = calMonth.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const pad = (n) => String(n).padStart(2, "0");
+  const keyOf = (day) => `${y}-${pad(m + 1)}-${pad(day)}`;
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const dowOf = (day) => new Date(y, m, day).getDay();
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const daysArr = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+
+  const STc = {
+    present: { bg: "#DCFCE7", bd: "#86EFAC", fg: "#15803D", label: "Present" },
+    leave: { bg: "#FEE2E2", bd: "#FCA5A5", fg: "#B91C1C", label: "Leave" },
+    absent: { bg: "#E2E8F0", bd: "#94A3B8", fg: "#334155", label: "Absent" },
+    half: { bg: "#FEF3C7", bd: "#FDE68A", fg: "#B45309", label: "Half Day" },
+    holiday: { bg: "#EDE9FE", bd: "#C4B5FD", fg: "#6D28D9", label: "Holiday" },
+    weekend: { bg: "#F1F5F9", bd: "#E2E8F0", fg: "#94A3B8", label: "Weekend" },
+    none: { bg: "#fff", bd: "#EEF2F7", fg: "#CBD5E1", label: "No data" },
+  };
+
+  const overrideMap = Object.fromEntries((attendanceOverrides || []).map((o) => [`${o.empId}|${o.date}`, o]));
+  const ovKey = (s) => ({ "Present": "present", "Half Day": "half", "Leave": "leave", "Absent": "absent", "Holiday": "holiday" }[s] || "present");
+  const leavesByEmp = {};
+  (leaves || []).filter((l) => l.status === "Approved").forEach((l) => {
+    try { let d = new Date(l.fromDate + "T00:00:00"); const end = new Date((l.toDate || l.fromDate) + "T00:00:00"); let g = 0;
+      while (d <= end && g < 400) { const k = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; (leavesByEmp[l.empId] = leavesByEmp[l.empId] || new Set()).add(k); d.setDate(d.getDate() + 1); g++; } } catch { /* ignore */ }
+  });
+  const subMap = {};
+  (submissions || []).forEach((s) => { subMap[`${s.empId}|${s.date}`] = s; });
+
+  const statusOf = (eId, day) => {
+    const key = keyOf(day); const dow = dowOf(day);
+    const ov = overrideMap[`${eId}|${key}`];
+    if (ov) return ovKey(ov.status);
+    if (leavesByEmp[eId] && leavesByEmp[eId].has(key)) return "leave";
+    const s = subMap[`${eId}|${key}`];
+    if (s) { if (s.attendance === "Absent") return "absent"; if (s.attendance === "Half Day") return "half"; return "present"; }
+    if (dow === 0 || dow === 6) return "weekend";
+    return "none";
+  };
+
+  const filteredEmps = singleEmpId ? employees.filter((e) => e.id === singleEmpId) : employees.filter((e) => !search || [e.name, e.id, e.department].some((v) => (v || "").toLowerCase().includes(search.toLowerCase())));
+
+  let workingDays = 0; for (let d = 1; d <= daysInMonth; d++) { const dw = dowOf(d); if (dw !== 0 && dw !== 6) workingDays++; }
+  let totPresent = 0, totLeave = 0, totAbsent = 0, totHalf = 0;
+  filteredEmps.forEach((e) => { for (let d = 1; d <= daysInMonth; d++) { const st = statusOf(e.id, d); if (st === "present") totPresent++; else if (st === "leave") totLeave++; else if (st === "absent") totAbsent++; else if (st === "half") totHalf++; } });
+
+  const NAMEW = 170, COLW = 24, ROWH = 40;
+  const totalW = NAMEW + daysInMonth * COLW;
+  const DOW = ["S", "M", "T", "W", "T", "F", "S"];
+  const stickyName = { position: "sticky", left: 0, zIndex: 2, background: "#fff" };
+  const legendItem = (k) => (<span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: "#475569" }}><span style={{ width: 11, height: 11, borderRadius: 4, background: STc[k].bg, border: `1px solid ${STc[k].bd}` }} />{STc[k].label}</span>);
+
+  return (
+    <div>
+      <div className="sv-flex sv-items-center sv-gap-2" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
+        <div className="sv-flex sv-items-center sv-gap-2" style={{ minWidth: 0 }}>
+          <span className="sv-mod-icon" style={{ background: "rgba(37,99,235,.12)", color: "#2563EB" }}><CalendarDays size={16} /></span>
+          <div style={{ minWidth: 0 }}>
+            <p className="sv-text-navy sv-font-800" style={{ margin: 0, fontSize: 16 }}>{singleEmpId ? "My Attendance" : "Attendance"}</p>
+            <p className="sv-text-muted" style={{ margin: 0, fontSize: 12 }}>{filteredEmps.length} employee{filteredEmps.length !== 1 ? "s" : ""} · {workingDays} working days · {totPresent} present · {totLeave} leave{totAbsent ? ` · ${totAbsent} absent` : ""}{totHalf ? ` · ${totHalf} half day` : ""}</p>
+          </div>
+        </div>
+        <div className="sv-flex sv-items-center" style={{ gap: 4, border: "1px solid #E9EEF4", borderRadius: 10, padding: 3 }}>
+          <button className="sv-icon-btn" onClick={() => setCalMonth(new Date(y, m - 1, 1))} title="Previous month">‹</button>
+          <span style={{ fontWeight: 800, color: "#162B55", fontSize: 13, minWidth: 120, textAlign: "center" }}>{monthLbl}</span>
+          <button className="sv-icon-btn" onClick={() => setCalMonth(new Date(y, m + 1, 1))} title="Next month">›</button>
+          <button className="sv-btn sv-btn--sm sv-btn--ghost" style={{ marginLeft: 4 }} onClick={() => { const d = new Date(); setCalMonth(new Date(d.getFullYear(), d.getMonth(), 1)); }}>Today</button>
+        </div>
+      </div>
+
+      {filteredEmps.length === 0 ? (
+        <div className="sv-leave-empty"><Users size={26} /><span>No employees to show.</span></div>
+      ) : (
+        <div style={{ overflowX: "auto", border: "1px solid #EEF2F7", borderRadius: 12 }}>
+          <div style={{ width: totalW, minWidth: "100%" }}>
+            <div style={{ display: "grid", gridTemplateColumns: `${NAMEW}px repeat(${daysInMonth}, ${COLW}px)`, borderBottom: "1px solid #EEF2F7", background: "#F8FAFC" }}>
+              <div style={{ ...stickyName, background: "#F8FAFC", padding: "8px 12px", fontSize: 11, fontWeight: 800, color: "#64748B", textTransform: "uppercase", letterSpacing: .3 }}>Employee</div>
+              {daysArr.map((d) => { const dw = dowOf(d); const wknd = dw === 0 || dw === 6; return (
+                <div key={d} title={new Date(y, m, d).toLocaleDateString("en-IN", { weekday: "long" })} style={{ textAlign: "center", padding: "4px 0", color: wknd ? "#CBD5E1" : "#94A3B8" }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700 }}>{d}</div>
+                  <div style={{ fontSize: 8.5, fontWeight: 700 }}>{DOW[dw]}</div>
+                </div>
+              ); })}
+            </div>
+            <div style={{ maxHeight: ROWH * 8, overflowY: "auto" }}>
+              {filteredEmps.map((e, ri) => (
+                <div key={e.id} onClick={() => setCalDetail(e.id)} title="Open detailed calendar"
+                  style={{ display: "grid", gridTemplateColumns: `${NAMEW}px repeat(${daysInMonth}, ${COLW}px)`, alignItems: "center", cursor: "pointer", borderTop: ri ? "1px solid #F1F5F9" : "none" }}>
+                  <div style={{ ...stickyName, display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", height: ROWH, borderRight: "1px solid #EEF2F7" }}>
+                    <Avatar emp={e} idx={ri} size={26} />
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: "block", fontSize: 12.5, fontWeight: 700, color: "#162B55", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 108 }}>{e.name}</span>
+                      <span style={{ display: "block", fontSize: 10.5, color: "#94A3B8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 108 }}>{e.department || "—"}</span>
+                    </span>
+                  </div>
+                  {daysArr.map((d) => { const st = statusOf(e.id, d); const c = STc[st]; const wknd = st === "weekend"; const isToday = keyOf(d) === todayKey; const dot = st !== "none" && st !== "weekend";
+                    return (
+                      <div key={d} title={`${e.name} · ${monthLbl.split(" ")[0]} ${d} · ${c.label}`} style={{ height: ROWH, display: "flex", alignItems: "center", justifyContent: "center", background: wknd ? "#F8FAFC" : (isToday ? "#EFF6FF" : "transparent") }}>
+                        <span style={{ width: 13, height: 13, borderRadius: 5, background: dot ? c.bg : "transparent", border: dot ? `1px solid ${c.bd}` : (wknd ? "none" : "1px dashed #E2E8F0") }} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="sv-flex sv-items-center" style={{ gap: 14, flexWrap: "wrap", marginTop: 10 }}>
+        {["present", "leave", "absent", "half", "holiday", "weekend"].map(legendItem)}
+        {filteredEmps.length > 8 && <span style={{ marginLeft: "auto", fontSize: 11.5, color: "#94A3B8" }}>Scroll for all {filteredEmps.length} employees · click a row for details</span>}
+      </div>
+
+      {calDetail && (() => {
+        const emp = filteredEmps.find((e) => e.id === calDetail) || employees.find((e) => e.id === calDetail);
+        if (!emp) return null;
+        const firstDow = new Date(y, m, 1).getDay();
+        const cells = []; for (let i = 0; i < firstDow; i++) cells.push(null); for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+        let cP = 0, cL = 0, cA = 0, cH = 0;
+        for (let d = 1; d <= daysInMonth; d++) { const st = statusOf(calDetail, d); if (st === "present") cP++; else if (st === "leave") cL++; else if (st === "absent") cA++; else if (st === "half") cH++; }
+        return (
+          <div className="sv-modal-overlay" onClick={() => setCalDetail(null)} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}>
+            <div className="sv-modal" style={{ maxWidth: 560, width: "100%", background: "#fff", borderRadius: 16, overflow: "hidden" }} onClick={(ev) => ev.stopPropagation()}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid #F1F5F9" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Avatar emp={emp} idx={0} size={34} />
+                  <div><div style={{ fontWeight: 800, color: "#162B55", fontSize: 15 }}>{emp.name}</div><div style={{ fontSize: 12, color: "#94A3B8" }}>{emp.department || "—"} · {monthLbl}</div></div>
+                </div>
+                <button onClick={() => setCalDetail(null)} style={{ border: "none", background: "transparent", fontSize: 22, cursor: "pointer", color: "#64748B", lineHeight: 1 }}>×</button>
+              </div>
+              <div style={{ padding: "14px 18px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 5 }}>
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((w) => <div key={w} style={{ textAlign: "center", fontSize: 10.5, fontWeight: 700, color: "#94A3B8", textTransform: "uppercase" }}>{w}</div>)}
+                  {cells.map((day, i) => {
+                    if (day == null) return <div key={`b${i}`} />;
+                    const st = statusOf(calDetail, day); const c = STc[st]; const isToday = keyOf(day) === todayKey; const show = st !== "none" && st !== "weekend";
+                    return (
+                      <div key={day} title={c.label}
+                        style={{ minHeight: 46, borderRadius: 9, background: st === "weekend" ? "#F8FAFC" : (show ? c.bg : "#fff"), border: `1px solid ${isToday ? "#2563EB" : (show ? c.bd : "#EEF2F7")}`, padding: "5px 7px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: show ? c.fg : "#64748B" }}>{day}</span>
+                        {show && <span style={{ fontSize: 8.5, fontWeight: 800, color: c.fg, textTransform: "uppercase" }}>{c.label}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 12, fontSize: 12.5, fontWeight: 600, alignItems: "center" }}>
+                  <span style={{ color: "#15803D" }}>{cP} Present</span>
+                  <span style={{ color: "#B91C1C" }}>{cL} Leave</span>
+                  {cH > 0 && <span style={{ color: "#B45309" }}>{cH} Half Day</span>}
+                  {cA > 0 && <span style={{ color: "#334155" }}>{cA} Absent</span>}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

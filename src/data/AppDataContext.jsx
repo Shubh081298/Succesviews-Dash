@@ -163,7 +163,7 @@ export function AppDataProvider({ children }) {
     // yet, fall back to the legacy column set so the app never breaks.
     let { data, error } = await supabase
       .from("employees")
-      .select("id, name, department, code, photo, team_lead, email, assigned_ids, status, terminated_at, terminated_reason, terminated_by")
+      .select("id, name, department, code, photo, team_lead, email, assigned_ids, status, terminated_at, terminated_reason, terminated_by, gender, dob, personal_email, mobile, employment_type, address, bank_account, bank_name, bank_ifsc, bank_branch, bank_holder, bank_upi")
       .order("created_at");
     if (error && /status|terminated_/i.test(error.message || "")) {
       ({ data, error } = await supabase
@@ -234,7 +234,7 @@ export function AppDataProvider({ children }) {
     if (data) setLeaves(data.map((l) => ({
       id: l.id, empId: l.emp_id, empName: l.emp_name,
       fromDate: l.from_date, toDate: l.to_date,
-      reason: l.reason, status: l.status, remark: l.remark || "",
+      reason: l.reason, leaveType: l.leave_type || "", status: l.status, remark: l.remark || "",
       ts: new Date(l.created_at).getTime(),
     })));
   }
@@ -714,6 +714,19 @@ export function AppDataProvider({ children }) {
       terminatedAt: e.terminated_at || null,
       terminatedReason: e.terminated_reason || "",
       terminatedBy: e.terminated_by || "",
+      // Extended profile fields
+      gender: e.gender || "",
+      dob: e.dob || "",
+      personalEmail: e.personal_email || "",
+      mobile: e.mobile || "",
+      employmentType: e.employment_type || "Full-Time",
+      address: e.address || "",
+      bankAccount: e.bank_account || "",
+      bankName: e.bank_name || "",
+      bankIfsc: e.bank_ifsc || "",
+      bankBranch: e.bank_branch || "",
+      bankHolder: e.bank_holder || "",
+      bankUpi: e.bank_upi || "",
     };
   }
 
@@ -755,6 +768,18 @@ export function AppDataProvider({ children }) {
         .update({
           name: e.name, department: e.department, code: e.code,
           photo: e.photo || "", team_lead: e.teamLead || "", email: e.email || "",
+          gender: e.gender || "",
+          dob: e.dob || "",
+          personal_email: e.personalEmail || "",
+          mobile: e.mobile || "",
+          employment_type: e.employmentType || "Full-Time",
+          address: e.address || "",
+          bank_account: e.bankAccount || "",
+          bank_name: e.bankName || "",
+          bank_ifsc: e.bankIfsc || "",
+          bank_branch: e.bankBranch || "",
+          bank_holder: e.bankHolder || "",
+          bank_upi: e.bankUpi || "",
         })
         .eq("id", e.id);
       if (error) { showToast("Failed to save employee changes.", "error"); break; }
@@ -784,8 +809,20 @@ export function AppDataProvider({ children }) {
         id: emp.id, name: emp.name, department: emp.department,
         code: emp.code, photo: emp.photo || "",
         team_lead: emp.teamLead || "", email: emp.email || "", password_hash,
+        gender: emp.gender || "",
+        dob: emp.dob || "",
+        personal_email: emp.personalEmail || "",
+        mobile: emp.mobile || "",
+        employment_type: emp.employmentType || "Full-Time",
+        address: emp.address || "",
+        bank_account: emp.bankAccount || "",
+        bank_name: emp.bankName || "",
+        bank_ifsc: emp.bankIfsc || "",
+        bank_branch: emp.bankBranch || "",
+        bank_holder: emp.bankHolder || "",
+        bank_upi: emp.bankUpi || "",
       })
-      .select("id, name, department, code, photo, team_lead, email, assigned_ids, status, terminated_at, terminated_reason, terminated_by")
+      .select("id, name, department, code, photo, team_lead, email, assigned_ids, status, terminated_at, terminated_reason, terminated_by, gender, dob, personal_email, mobile, employment_type, address, bank_account, bank_name, bank_ifsc, bank_branch, bank_holder, bank_upi")
       .single();
     if (!error && data) {
       setEmployees((prev) => [...prev, normalizeEmployee(data)]);
@@ -884,9 +921,43 @@ export function AppDataProvider({ children }) {
       .update({
         name: emp.name, department: emp.department, code: emp.code,
         photo: emp.photo || "", team_lead: emp.teamLead || "", email: emp.email || "",
+        gender: emp.gender || "",
+        dob: emp.dob || "",
+        personal_email: emp.personalEmail || "",
+        mobile: emp.mobile || "",
+        employment_type: emp.employmentType || "Full-Time",
+        address: emp.address || "",
+        bank_account: emp.bankAccount || "",
+        bank_name: emp.bankName || "",
+        bank_ifsc: emp.bankIfsc || "",
+        bank_branch: emp.bankBranch || "",
+        bank_holder: emp.bankHolder || "",
+        bank_upi: emp.bankUpi || "",
       })
       .eq("id", emp.id);
     if (error) { showToast("Failed to update employee.", "error"); return; }
+    // Sync bank fields to bank_details table so SalaryModule stays in sync.
+    if (emp.bankAccount || emp.bankHolder || emp.bankIfsc) {
+      try {
+        await supabase.from("bank_details").upsert({
+          emp_id: emp.id,
+          recipient_name: emp.bankHolder || emp.name || "",
+          account_number: emp.bankAccount || "",
+          ifsc_code: emp.bankIfsc || "",
+          upi_id: emp.bankUpi || "",
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "emp_id" });
+        setBankDetails((prev) => ({
+          ...prev,
+          [emp.id]: {
+            recipientName: emp.bankHolder || emp.name || "",
+            accountNumber: emp.bankAccount || "",
+            ifscCode: emp.bankIfsc || "",
+            upiId: emp.bankUpi || "",
+          },
+        }));
+      } catch (e) { /* bank_details table may not exist — non-fatal */ }
+    }
     // Audit the sensitive change (department) distinctly from a generic edit.
     if (prev && emp.department !== undefined && prev.department !== emp.department) {
       logAudit("employee.department_change", "employee", emp.id, { from: prev.department, to: emp.department, name: emp.name });
@@ -1087,17 +1158,17 @@ export function AppDataProvider({ children }) {
     setLeaves(list);
   }
 
-  async function addLeave(empId, empName, fromDate, toDate, reason) {
+  async function addLeave(empId, empName, fromDate, toDate, reason, leaveType = "") {
     const { data, error } = await supabase
       .from("leaves")
-      .insert({ emp_id: empId, emp_name: empName, from_date: fromDate, to_date: toDate, reason, status: "Pending" })
+      .insert({ emp_id: empId, emp_name: empName, from_date: fromDate, to_date: toDate, reason, leave_type: leaveType, status: "Pending" })
       .select()
       .single();
     if (!error && data) {
       setLeaves((prev) => [{
         id: data.id, empId: data.emp_id, empName: data.emp_name,
         fromDate: data.from_date, toDate: data.to_date,
-        reason: data.reason, status: data.status, remark: data.remark || "",
+        reason: data.reason, leaveType: data.leave_type || "", status: data.status, remark: data.remark || "",
         ts: new Date(data.created_at).getTime(),
       }, ...prev]);
     }
@@ -1108,6 +1179,11 @@ export function AppDataProvider({ children }) {
       .update({ status, remark, updated_at: new Date().toISOString() })
       .eq("id", id);
     setLeaves((prev) => prev.map((l) => l.id === id ? { ...l, status, remark } : l));
+  }
+
+  async function cancelLeave(id) {
+    await supabase.from("leaves").delete().eq("id", id);
+    setLeaves((prev) => prev.filter((l) => l.id !== id));
   }
 
   /* ── Salary mutations ────────────────────────────────────── */
@@ -1663,7 +1739,7 @@ export function AppDataProvider({ children }) {
     customFields, saveCustomFields,
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,
     messages, saveMessages, addMessage, deleteMessage, dismissMessage,
-    leaves, saveLeaves, addLeave, updateLeaveStatus,
+    leaves, saveLeaves, addLeave, updateLeaveStatus, cancelLeave,
     attendanceOverrides, saveAttendanceOverride,
     salaries, saveSalaries, bankDetails, saveBankDetails,
     expenses, addExpense, updateExpense, deleteExpense, captureExpense,

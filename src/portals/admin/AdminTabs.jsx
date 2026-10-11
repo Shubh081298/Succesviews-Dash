@@ -50,7 +50,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
   const [clpDelete, setClpDelete] = useState(null);
   const [clpShowDeleted, setClpShowDeleted] = useState(false);
   const [clpHardDel, setClpHardDel] = useState(null); // client pending permanent delete
-  const [opDetail, setOpDetail] = useState(null); // Operations Overview block drill-down: 'web'|'social'|'attendance'|'updates'
+  const [opDetail, setOpDetail] = useState(null);
   const [trendCur, setTrendCur] = useState("");
   // Emails/reminders are from DSR (employees still fill these in).
   const salesSubs = ovFiltered.filter((s) => (s.department || "") === "Sales");
@@ -699,17 +699,17 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
         </div>
       </div>
 
-      {/* ── Operations Overview — Web/Digital Live, Social, Attendance, Team Lead Updates ── */}
+      {/* ── Operations Overview — clickable KPI cards + inline report panel ── */}
       {(() => {
-        const opSubs = (ovFiltered || []).filter((s) => (s.department || "") === "Operations");
         let webLive = 0, digitalLive = 0, postsDone = 0;
         const plat = { Facebook: 0, Instagram: 0, LinkedIn: 0 };
         let present = 0, half = 0, absent = 0;
-        opSubs.forEach((s) => {
+        opSubsAll.forEach((s) => {
           const op = s.customFields && s.customFields.__op;
           if (op) {
-            (op.magazine || []).forEach((m) => { if (m.webLive === "Yes") webLive++; if (m.digitalLive === "Yes") digitalLive++; });
+            (op.magazine || []).forEach((m) => { if (!m.domain) return; if (m.webLive === "Yes") webLive++; if (m.digitalLive === "Yes") digitalLive++; });
             (op.social || []).forEach((x) => {
+              if (!x.domain) return;
               if (x.fb === "Yes") { postsDone++; plat.Facebook++; }
               if (x.ig === "Yes") { postsDone++; plat.Instagram++; }
               if (x.li === "Yes") { postsDone++; plat.LinkedIn++; }
@@ -717,71 +717,184 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
           }
           const a = s.attendance; if (a === "Present") present++; else if (a === "Half Day") half++; else if (a === "Absent") absent++;
         });
-        const opUpd = opSubs.filter((s) => s.updatesForTeamLead && String(s.updatesForTeamLead).trim()).sort((a, b) => (a.date < b.date ? 1 : -1));
+        const opUpd = opSubsAll.filter((s) => s.updatesForTeamLead && String(s.updatesForTeamLead).trim()).length;
         const stat = (label, value, color) => (
           <div className="sv-op-ov-stat"><span className="sv-op-ov-statv" style={{ color }}>{value}</span><span className="sv-op-ov-statl">{label}</span></div>
         );
+        const toggleOp = (key, e) => { e.stopPropagation(); setOpDetail((p) => (p === key ? null : key)); };
+        const TITLES = { web: "Website & Digital Live Report", social: "Social Media Report", attendance: "Attendance Report", updates: "Team Lead Updates Report" };
+        const sorted = opSubsAll.slice().sort((a, b) => (a.date > b.date ? 1 : -1));
+        const attColor = (a) => a === "Present" ? "#16A34A" : a === "Half Day" ? "#CA8A04" : a === "Absent" ? "#DC2626" : "#94A3B8";
+        const thS = { padding: "8px 12px", textAlign: "left", fontWeight: 600, color: "#64748B", borderBottom: "1px solid var(--sv-border, #E2E8F0)", fontSize: 12 };
+        const tdS = { padding: "7px 12px", fontSize: 12.5 };
+
+        const renderPanel = () => {
+          if (!opDetail) return null;
+
+          /* ── WEB ── */
+          if (opDetail === "web") {
+            const byDate = {};
+            sorted.forEach((s) => {
+              const op = (s.customFields && s.customFields.__op) || {};
+              const d = byDate[s.date] || (byDate[s.date] = { date: s.date, webLive: 0, digitalLive: 0, rows: [] });
+              (op.websiteWork || []).filter((w) => w.domain).forEach((w) => d.rows.push({ emp: s.empName, type: "Website", domain: w.domain, detail: w.today || "", pending: w.pending || "" }));
+              (op.magazine || []).filter((m) => m.domain).forEach((m) => {
+                if (m.webLive === "Yes") { d.webLive++; d.rows.push({ emp: s.empName, type: "Web Live", domain: m.domain, detail: m.webClient || "", pending: "" }); }
+                if (m.digitalLive === "Yes") { d.digitalLive++; d.rows.push({ emp: s.empName, type: "Digital Live", domain: m.domain, detail: m.digitalClient || "", pending: "" }); }
+              });
+            });
+            const chartData = Object.values(byDate).map((d) => ({ name: fmtDate(d.date), "Web Live": d.webLive, "Digital Live": d.digitalLive }));
+            const allRows = Object.values(byDate).flatMap((d) => d.rows.map((r) => ({ ...r, date: d.date }))).reverse();
+            return (<>
+              {chartData.length > 1 && <div style={{ marginBottom: 18 }}><div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>Daily Trend</div><ResponsiveContainer width="100%" height={170}><BarChart data={chartData} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" /><XAxis dataKey="name" {...TICK} /><YAxis allowDecimals={false} {...TICK} /><Tooltip {...TT} /><Legend {...LEG} /><Bar dataKey="Web Live" fill="#2563EB" radius={[4,4,0,0]} /><Bar dataKey="Digital Live" fill="#0891B2" radius={[4,4,0,0]} /></BarChart></ResponsiveContainer></div>}
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>Detailed Activity ({allRows.length})</div>
+              {allRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No website/live data in this period.</p> : (
+                <div style={{ border: "1px solid var(--sv-border, #E2E8F0)", borderRadius: 8, overflow: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr style={{ background: "var(--sv-bg-subtle, #F8FAFC)" }}><th style={thS}>Date</th><th style={thS}>Employee</th><th style={thS}>Type</th><th style={thS}>Domain</th><th style={thS}>Details</th><th style={{ ...thS, color: "#DC2626" }}>Pending</th></tr></thead>
+                    <tbody>{allRows.map((r, i) => (
+                      <tr key={i} style={{ borderBottom: i < allRows.length - 1 ? "1px solid var(--sv-border, #F1F5F9)" : "none" }}>
+                        <td style={{ ...tdS, color: "#64748B", whiteSpace: "nowrap" }}>{fmtDate(r.date)}</td>
+                        <td style={{ ...tdS, fontWeight: 600, color: "var(--sv-navy, #1E293B)" }}>{r.emp}</td>
+                        <td style={tdS}><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, fontWeight: 600, background: r.type === "Website" ? "#EFF6FF" : r.type === "Web Live" ? "#F0FDF4" : "#ECFEFF", color: r.type === "Website" ? "#2563EB" : r.type === "Web Live" ? "#16A34A" : "#0891B2" }}>{r.type}</span></td>
+                        <td style={{ ...tdS, fontWeight: 500 }}>{r.domain}</td>
+                        <td style={{ ...tdS, color: "var(--sv-text, #334155)", maxWidth: 200, wordBreak: "break-word" }}>{r.detail || "—"}</td>
+                        <td style={{ ...tdS, color: r.pending ? "#DC2626" : "#94A3B8" }}>{r.pending || "—"}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </>);
+          }
+
+          /* ── SOCIAL ── */
+          if (opDetail === "social") {
+            const byDate = {};
+            sorted.forEach((s) => {
+              const op = (s.customFields && s.customFields.__op) || {};
+              const d = byDate[s.date] || (byDate[s.date] = { date: s.date, fb: 0, ig: 0, li: 0, rows: [] });
+              (op.social || []).filter((x) => x.domain).forEach((x) => {
+                if (x.fb === "Yes") { d.fb++; d.rows.push({ emp: s.empName, domain: x.domain, platform: "Facebook", desc: x.fbDesc || "" }); }
+                if (x.ig === "Yes") { d.ig++; d.rows.push({ emp: s.empName, domain: x.domain, platform: "Instagram", desc: x.igDesc || "" }); }
+                if (x.li === "Yes") { d.li++; d.rows.push({ emp: s.empName, domain: x.domain, platform: "LinkedIn", desc: x.liDesc || "" }); }
+              });
+            });
+            const chartData = Object.values(byDate).map((d) => ({ name: fmtDate(d.date), Facebook: d.fb, Instagram: d.ig, LinkedIn: d.li }));
+            const allRows = Object.values(byDate).flatMap((d) => d.rows.map((r) => ({ ...r, date: d.date }))).reverse();
+            return (<>
+              {chartData.length > 1 && <div style={{ marginBottom: 18 }}><div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>Daily Posts</div><ResponsiveContainer width="100%" height={170}><BarChart data={chartData} barGap={2}><CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" /><XAxis dataKey="name" {...TICK} /><YAxis allowDecimals={false} {...TICK} /><Tooltip {...TT} /><Legend {...LEG} /><Bar dataKey="Facebook" fill="#1877F2" radius={[4,4,0,0]} /><Bar dataKey="Instagram" fill="#E4405F" radius={[4,4,0,0]} /><Bar dataKey="LinkedIn" fill="#0A66C2" radius={[4,4,0,0]} /></BarChart></ResponsiveContainer></div>}
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>All Posts ({allRows.length})</div>
+              {allRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No social media posts in this period.</p> : (
+                <div style={{ border: "1px solid var(--sv-border, #E2E8F0)", borderRadius: 8, overflow: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr style={{ background: "var(--sv-bg-subtle, #F8FAFC)" }}><th style={thS}>Date</th><th style={thS}>Employee</th><th style={thS}>Domain</th><th style={thS}>Platform</th><th style={thS}>Description</th></tr></thead>
+                    <tbody>{allRows.map((r, i) => (
+                      <tr key={i} style={{ borderBottom: i < allRows.length - 1 ? "1px solid var(--sv-border, #F1F5F9)" : "none" }}>
+                        <td style={{ ...tdS, color: "#64748B", whiteSpace: "nowrap" }}>{fmtDate(r.date)}</td>
+                        <td style={{ ...tdS, fontWeight: 600, color: "var(--sv-navy, #1E293B)" }}>{r.emp}</td>
+                        <td style={{ ...tdS, fontWeight: 500 }}>{r.domain}</td>
+                        <td style={tdS}><span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, fontWeight: 600, background: r.platform === "Facebook" ? "#EFF6FF" : r.platform === "Instagram" ? "#FFF1F2" : "#EFF6FF", color: r.platform === "Facebook" ? "#1877F2" : r.platform === "Instagram" ? "#E4405F" : "#0A66C2" }}>{r.platform}</span></td>
+                        <td style={{ ...tdS, color: "var(--sv-text, #334155)", maxWidth: 240, wordBreak: "break-word" }}>{r.desc || "—"}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </>);
+          }
+
+          /* ── ATTENDANCE ── */
+          if (opDetail === "attendance") {
+            const byDate = {};
+            sorted.forEach((s) => {
+              const d = byDate[s.date] || (byDate[s.date] = { date: s.date, Present: 0, "Half Day": 0, Absent: 0, rows: [] });
+              const a = s.attendance || "";
+              if (a === "Present") d.Present++; else if (a === "Half Day") d["Half Day"]++; else if (a === "Absent") d.Absent++;
+              d.rows.push({ emp: s.empName, attendance: a, hours: s.workingHours || "" });
+            });
+            const chartData = Object.values(byDate).map((d) => ({ name: fmtDate(d.date), Present: d.Present, "Half Day": d["Half Day"], Absent: d.Absent }));
+            const allRows = Object.values(byDate).flatMap((d) => d.rows.map((r) => ({ ...r, date: d.date }))).reverse();
+            return (<>
+              {chartData.length > 1 && <div style={{ marginBottom: 18 }}><div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>Daily Attendance</div><ResponsiveContainer width="100%" height={170}><AreaChart data={chartData}><CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" /><XAxis dataKey="name" {...TICK} /><YAxis allowDecimals={false} {...TICK} /><Tooltip {...TT} /><Legend {...LEG} /><Area type="monotone" dataKey="Present" stackId="1" fill="#BBF7D0" stroke="#16A34A" /><Area type="monotone" dataKey="Half Day" stackId="1" fill="#FDE68A" stroke="#CA8A04" /><Area type="monotone" dataKey="Absent" stackId="1" fill="#FECACA" stroke="#DC2626" /></AreaChart></ResponsiveContainer></div>}
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>All Records ({allRows.length})</div>
+              {allRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No attendance data in this period.</p> : (
+                <div style={{ border: "1px solid var(--sv-border, #E2E8F0)", borderRadius: 8, overflow: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead><tr style={{ background: "var(--sv-bg-subtle, #F8FAFC)" }}><th style={thS}>Date</th><th style={thS}>Employee</th><th style={thS}>Status</th><th style={thS}>Hours</th></tr></thead>
+                    <tbody>{allRows.map((r, i) => (
+                      <tr key={i} style={{ borderBottom: i < allRows.length - 1 ? "1px solid var(--sv-border, #F1F5F9)" : "none" }}>
+                        <td style={{ ...tdS, color: "#64748B", whiteSpace: "nowrap" }}>{fmtDate(r.date)}</td>
+                        <td style={{ ...tdS, fontWeight: 600, color: "var(--sv-navy, #1E293B)" }}>{r.emp}</td>
+                        <td style={tdS}><span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, padding: "2px 10px", borderRadius: 6, fontWeight: 600, color: attColor(r.attendance), background: `${attColor(r.attendance)}18` }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: attColor(r.attendance) }} />{r.attendance || "—"}</span></td>
+                        <td style={{ ...tdS, color: "var(--sv-text, #334155)" }}>{r.hours ? `${r.hours}h` : "—"}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
+            </>);
+          }
+
+          /* ── UPDATES ── */
+          if (opDetail === "updates") {
+            const updRows = opSubsAll.filter((s) => s.updatesForTeamLead && String(s.updatesForTeamLead).trim()).sort((a, b) => (a.date < b.date ? 1 : -1));
+            const byEmp = {};
+            updRows.forEach((s) => { byEmp[s.empName] = (byEmp[s.empName] || 0) + 1; });
+            const empChart = Object.entries(byEmp).map(([name, count]) => ({ name, Updates: count })).sort((a, b) => b.Updates - a.Updates);
+            return (<>
+              {empChart.length > 1 && <div style={{ marginBottom: 18 }}><div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>Updates by Employee</div><ResponsiveContainer width="100%" height={Math.max(100, empChart.length * 34)}><BarChart data={empChart} layout="vertical" barSize={16}><CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" /><XAxis type="number" allowDecimals={false} {...TICK} /><YAxis type="category" dataKey="name" width={110} {...TICK} /><Tooltip {...TT} /><Bar dataKey="Updates" fill="#0891B2" radius={[0,4,4,0]} /></BarChart></ResponsiveContainer></div>}
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#64748B", textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 8 }}>All Updates ({updRows.length})</div>
+              {updRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No team lead updates in this period.</p> : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {updRows.map((s, i) => (
+                    <div key={s.id || `${s.empId}-${s.date}-${i}`} style={{ padding: "10px 14px", background: "var(--sv-bg-subtle, #F8FAFC)", borderRadius: 8, borderLeft: "3px solid #0891B2" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                        <span style={{ fontWeight: 700, fontSize: 12.5, color: "var(--sv-navy, #1E293B)" }}>{s.empName}</span>
+                        <span style={{ fontSize: 11, color: "#64748B", background: "var(--sv-card-bg, #fff)", padding: "2px 8px", borderRadius: 6 }}>{fmtDate(s.date)}</span>
+                      </div>
+                      <div style={{ fontSize: 12.5, color: "var(--sv-text, #334155)", lineHeight: 1.5 }}>{s.updatesForTeamLead}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>);
+          }
+          return null;
+        };
+
         return (
           <div style={{ marginTop: 20 }}>
             <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 4, height: 18, background: "#2563EB", borderRadius: 3, display: "inline-block" }} />Operations Overview</h3>
             <div className="sv-op-ov-grid">
-              <div className="sv-op-ov-card sv-op-ov-card--click" style={{ "--oc": "#2563EB" }} onClick={() => setOpDetail("web")}>
-                <div className="sv-op-ov-head"><Globe2 size={16} /> Web &amp; Digital Live <span className="sv-op-ov-more">View →</span></div>
-                <div className="sv-op-ov-stats">{stat("Web Live", webLive, "#2563EB")}{stat("Digital Live", digitalLive, "#0891B2")}</div>
-              </div>
-              <div className="sv-op-ov-card sv-op-ov-card--click" style={{ "--oc": "#7C3AED" }} onClick={() => setOpDetail("social")}>
-                <div className="sv-op-ov-head"><Megaphone size={16} /> Social Media Posts <span className="sv-op-ov-more">View →</span></div>
-                <div className="sv-op-ov-stats">{stat("Posts Done", postsDone, "#7C3AED")}</div>
-                <div className="sv-op-ov-sub">FB {plat.Facebook} · IG {plat.Instagram} · IN {plat.LinkedIn}</div>
-              </div>
-              <div className="sv-op-ov-card sv-op-ov-card--click" style={{ "--oc": "#16A34A" }} onClick={() => setOpDetail("attendance")}>
-                <div className="sv-op-ov-head"><CheckCircle2 size={16} /> Attendance <span className="sv-op-ov-more">View →</span></div>
-                <div className="sv-op-ov-stats">{stat("Present", present, "#16A34A")}{stat("Half Day", half, "#CA8A04")}{stat("Absent", absent, "#DC2626")}</div>
-              </div>
-              <div className="sv-op-ov-card sv-op-ov-card--click" style={{ "--oc": "#0891B2" }} onClick={() => setOpDetail("updates")}>
-                <div className="sv-op-ov-head"><Megaphone size={16} /> Team Lead Updates <span className="sv-op-ov-more">View →</span></div>
-                <div className="sv-op-ov-stats">{stat("Updates", opUpd.length, "#0891B2")}</div>
-                <div className="sv-op-ov-updlist">
-                  {opUpd.length === 0 ? <span className="sv-text-muted" style={{ fontSize: 12 }}>No updates in this period.</span>
-                    : opUpd.slice(0, 3).map((s) => <div key={s.id || `${s.empId}-${s.date}`} className="sv-op-ov-upd"><b>{s.empName}:</b> {String(s.updatesForTeamLead).slice(0, 80)}</div>)}
+              {[
+                ["web", "Website Work", <Globe2 size={16} />, "#2563EB", <>{stat("Web Live", webLive, "#2563EB")}{stat("Digital Live", digitalLive, "#0891B2")}</>],
+                ["social", "Social Media", <Megaphone size={16} />, "#7C3AED", <>{stat("Posts Done", postsDone, "#7C3AED")}<div className="sv-op-ov-sub">FB {plat.Facebook} · IG {plat.Instagram} · IN {plat.LinkedIn}</div></>],
+                ["attendance", "Attendance", <CheckCircle2 size={16} />, "#16A34A", <>{stat("Present", present, "#16A34A")}{stat("Half Day", half, "#CA8A04")}{stat("Absent", absent, "#DC2626")}</>],
+                ["updates", "Team Lead Updates", <MessageSquare size={16} />, "#0891B2", stat("Updates", opUpd, "#0891B2")],
+              ].map(([key, label, icon, color, body]) => (
+                <div key={key} className={`sv-op-ov-card sv-op-ov-card--click${opDetail === key ? " is-active" : ""}`} style={{ "--oc": color, outline: opDetail === key ? `2px solid ${color}` : "none" }} onClick={(e) => toggleOp(key, e)}>
+                  <div className="sv-op-ov-head">{icon} {label} <span className="sv-op-ov-more">{opDetail === key ? "Close ✕" : "View Report →"}</span></div>
+                  <div className="sv-op-ov-stats">{body}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Inline report panel — expands directly below KPI cards */}
+            {opDetail && (
+              <div style={{ marginTop: 12, background: "var(--sv-card-bg, #fff)", border: "1px solid var(--sv-border, #E2E8F0)", borderRadius: 12, overflow: "hidden", animation: "svFadeIn .2s ease" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--sv-border, #E2E8F0)", background: "var(--sv-bg-subtle, #F8FAFC)" }}>
+                  <div>
+                    <span style={{ fontWeight: 800, fontSize: 14.5, color: "var(--sv-navy, #1E293B)" }}>{TITLES[opDetail]}</span>
+                    <span style={{ marginLeft: 10, fontSize: 11.5, color: "#64748B" }}>{ovFrom && ovTo ? `${fmtDate(ovFrom)} — ${fmtDate(ovTo)}` : "All time"}</span>
+                  </div>
+                  <button onClick={(e) => { e.stopPropagation(); setOpDetail(null); }} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 8px", borderRadius: 6, color: "#64748B", fontSize: 18, lineHeight: 1 }} onMouseEnter={(e) => e.currentTarget.style.background = "var(--sv-border, #E2E8F0)"} onMouseLeave={(e) => e.currentTarget.style.background = "none"}>✕</button>
+                </div>
+                <div style={{ padding: "16px 18px", maxHeight: 480, overflowY: "auto" }}>
+                  {renderPanel()}
                 </div>
               </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Operations Overview drill-down — rendered at tab root so the overlay
-          centres correctly in the viewport (not buried in the section). */}
-      {opDetail && (() => {
-        const TITLES = { web: "Web & Digital Live — by domain", social: "Social Media Posts — by domain", attendance: "Attendance — by employee", updates: "Team Lead Updates" };
-        const webMap = {}, socMap = {};
-        opSubsAll.forEach((s) => {
-          const op = (s.customFields && s.customFields.__op) || {};
-          (op.magazine || []).forEach((m) => { if (!m.domain) return; const d = webMap[m.domain] || (webMap[m.domain] = { web: 0, digital: 0, clients: [] }); if (m.webLive === "Yes") { d.web++; if (m.webClient) d.clients.push("Web: " + m.webClient); } if (m.digitalLive === "Yes") { d.digital++; if (m.digitalClient) d.clients.push("Digital: " + m.digitalClient); } });
-          (op.social || []).forEach((x) => { if (!x.domain) return; const d = socMap[x.domain] || (socMap[x.domain] = { fb: 0, ig: 0, li: 0 }); if (x.fb === "Yes") d.fb++; if (x.ig === "Yes") d.ig++; if (x.li === "Yes") d.li++; });
-        });
-        const webRows = Object.entries(webMap), socRows = Object.entries(socMap);
-        const updRows = opSubsAll.filter((s) => s.updatesForTeamLead && String(s.updatesForTeamLead).trim()).sort((a, b) => (a.date < b.date ? 1 : -1));
-        return (
-          <div className="sv-modal-overlay" onClick={() => setOpDetail(null)}>
-            <div className="sv-modal" style={{ maxWidth: 560, maxHeight: "85vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
-              <div className="sv-modal-header"><span className="sv-text-navy sv-font-800" style={{ fontSize: 15.5 }}>{TITLES[opDetail]}</span><button className="sv-modal-close" onClick={() => setOpDetail(null)}>×</button></div>
-              <div style={{ padding: "14px 20px", overflowY: "auto" }}>
-                {opDetail === "web" && (webRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No Web/Digital Live reported in this period.</p> : webRows.map(([dom, d]) => (
-                  <div key={dom} className="sv-op-dt-row"><div className="sv-op-dt-dom">{dom}</div><div className="sv-op-dt-val">Web Live: <b>{d.web}</b> · Digital Live: <b>{d.digital}</b>{d.clients.length ? <div className="sv-op-dt-sub">{d.clients.join(" · ")}</div> : null}</div></div>
-                )))}
-                {opDetail === "social" && (socRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No social posts reported in this period.</p> : socRows.map(([dom, d]) => (
-                  <div key={dom} className="sv-op-dt-row"><div className="sv-op-dt-dom">{dom}</div><div className="sv-op-dt-val">Facebook: <b>{d.fb}</b> · Instagram: <b>{d.ig}</b> · LinkedIn: <b>{d.li}</b></div></div>
-                )))}
-                {opDetail === "attendance" && (opSubsAll.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No operation submissions in this period.</p> : opSubsAll.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).map((s) => (
-                  <div key={s.id || `${s.empId}-${s.date}`} className="sv-op-dt-row"><div className="sv-op-dt-dom">{s.empName}</div><div className="sv-op-dt-val">{s.attendance} · {fmtDate(s.date)} · {s.workingHours || 0}h</div></div>
-                )))}
-                {opDetail === "updates" && (updRows.length === 0 ? <p className="sv-text-muted" style={{ fontSize: 13 }}>No updates in this period.</p> : updRows.map((s) => (
-                  <div key={s.id || `${s.empId}-${s.date}`} className="sv-op-dt-row"><div className="sv-op-dt-dom">{s.empName} <span className="sv-text-muted" style={{ fontWeight: 500, fontSize: 11 }}>{fmtDate(s.date)}</span></div><div className="sv-op-dt-val">{s.updatesForTeamLead}</div></div>
-                )))}
-              </div>
-            </div>
+            )}
           </div>
         );
       })()}

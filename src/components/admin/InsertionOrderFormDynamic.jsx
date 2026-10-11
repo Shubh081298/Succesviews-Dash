@@ -268,6 +268,9 @@ function genOrderHtml(m, data, preview = false) {
   const num = (v) => { const n = Number(String(v).replace(/[^0-9.-]/g, '')); return Number.isFinite(n) ? n : 0; };
   const money = (v) => `${num(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const fee = num(data.cost);
+  const disc = num(data.discount);
+  const hasDisc = data.discountEnabled && disc > 0;
+  const netFee = hasDisc ? fee - disc : fee;
   const hasCost = !(data.cost === '' || data.cost == null);
   const lScale = (Number(m.logoScale) || 100) / 100;
   const logoHtml = m.logoDataUrl
@@ -416,8 +419,8 @@ function genOrderHtml(m, data, preview = false) {
           <thead><tr><th>DESCRIPTION</th><th class="amt">AMOUNT (${esc(cur)})</th></tr></thead>
           <tbody>
             <tr><td>${esc(data.participationType || '')}</td><td class="amt">${hasCost ? money(fee) : ''}</td></tr>
-            <tr><td>&nbsp;</td><td class="amt"></td></tr>
-            <tr class="total-row"><td>NET AMOUNT PAYABLE</td><td class="amt">${hasCost ? `${esc(cur)} ${money(fee)}` : ''}</td></tr>
+            ${hasDisc ? `<tr><td>Discounted Price</td><td class="amt" style="color:#DC2626;">- ${money(disc)}</td></tr>` : '<tr><td>&nbsp;</td><td class="amt"></td></tr>'}
+            <tr class="total-row"><td>NET AMOUNT PAYABLE</td><td class="amt">${hasCost ? `${esc(cur)} ${money(hasDisc ? netFee : fee)}` : ''}</td></tr>
           </tbody>
         </table>
         <div class="pay-row">
@@ -567,7 +570,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     clientCompany: '',
     clientName: '', clientTitle: '', clientEmail: '',
     participationType: '', publication: '',
-    cost: '', currency: 'USD',
+    cost: '', currency: 'USD', discount: '', discountEnabled: false,
     paymentTerms: '', paymentMethod: '',
     repName: '', repTitle: '', repEmail: '',
   };
@@ -761,6 +764,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
       publication: dd.publication || '',
       cost: rec.amount != null ? rec.amount : (dd.contractValue || ''),
       currency: rec.currency || dd.currency || 'USD',
+      discount: dd.discount || '', discountEnabled: !!dd.discountEnabled,
       paymentTerms: dd.paymentTerms || '', paymentMethod: dd.paymentMethod || '',
     });
     const w = window.open('', '_blank');
@@ -787,6 +791,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
       publication: dd.publication || '',
       cost: rec.amount != null ? String(rec.amount) : (dd.contractValue || ''),
       currency: rec.currency || dd.currency || 'USD',
+      discount: dd.discount || '', discountEnabled: !!dd.discountEnabled,
       paymentTerms: dd.paymentTerms || '',
       paymentMethod: dd.paymentMethod || '',
       // Show the Publisher Information exactly as saved on this order (editable). Prefer the raw
@@ -814,7 +819,7 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     clientCompany: form.clientCompany,
     clientName: form.clientName, clientTitle: form.clientTitle, clientEmail: form.clientEmail,
     featureTitle: form.featureTitle, participationType: form.participationType, publication: form.publication,
-    cost: form.cost, currency: form.currency,
+    cost: form.cost, currency: form.currency, discount: form.discount, discountEnabled: form.discountEnabled,
     paymentTerms: form.paymentTerms, paymentMethod: form.paymentMethod,
   });
 
@@ -875,6 +880,8 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
       generatedAt: new Date().toISOString(),
       contractValue: form.cost || '',
       currency: form.currency || 'USD',
+      discount: form.discount || '',
+      discountEnabled: !!form.discountEnabled,
       orderStatus: 'Downloaded',
       paymentStatus: 'Pending',
       invoiceUrl: fileUrl || '',
@@ -943,16 +950,39 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
     return () => clearTimeout(t);
   }, [form, editingKey]);
 
-  /* ── Download: open the print dialog, then ask whether to save to memory ── */
+  /* ── Download: render HTML in a hidden iframe, capture to PDF, direct save ── */
   const handleDownload = async () => {
     setBusyDl(true);
     const order = buildOrder();
-    const w = window.open('', '_blank');
-    if (w) { w.document.open(); w.document.write(order.html); w.document.close(); }
+    const previewHtml = genOrderHtml(docMag, orderData(order.orderId), true);
+    try {
+      const iframe = document.createElement('iframe');
+      iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:210mm;height:297mm;border:none;opacity:0;pointer-events:none';
+      document.body.appendChild(iframe);
+      const doc = iframe.contentDocument || iframe.contentWindow.document;
+      doc.open(); doc.write(previewHtml); doc.close();
+      await new Promise((r) => { iframe.onload = r; setTimeout(r, 800); });
+      await new Promise((r) => setTimeout(r, 300));
+      const target = doc.querySelector('.doc') || doc.body;
+      const html2canvas = (await import('html2canvas')).default;
+      const canvas = await html2canvas(target, { scale: 2, useCORS: true, backgroundColor: '#ffffff', width: target.scrollWidth, height: target.scrollHeight });
+      const { jsPDF } = await import('jspdf');
+      const pxW = canvas.width, pxH = canvas.height;
+      const pdfW = 210, pdfH = (pxH * pdfW) / pxW;
+      const pdf = new jsPDF({ unit: 'mm', format: [pdfW, pdfH], orientation: 'portrait' });
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, pdfW, pdfH);
+      const fileName = `${(order.data.orderId || 'InsertionOrder').replace(/[/\\]/g, '-')}.pdf`;
+      pdf.save(fileName);
+      document.body.removeChild(iframe);
+    } catch (err) {
+      console.error('PDF generation failed, falling back to print:', err);
+      const w = window.open('', '_blank');
+      if (w) { w.document.open(); w.document.write(order.html); w.document.close(); }
+    }
     setBusyDl(false);
     if (window.confirm('Save this confirmation order to memory?\n\nIt will be added to Saved Insertion Orders.')) {
       await persistOrder(order);
-      setShowSaved(true); // land directly in the Saved section
+      setShowSaved(true);
     }
   };
 
@@ -1168,6 +1198,24 @@ export default function InsertionOrderForm({ onCapture, sharedMagazines = null, 
                   <label className="sv-form-label">Publication</label>
                   <input className="sv-input" type="text" placeholder={mag.name} value={form.publication} onChange={(e) => updateField('publication', e.target.value)} />
                 </div>
+              </div>
+              <div className="sv-io-row-2" style={{ alignItems: 'end' }}>
+                <div className="sv-io-field">
+                  <label className="sv-form-label" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Discounted Price
+                    <button type="button" onClick={() => updateField('discountEnabled', !form.discountEnabled)} style={{ position: 'relative', width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', background: form.discountEnabled ? '#2563EB' : '#CBD5E1', transition: 'background .15s', padding: 0 }}>
+                      <span style={{ position: 'absolute', top: 2, left: form.discountEnabled ? 18 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left .15s', boxShadow: '0 1px 3px rgba(0,0,0,.15)' }} />
+                    </button>
+                  </label>
+                  {form.discountEnabled && (
+                    <input className="sv-input" type="text" placeholder="e.g. 50" value={form.discount} onChange={(e) => updateField('discount', e.target.value)} />
+                  )}
+                </div>
+                {form.discountEnabled && form.discount && form.cost && (
+                  <div className="sv-io-field">
+                    <span style={{ fontSize: 12, color: '#16A34A', fontWeight: 600 }}>Net: {curSym(form.currency)}{(Number(form.cost || 0) - Number(form.discount || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {form.currency}</span>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -80,12 +80,12 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
     (rows || []).forEach((x) => { if (_liveIds.has(x.clientId) && _inRange(String(x[dateKey]))) { const c = x.currency || "USD"; m[c] = (m[c] || 0) + (Number(x.amount) || 0); } });
     return m;
   };
+  const fmtMoneyLine = (c, v) => `${CUR_SYM[c] || c + " "}${Number(v).toLocaleString()}`;
   const fmtMoneyByCur = (m) => {
     const ents = Object.entries(m).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
     if (!ents.length) return `${CUR_SYM.USD}0`;
-    const [c, v] = ents[0];
-    const head = `${CUR_SYM[c] || c + " "}${Number(v).toLocaleString()}`;
-    return ents.length > 1 ? `${head} +${ents.length - 1}` : head; // never mixes; extra currencies flagged
+    if (ents.length === 1) return fmtMoneyLine(ents[0][0], ents[0][1]);
+    return (<div style={{ display: "flex", flexDirection: "column", gap: 1, fontSize: "0.6em", lineHeight: 1.3 }}>{ents.map(([c, v]) => <span key={c}>{fmtMoneyLine(c, v)}</span>)}</div>);
   };
   // Pipeline v2: Sales = contract SENT amount, Payments = PAID payments.
   // Sales counts the contractAmount the moment a contract is sent to the client.
@@ -2131,6 +2131,9 @@ function EmployeeRow({ emp, onUpdateEmp, onTerminate, onResetPwd, departments = 
           <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ color: "#B45309", borderColor: "#FDE68A" }} title="End employment" onClick={(ev) => { ev.stopPropagation(); setTerming((v) => !v); }}><UserX size={13} /> Terminate</button>
         </span>
       </div>
+      <div style={{ padding: "0 12px 10px" }}>
+        <ResetPasswordInline empId={emp.id} empName={emp.name} onResetPwd={onResetPwd} />
+      </div>
       {terming && (
         <div style={{ margin: "0 12px 10px", padding: "10px 12px", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E", marginBottom: 6 }}>End employment for {emp.name}?</div>
@@ -2621,7 +2624,7 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
   const updFDetail = (k, v) => setForm((f) => ({ ...f, details: { ...(f.details || {}), [k]: v } }));
   const saveCompany = async () => {
     if (!form.title.trim() && !form.clientName.trim()) return;
-    if (!form.clientName) form.clientName = form.title;
+    if (!form.clientName) form = { ...form, clientName: form.title };
     setSaving(true);
     const ok = isNew ? await addExpense(form) : await updateExpense(form);
     setSaving(false);
@@ -2735,7 +2738,17 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
     if (ok !== false) { setInsForm(null); setSection("insertion"); }
   };
 
-  const openDetail = (rec) => { setDetail(rec); setDetailEdit({ paymentStatus: rec.paymentStatus || "", notes: rec.notes || "", paymentDate: rec.paymentDate || "" }); setEditing(false); };
+  const openDetail = (rec) => {
+    const d = rec.details || {};
+    setDetail(rec);
+    setDetailEdit({
+      paymentStatus: rec.paymentStatus || "", notes: rec.notes || "", paymentDate: rec.paymentDate || "",
+      amount: rec.amount ?? "", currency: rec.currency || "USD", paymentMethod: rec.paymentMethod || "",
+      conversionFee: d.conversionFee ?? "", finalInr: d.finalInr ?? "", fxRate: d.fxRate ?? "",
+      clientName: rec.clientName || "", contractOrder: d.confirmationNo || rec.contractOrder || "",
+    });
+    setEditing(false);
+  };
 
   // Normalise a record's attached files to an array (handles legacy single-file records).
   const recFiles = (rec) => { const d = (rec && rec.details) || {}; return (d.files && d.files.length) ? d.files : (d.invoiceUrl ? [{ url: d.invoiceUrl, name: d.invoiceName }] : []); };
@@ -2761,7 +2774,24 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
   };
   const saveDetailEdit = async () => {
     setSaving(true);
-    await updateExpense({ ...detail, paymentStatus: detailEdit.paymentStatus, notes: detailEdit.notes, paymentDate: detailEdit.paymentDate || detail.paymentDate });
+    const base = { ...detail, paymentStatus: detailEdit.paymentStatus, notes: detailEdit.notes, paymentDate: detailEdit.paymentDate || detail.paymentDate };
+    if (detail.type === "payment_received") {
+      base.amount = detailEdit.amount === "" ? detail.amount : +detailEdit.amount;
+      base.currency = detailEdit.currency || detail.currency;
+      base.paymentMethod = detailEdit.paymentMethod || detail.paymentMethod;
+      base.clientName = detailEdit.clientName || detail.clientName;
+      base.contractOrder = detailEdit.contractOrder || detail.contractOrder;
+      base.details = {
+        ...(detail.details || {}),
+        confirmationNo: detailEdit.contractOrder || (detail.details || {}).confirmationNo,
+        conversionFee: detailEdit.conversionFee === "" ? null : +detailEdit.conversionFee,
+        finalInr: detailEdit.finalInr === "" ? null : +detailEdit.finalInr,
+        fxRate: detailEdit.fxRate === "" ? null : +detailEdit.fxRate,
+      };
+      if (base.clientName !== detail.clientName) base.title = `Payment — ${base.clientName}`;
+    }
+    base.details = { ...(base.details || {}), editedAt: new Date().toISOString() };
+    await updateExpense(base);
     setSaving(false);
     setDetail(null);
   };
@@ -2778,8 +2808,8 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
       return rows;
     }
     if (section === "payment") {
-      const rows = [["Client", "ID / Conf. No", "Amount", "Currency", "Date", "Status", "Invoice", "Notes"]];
-      applyFilters(pay).forEach((e) => { const d = e.details || {}; rows.push([e.clientName, d.confirmationNo || e.contractOrder, e.amount ?? "", e.currency, e.paymentDate, e.paymentStatus, d.invoiceUrl || d.invoice || "", e.notes]); });
+      const rows = [["Client", "ID / Conf. No", "Amount", "Currency", "Exchange Rate", "Conversion Fee", "Final INR", "Date", "Status", "Invoice", "Notes"]];
+      applyFilters(pay).forEach((e) => { const d = e.details || {}; rows.push([e.clientName, d.confirmationNo || e.contractOrder, e.amount ?? "", e.currency, d.fxRate ?? "", d.conversionFee ?? "", inrOf(e) ?? "", e.paymentDate, e.paymentStatus, d.invoiceUrl || d.invoice || "", e.notes]); });
       return rows;
     }
     if (section === "salary") {
@@ -3193,7 +3223,7 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
             <div style={{ display: "flex", alignItems: "center", background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 8, padding: "0 10px", height: 34 }}>
               <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} style={selStyle}>
                 <option value="">Status</option>
-                {["Paid", "Pending", "Partial", "Overdue"].map((s) => <option key={s} value={s}>{s}</option>)}
+                {["Paid", "Received", "Pending", "Partial", "Overdue"].map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             {/* Category — company only */}
@@ -3344,23 +3374,57 @@ table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px;}td{padd
                 ].map(([l, v]) => metaCell(l, v)); })()}
               </div>
 
-              {/* Editable date + status + notes — revealed only after clicking the pencil (Edit). */}
+              {(detail.details || {}).editedAt && (
+                <div style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: "#94A3B8", fontStyle: "italic" }}>
+                  <Pencil size={11} /> Edited on {fmtDate((detail.details || {}).editedAt)}
+                </div>
+              )}
+
+              {/* Editable fields — revealed only after clicking the pencil (Edit). */}
               {detailEdit && editing && (
                 <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>Month / Date
+                  {detail.type === "payment_received" && <>
+                    <label style={lblS}>Client Name
+                      <input className="sv-input" value={detailEdit.clientName} onChange={(e) => setDetailEdit((s) => ({ ...s, clientName: e.target.value }))} />
+                    </label>
+                    <label style={lblS}>ID / Confirmation No
+                      <input className="sv-input" value={detailEdit.contractOrder} onChange={(e) => setDetailEdit((s) => ({ ...s, contractOrder: e.target.value }))} />
+                    </label>
+                    <label style={lblS}>Original Amount
+                      <input className="sv-input" type="number" inputMode="decimal" value={detailEdit.amount} onChange={(e) => setDetailEdit((s) => ({ ...s, amount: e.target.value }))} />
+                    </label>
+                    <label style={lblS}>Currency
+                      <input className="sv-input" list="exp-cur-list" value={detailEdit.currency} onChange={(e) => setDetailEdit((s) => ({ ...s, currency: e.target.value.toUpperCase() }))} />
+                    </label>
+                    <label style={lblS}>Exchange Rate (1 {detailEdit.currency || "USD"} = ₹?)
+                      <input className="sv-input" type="number" inputMode="decimal" value={detailEdit.fxRate} onChange={(e) => setDetailEdit((s) => ({ ...s, fxRate: e.target.value }))} placeholder="e.g. 83.5" />
+                    </label>
+                    <label style={lblS}>Conversion Fee
+                      <input className="sv-input" type="number" inputMode="decimal" value={detailEdit.conversionFee} onChange={(e) => setDetailEdit((s) => ({ ...s, conversionFee: e.target.value }))} placeholder="Third-party fee" />
+                    </label>
+                    <label style={lblS}>Final Received (INR)
+                      <input className="sv-input" type="number" inputMode="decimal" value={detailEdit.finalInr} onChange={(e) => setDetailEdit((s) => ({ ...s, finalInr: e.target.value }))} placeholder="Actual bank credit in ₹" />
+                    </label>
+                    <label style={lblS}>Payment Method
+                      <input className="sv-input" value={detailEdit.paymentMethod} onChange={(e) => setDetailEdit((s) => ({ ...s, paymentMethod: e.target.value }))} placeholder="e.g. Bank Transfer" />
+                    </label>
+                  </>}
+                  <label style={lblS}>Month / Date
                     <input className="sv-input" type="date" value={detailEdit.paymentDate || ""} onChange={(e) => setDetailEdit((s) => ({ ...s, paymentDate: e.target.value }))} />
                   </label>
-                  <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>Status
+                  <label style={lblS}>Status
                     <select className="sv-select" value={detailEdit.paymentStatus} onChange={(e) => setDetailEdit((s) => ({ ...s, paymentStatus: e.target.value }))}>
                       {["", "Received", "Paid", "Pending", "Partial", "Overdue"].map((s) => <option key={s} value={s}>{s || "—"}</option>)}
                     </select>
                   </label>
                   <div style={{ gridColumn: "1 / -1" }}>
-                    <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12.5, fontWeight: 600, color: "#475569" }}>Notes / Remarks
+                    <label style={lblS}>Notes / Remarks
                       <textarea className="sv-input" rows={3} value={detailEdit.notes} onChange={(e) => setDetailEdit((s) => ({ ...s, notes: e.target.value }))} style={{ resize: "vertical" }} />
                     </label>
                   </div>
-                  <p className="sv-text-muted" style={{ fontSize: 11, gridColumn: "1 / -1", margin: 0 }}>Changing the date moves this record to that month across the dashboard and charts.</p>
+                  <p className="sv-text-muted" style={{ fontSize: 11, gridColumn: "1 / -1", margin: 0 }}>
+                    {detail.type === "payment_received" ? "Edit the INR fields to correct the final bank credit. Changes reflect across all dashboard sections and charts." : "Changing the date moves this record to that month across the dashboard and charts."}
+                  </p>
                 </div>
               )}
 

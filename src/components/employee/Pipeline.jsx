@@ -304,14 +304,15 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
 
   const contractValue = Number(client.signedAmount) || 0;
   const totalReceived = useMemo(() =>
-    clientPayments.filter((p) => p.currency === contractCur).reduce((sum, p) => sum + p.amount, 0),
-    [clientPayments, contractCur]
+    clientPayments.reduce((sum, p) => sum + p.amount, 0),
+    [clientPayments]
   );
   const pendingAmount = Math.max(0, contractValue - totalReceived);
-  const payStatus = contractValue === 0 ? "—"
-    : totalReceived === 0 ? "Not Paid"
-    : totalReceived >= contractValue ? "Fully Paid"
-    : "Partially Paid";
+  const storedStatus = client.paymentStatus;
+  const payStatus = storedStatus === "Paid" || (contractValue > 0 && totalReceived >= contractValue) ? "Fully Paid"
+    : storedStatus === "Partially Paid" || totalReceived > 0 ? "Partially Paid"
+    : contractValue === 0 ? "—"
+    : "Not Paid";
   const payStatusColor = payStatus === "Fully Paid" ? "#16A34A" : payStatus === "Partially Paid" ? "#0891B2" : payStatus === "Not Paid" ? "#D97706" : "#94A3B8";
 
   const uploadContract = async (fileList) => {
@@ -664,12 +665,25 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
                   </div>
                 )}
 
+                {/* Payment Completed Banner */}
+                {payStatus === "Fully Paid" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, background: "linear-gradient(135deg, #DCFCE7 0%, #BBF7D0 100%)", border: "1.5px solid #4ADE80", borderRadius: 10, padding: "12px 16px", marginBottom: 10 }}>
+                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: "50%", background: "#16A34A", flexShrink: 0 }}>
+                      <CheckCircle2 size={18} style={{ color: "#fff" }} />
+                    </span>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 13.5, color: "#15803D" }}>Payment Completed</div>
+                      <div style={{ fontSize: 11.5, color: "#166534", marginTop: 1 }}>Full payment of {money(contractValue, contractCur)} has been received.</div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Add Payment */}
-                {!showPayForm ? (
+                {payStatus !== "Fully Paid" && !showPayForm ? (
                   <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ width: "100%", justifyContent: "center", borderColor: "#16A34A", color: "#16A34A" }} onClick={() => setShowPayForm(true)}>
                     <Plus size={14} /> Add Payment
                   </button>
-                ) : (
+                ) : payStatus !== "Fully Paid" && showPayForm ? (
                   <div style={{ background: "#fff", border: "1px solid #BBF7D0", borderRadius: 10, padding: "12px 14px" }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: "#15803D", marginBottom: 10 }}>Record Payment</div>
                     <div className="sv-pl-2col">
@@ -688,7 +702,7 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
                       <button className="sv-btn sv-btn--sm sv-btn--primary" style={{ flex: 1, background: "#16A34A", borderColor: "#16A34A", justifyContent: "center" }} disabled={busyPay} onClick={doAddPayment}>{busyPay ? "Saving…" : "Save Payment"}</button>
                     </div>
                   </div>
-                )}
+                ) : null}
 
                 <p className="sv-text-muted" style={{ fontSize: 11, margin: "8px 0 0" }}>Each payment is recorded separately. History is preserved.</p>
               </div>

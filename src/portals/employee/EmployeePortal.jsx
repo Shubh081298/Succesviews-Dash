@@ -13,7 +13,7 @@ import Pipeline from "../../components/employee/Pipeline";
 import DesignerDashboard from "../../components/designer/DesignerDashboard";
 import { getTodayStr, fmtDate, blankDsr, dsrFromExisting } from "../../utils/helpers";
 import { supabase } from "../../utils/supabaseClient";
-import { employeeSignIn, employeeSignOut, sendPasswordReset } from "../../utils/auth";
+import { employeeSignIn, employeeSignOut, sendPasswordReset, verifyPassword } from "../../utils/auth";
 
 export default function EmployeePortal() {
   const {
@@ -74,16 +74,25 @@ export default function EmployeePortal() {
     setBusy(true);
     try { localStorage.setItem("svd_remember", remember ? "true" : "false"); } catch (e) { /* ignore */ }
 
-    // Employees sign in via Supabase Auth so the session carries a JWT (required for
-    // row-level security). No non-JWT fallback — every session is authenticated.
+    // Try Supabase Auth first (JWT session); fall back to bcrypt password_hash
+    // from the employees table when the Edge Function hasn't provisioned an auth user.
     let auth;
     try { auth = await employeeSignIn(email, loginPwd); } catch (e) { auth = { success: false }; }
-    if (!auth || !auth.success) { showToast("Invalid email or password.", "error"); setBusy(false); return; }
 
-    // Resolve this employee's profile. Prefer the loaded list; if it isn't there yet
-    // (the list may have loaded before a session existed), fetch the row under the new
-    // JWT (RLS lets a user read their own row) and normalize it to the app's shape.
     let found = employees.find((e) => (e.email || "").toLowerCase() === email.toLowerCase());
+
+    if (!auth || !auth.success) {
+      // Fallback: verify against password_hash in the employees table
+      try {
+        const { data: row } = found
+          ? await supabase.from("employees").select("id, password_hash").eq("id", found.id).maybeSingle()
+          : await supabase.from("employees").select("id, password_hash").ilike("email", email).maybeSingle();
+        if (row?.password_hash && await verifyPassword(loginPwd, row.password_hash)) {
+          auth = { success: true, user: null };
+        }
+      } catch (e) { /* ignore */ }
+      if (!auth || !auth.success) { showToast("Invalid email or password.", "error"); setBusy(false); return; }
+    }
     if (!found) {
       try {
         const { data } = await supabase.from("employees")

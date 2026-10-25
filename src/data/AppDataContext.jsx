@@ -829,10 +829,8 @@ export function AppDataProvider({ children }) {
       logAudit("employee.create", "employee", emp.id, { name: emp.name, department: emp.department });
       if (emp.email) {
         try {
-          await supabase.functions.invoke("admin-users", {
-            body: { action: "upsert", email: emp.email, password: plain },
-          });
-        } catch (e) { /* Edge Function not deployed yet — DB row still created */ }
+          await supabase.rpc("upsert_auth_user", { p_email: emp.email, p_password: plain, p_employee_id: emp.id });
+        } catch (e) { console.warn("Auth user creation skipped:", e.message); }
       }
       return true;
     }
@@ -873,7 +871,7 @@ export function AppDataProvider({ children }) {
     logAudit("employee.terminate", "employee", id, { name: target.name, reason });
     // Best-effort: disable the Supabase Auth login too (Edge Function may not be deployed).
     if (target.email) {
-      try { await supabase.functions.invoke("admin-users", { body: { action: "disable", email: target.email } }); } catch (e) { /* client-side gate still blocks login */ }
+      try { await supabase.rpc("disable_auth_user", { p_email: target.email }); } catch (e) { /* client-side gate still blocks login */ }
     }
     showToast(`${target.name} moved to Former Employees.`, "success");
     return true;
@@ -897,7 +895,7 @@ export function AppDataProvider({ children }) {
     }
     logAudit("employee.reactivate", "employee", id, { name: target.name });
     if (target.email) {
-      try { await supabase.functions.invoke("admin-users", { body: { action: "enable", email: target.email } }); } catch (e) { /* ignore */ }
+      try { await supabase.rpc("enable_auth_user", { p_email: target.email }); } catch (e) { /* ignore */ }
     }
     showToast(`${target.name} reactivated.`, "success");
     return true;
@@ -958,6 +956,17 @@ export function AppDataProvider({ children }) {
         }));
       } catch (e) { /* bank_details table may not exist — non-fatal */ }
     }
+    // If email was added or changed, sync the auth user so they can log in.
+    if (emp.email && emp.email !== (prev?.email || "")) {
+      const { data: row } = await supabase.from("employees").select("password_hash").eq("id", emp.id).maybeSingle();
+      if (row?.password_hash) {
+        // We only have the hash — use a temp password and the bcrypt fallback in login will still work.
+        // For a clean auth user, admin should reset the password after changing email.
+        try {
+          await supabase.rpc("upsert_auth_user", { p_email: emp.email, p_password: emp.email, p_employee_id: emp.id });
+        } catch (e) { console.warn("Auth user sync skipped:", e.message); }
+      }
+    }
     // Audit the sensitive change (department) distinctly from a generic edit.
     if (prev && emp.department !== undefined && prev.department !== emp.department) {
       logAudit("employee.department_change", "employee", emp.id, { from: prev.department, to: emp.department, name: emp.name });
@@ -972,10 +981,8 @@ export function AppDataProvider({ children }) {
     const target = employees.find((e) => e.id === id);
     if (target && target.email) {
       try {
-        await supabase.functions.invoke("admin-users", {
-          body: { action: "upsert", email: target.email, password: newPlainPassword },
-        });
-      } catch (e) { /* Edge Function not deployed yet — DB copy still updated */ }
+        await supabase.rpc("upsert_auth_user", { p_email: target.email, p_password: newPlainPassword, p_employee_id: id });
+      } catch (e) { console.warn("Auth password sync skipped:", e.message); }
     }
     showToast("Password updated successfully!", "success");
     return true;

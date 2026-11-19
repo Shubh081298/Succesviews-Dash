@@ -2624,11 +2624,14 @@ export function ExpenseTab({ expenses = [], addExpense, updateExpense, deleteExp
   const updFDetail = (k, v) => setForm((f) => ({ ...f, details: { ...(f.details || {}), [k]: v } }));
   const saveCompany = async () => {
     if (!form.title.trim() && !form.clientName.trim()) return;
-    if (!form.clientName) form = { ...form, clientName: form.title };
+    const expToSave = !form.clientName ? { ...form, clientName: form.title } : form;
     setSaving(true);
-    const ok = isNew ? await addExpense(form) : await updateExpense(form);
-    setSaving(false);
-    if (ok !== false) setForm(null);
+    try {
+      const ok = isNew ? await addExpense(expToSave) : await updateExpense(expToSave);
+      if (ok !== false) setForm(null);
+    } finally {
+      setSaving(false);
+    }
   };
   const uploadCompanyFiles = async (fileList) => {
     const files = Array.from(fileList || []);

@@ -1689,6 +1689,32 @@ export function AppDataProvider({ children }) {
     } catch (e) { showToast("Could not reverse payment.", "error"); return false; }
   }
 
+  async function updatePipelinePayment(id, patch) {
+    try {
+      const up = {};
+      if (patch.amount !== undefined) up.amount = Number(patch.amount) || 0;
+      if (patch.currency !== undefined) up.currency = patch.currency;
+      if (patch.paymentDate !== undefined) up.payment_date = patch.paymentDate;
+      if (patch.paymentMethod !== undefined) up.payment_method = patch.paymentMethod;
+      if (patch.notes !== undefined) up.notes = patch.notes;
+      const { data, error } = await supabase.from("pipeline_payments").update(up).eq("id", id).select("*").single();
+      if (error || !data) { showToast("Could not update payment.", "error"); return false; }
+      const rec = rowToPPayment(data);
+      setPipelinePayments((prev) => prev.map((p) => p.id === id ? rec : p));
+      return true;
+    } catch (e) { showToast("Could not update payment.", "error"); return false; }
+  }
+
+  async function deletePipelinePayment(id, clientId, employeeId) {
+    try {
+      const { error } = await supabase.from("pipeline_payments").delete().eq("id", id);
+      if (error) { showToast("Could not delete payment.", "error"); return false; }
+      setPipelinePayments((prev) => prev.filter((p) => p.id !== id));
+      await addPipelineHistory(clientId, employeeId, "Payment Deleted", null, { paymentId: id });
+      return true;
+    } catch (e) { showToast("Could not delete payment.", "error"); return false; }
+  }
+
   // Upload a Contract Order document to the existing storage bucket; returns { url, name }.
   async function uploadPipelineFile(file) {
     if (!file) return null;
@@ -1742,7 +1768,7 @@ export function AppDataProvider({ children }) {
     // Pipeline (Employee CRM)
     pipelineClients, pipelineFollowups, pipelineContracts, pipelineSales, pipelinePayments, pipelineNotes, pipelineHistory,
     domains, addDomain, updateDomain, deleteDomain, pipelineStatuses,
-    addPipelineClient, updatePipelineClient, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, addFollowup, addPipelineContract, addPipelineSale, addPipelinePayment, reversePipelinePayment, addPipelineNote, uploadPipelineFile,
+    addPipelineClient, updatePipelineClient, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, addFollowup, addPipelineContract, addPipelineSale, addPipelinePayment, reversePipelinePayment, updatePipelinePayment, deletePipelinePayment, addPipelineNote, uploadPipelineFile,
     customFields, saveCustomFields,
     announcements, saveAnnouncements, addAnnouncement, deleteAnnouncement,
     messages, saveMessages, addMessage, deleteMessage, dismissMessage,

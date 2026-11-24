@@ -73,7 +73,14 @@ export default function Pipeline({ emp, onToast }) {
       if (quick === "pendingPay" && !(c.contractStatus === "Signed" && c.paymentStatus !== "Paid")) return false;
       if (quick === "sent" && !c.contractSent) return false;
       return true;
-    }).sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+    }).sort((a, b) => {
+      const aPaid = a.paymentStatus === "Paid";
+      const bPaid = b.paymentStatus === "Paid";
+      if (aPaid && bPaid) return String(b.paymentDate || b.updatedAt || "").localeCompare(String(a.paymentDate || a.updatedAt || ""));
+      if (aPaid && !bPaid) return -1;
+      if (!aPaid && bPaid) return 1;
+      return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+    });
   }, [mine, search, filters, quick]);
 
   const hub = allMine.find((c) => c.id === hubId) || null;
@@ -86,7 +93,7 @@ export default function Pipeline({ emp, onToast }) {
       return toast("This client already exists under the selected domain.", "error");
     const domainId = (domains.find((d) => d.name === cForm.domainName) || {}).id || null;
     setSaving(true);
-    const rec = await addPipelineClient({ ...cForm, clientName: cForm.clientName.trim(), employeeId: emp.id, domainId, status: "Active" });
+    const rec = await addPipelineClient({ ...cForm, clientName: cForm.clientName.trim(), employeeId: emp.id, domainId, status: "New Lead" });
     setSaving(false);
     if (rec) { setAddOpen(false); setCForm(blankClient); setHubId(rec.id); toast("Client added.", "success"); }
   };
@@ -94,7 +101,8 @@ export default function Pipeline({ emp, onToast }) {
   const field = (label, node, req) => (<label className="sv-pl-field"><span>{label}{req && <b> *</b>}</span>{node}</label>);
 
   const ClientCard = (c) => (
-    <div key={c.id} className="sv-pl-card" onClick={() => setHubId(c.id)}>
+    const isPaid = c.paymentStatus === "Paid";
+    <div key={c.id} className="sv-pl-card" style={isPaid ? { background: "linear-gradient(135deg,#F0FDF4 0%,#DCFCE7 100%)", border: "1.5px solid #4ADE80" } : {}} onClick={() => setHubId(c.id)}>
       <div className="sv-pl-card-top">
         <div style={{ minWidth: 0 }}>
           <div className="sv-pl-card-name">{c.clientName}</div>
@@ -253,7 +261,7 @@ export default function Pipeline({ emp, onToast }) {
  * ────────────────────────────────────────────────────────────*/
 const plField = (label, node, req) => (<label className="sv-pl-field"><span>{label}{req && <b> *</b>}</span>{node}</label>);
 
-export function ClientHub({ client, emp, actorId, onClose, toast, updatePipelineClient, uploadPipelineFile, addPipelinePayment, pipelinePayments = [], field = plField, ownerName, extraFooter = null }) {
+export function ClientHub({ client, emp, actorId, onClose, toast, updatePipelineClient, uploadPipelineFile, addPipelinePayment, updatePipelinePayment, deletePipelinePayment, pipelinePayments = [], field = plField, ownerName, extraFooter = null, settingsPwd = "" }) {
   const actor = actorId || (emp && emp.id) || "admin";
   const isAdmin = actor === "admin";
 
@@ -286,6 +294,16 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
   const [busyOptOut, setBusyOptOut] = useState(false);
   const [unlockP1, setUnlockP1] = useState(false);
   const [unlockP2, setUnlockP2] = useState(false);
+  const [unlockPwdOpen, setUnlockPwdOpen] = useState(null);
+  const [unlockPwdVal, setUnlockPwdVal] = useState("");
+  const [unlockPwdErr, setUnlockPwdErr] = useState("");
+  const [editPayId, setEditPayId] = useState(null);
+  const [editPayForm, setEditPayForm] = useState({});
+  const [busyEditPay, setBusyEditPay] = useState(false);
+  const [busyDelPay, setBusyDelPay] = useState(null);
+  const [editClientOpen, setEditClientOpen] = useState(false);
+  const [editClientForm, setEditClientForm] = useState({ clientName: client.clientName || "", projectName: client.projectName || "", region: client.region || "", domainName: client.domainName || "", notes: client.notes || "", assignedEmailId: client.assignedEmailId || "" });
+  const [busyEditClient, setBusyEditClient] = useState(false);
 
   // Persisted phase state
   const sent = !!client.contractSent;
@@ -420,6 +438,59 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
     return <span style={{ fontSize: 13, color: "#CBD5E1" }}>○</span>;
   };
 
+  /* ── Password unlock modal ── */
+  const unlockPwdModal = unlockPwdOpen && (
+    <div className="sv-modal-overlay sv-pl-overlay" style={{ zIndex: 10001 }} onClick={() => { setUnlockPwdOpen(null); setUnlockPwdVal(""); setUnlockPwdErr(""); }}>
+      <div className="sv-modal" style={{ maxWidth: 360, padding: "24px 24px 20px" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontWeight: 800, fontSize: 16, color: "#0F172A", marginBottom: 4 }}>Admin Unlock</div>
+        <div style={{ fontSize: 12.5, color: "#64748B", marginBottom: 14 }}>Enter the Settings password to unlock {unlockPwdOpen === "p1" ? "Phase 1" : "Phase 2"} for editing.</div>
+        <input className="sv-input" type="password" value={unlockPwdVal} autoFocus placeholder="Settings password…" onChange={(e) => { setUnlockPwdVal(e.target.value); setUnlockPwdErr(""); }}
+          onKeyDown={(e) => { if (e.key === "Enter") {
+            if (!settingsPwd || unlockPwdVal === settingsPwd) { if (unlockPwdOpen === "p1") setUnlockP1(true); else setUnlockP2(true); setUnlockPwdOpen(null); setUnlockPwdVal(""); setUnlockPwdErr(""); }
+            else setUnlockPwdErr("Incorrect password.");
+          }}} />
+        {unlockPwdErr && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 5 }}>{unlockPwdErr}</div>}
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => { setUnlockPwdOpen(null); setUnlockPwdVal(""); setUnlockPwdErr(""); }}>Cancel</button>
+          <button className="sv-btn sv-btn--sm sv-btn--primary" style={{ flex: 1, justifyContent: "center" }} onClick={() => {
+            if (!settingsPwd || unlockPwdVal === settingsPwd) { if (unlockPwdOpen === "p1") setUnlockP1(true); else setUnlockP2(true); setUnlockPwdOpen(null); setUnlockPwdVal(""); setUnlockPwdErr(""); }
+            else setUnlockPwdErr("Incorrect password.");
+          }}>Unlock</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ── Edit Client modal (admin only) ── */
+  const editClientModal = editClientOpen && (
+    <div className="sv-modal-overlay sv-pl-overlay" style={{ zIndex: 10001 }} onClick={() => setEditClientOpen(false)}>
+      <div className="sv-modal" style={{ maxWidth: 480, maxHeight: "90vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
+        <div className="sv-modal-header" style={{ flexShrink: 0 }}>
+          <span className="sv-text-navy sv-font-800" style={{ fontSize: 15 }}>Edit Client Info</span>
+          <button className="sv-modal-close" onClick={() => setEditClientOpen(false)}>×</button>
+        </div>
+        <div style={{ overflowY: "auto", padding: "16px 20px" }}>
+          {plField("Client Name", <input className="sv-input" value={editClientForm.clientName} onChange={(e) => setEditClientForm({ ...editClientForm, clientName: e.target.value })} />, true)}
+          {plField("Project Name", <input className="sv-input" value={editClientForm.projectName} onChange={(e) => setEditClientForm({ ...editClientForm, projectName: e.target.value })} />)}
+          {plField("Contact Person ID", <input className="sv-input" value={editClientForm.assignedEmailId} onChange={(e) => setEditClientForm({ ...editClientForm, assignedEmailId: e.target.value })} />)}
+          <div className="sv-pl-2col">
+            {plField("Domain", <input className="sv-input" value={editClientForm.domainName} onChange={(e) => setEditClientForm({ ...editClientForm, domainName: e.target.value })} />)}
+            {plField("Region", <input className="sv-input" value={editClientForm.region} onChange={(e) => setEditClientForm({ ...editClientForm, region: e.target.value })} />)}
+          </div>
+          {plField("Notes", <textarea className="sv-input" rows={3} value={editClientForm.notes} onChange={(e) => setEditClientForm({ ...editClientForm, notes: e.target.value })} style={{ resize: "vertical" }} />)}
+          <button className="sv-btn sv-btn--primary" style={{ width: "100%", marginTop: 12, justifyContent: "center" }} disabled={busyEditClient}
+            onClick={async () => {
+              if (!editClientForm.clientName.trim()) return toast("Client Name is required.", "error");
+              setBusyEditClient(true);
+              const ok = await updatePipelineClient(client.id, { clientName: editClientForm.clientName.trim(), projectName: editClientForm.projectName.trim(), assignedEmailId: editClientForm.assignedEmailId.trim(), domainName: editClientForm.domainName.trim(), region: editClientForm.region.trim(), notes: editClientForm.notes.trim() }, actor);
+              setBusyEditClient(false);
+              if (ok) { toast("Client updated.", "success"); setEditClientOpen(false); }
+            }}>{busyEditClient ? "Saving…" : "Save Changes"}</button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="sv-modal-overlay sv-pl-overlay" onClick={onClose}>
       <div className="sv-modal sv-pl-detail" style={{ maxWidth: 680, maxHeight: "94vh", display: "flex", flexDirection: "column" }} onClick={(e) => e.stopPropagation()}>
@@ -434,7 +505,10 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
 
           {/* Client info */}
           <div className="sv-ch2-head">
-            <div className="sv-ch2-title">{client.clientName}</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div className="sv-ch2-title">{client.clientName}</div>
+              {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ fontSize: 11, flexShrink: 0 }} onClick={() => setEditClientOpen(true)}><Pencil size={12} /> Edit</button>}
+            </div>
             <div className="sv-ch2-meta">
               <div><span className="k">Client ID</span><span className="v">{clientCode(client.id)}</span></div>
               <div><span className="k">Project</span><span className="v">{client.projectName || "—"}</span></div>
@@ -491,7 +565,7 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
                           <div style={{ fontSize: 12.5, fontWeight: 700, color: "#9A3412" }}>Locked — Contract Signed</div>
                           <div style={{ fontSize: 11.5, color: "#C2410C", marginTop: 2 }}>{isAdmin ? "Phase 2 is complete. Unlock to edit." : "Phase 2 is complete. Contact your admin to edit."}</div>
                         </div>
-                        {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#EA580C", color: "#EA580C" }} onClick={() => setUnlockP1(true)}><Pencil size={11} /> Unlock</button>}
+                        {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#EA580C", color: "#EA580C" }} onClick={() => { setUnlockPwdVal(""); setUnlockPwdErr(""); setUnlockPwdOpen("p1"); }}><Pencil size={11} /> Unlock</button>}
                       </div>
                       <div className="sv-ch2-figure">
                         <span className="amt">{money(client.contractAmount, client.contractCurrency)}</span>
@@ -512,7 +586,7 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: "#9A3412" }}>Skipped / Not Recorded</div>
                         <div style={{ fontSize: 11.5, color: "#C2410C", marginTop: 2 }}>{isAdmin ? "Phase 2 was recorded first. Unlock to fill." : "Phase 2 was recorded first. Contact your admin."}</div>
                       </div>
-                      {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#EA580C", color: "#EA580C" }} onClick={() => setUnlockP1(true)}><Pencil size={11} /> Unlock</button>}
+                      {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#EA580C", color: "#EA580C" }} onClick={() => { setUnlockPwdVal(""); setUnlockPwdErr(""); setUnlockPwdOpen("p1"); }}><Pencil size={11} /> Unlock</button>}
                     </div>
                   )
                 ) : (
@@ -571,7 +645,7 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: "#854D0E" }}>Locked — Contract Signed</div>
                         <div style={{ fontSize: 11.5, color: "#A16207", marginTop: 2 }}>{isAdmin ? "This phase is complete. Unlock to edit." : "This phase is complete. Contact your admin."}</div>
                       </div>
-                      {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#CA8A04", color: "#CA8A04" }} onClick={() => setUnlockP2(true)}><Pencil size={11} /> Unlock</button>}
+                      {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#CA8A04", color: "#CA8A04" }} onClick={() => { setUnlockPwdVal(""); setUnlockPwdErr(""); setUnlockPwdOpen("p2"); }}><Pencil size={11} /> Unlock</button>}
                     </div>
                     <div className="sv-ch2-figure">
                       <span className="amt">{money(client.signedAmount, client.contractCurrency)}</span>
@@ -653,12 +727,55 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                       {clientPayments.map((pay, i) => (
-                        <div key={pay.id || i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 7, padding: "7px 11px", fontSize: 12.5 }}>
-                          <div style={{ display: "flex", align: "center", gap: 8 }}>
-                            <span style={{ fontWeight: 700, color: "#16A34A" }}>{money(pay.amount, pay.currency)}</span>
-                            {pay.paymentMethod && <span style={{ color: "#94A3B8", fontSize: 11 }}>· {pay.paymentMethod}</span>}
-                          </div>
-                          <span style={{ color: "#64748B", fontSize: 11 }}>{fmt(pay.paymentDate || pay.createdAt)}</span>
+                        <div key={pay.id || i}>
+                          {editPayId === pay.id ? (
+                            <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: "10px 12px" }}>
+                              <div style={{ fontSize: 11.5, fontWeight: 700, color: "#15803D", marginBottom: 8 }}>Edit Payment</div>
+                              <div className="sv-pl-2col">
+                                {plField("Amount", <input className="sv-input" type="number" value={editPayForm.amount ?? pay.amount} onChange={(e) => setEditPayForm({ ...editPayForm, amount: e.target.value })} />)}
+                                {plField("Currency", <input className="sv-input" value={editPayForm.currency ?? pay.currency} onChange={(e) => setEditPayForm({ ...editPayForm, currency: e.target.value.toUpperCase() })} />)}
+                              </div>
+                              {plField("Date", <input className="sv-input" type="date" value={editPayForm.paymentDate ?? pay.paymentDate} onChange={(e) => setEditPayForm({ ...editPayForm, paymentDate: e.target.value })} />)}
+                              {plField("Method", <select className="sv-input" value={editPayForm.paymentMethod ?? pay.paymentMethod} onChange={(e) => setEditPayForm({ ...editPayForm, paymentMethod: e.target.value })}>{PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select>)}
+                              {plField("Notes", <input className="sv-input" value={editPayForm.notes ?? pay.notes} onChange={(e) => setEditPayForm({ ...editPayForm, notes: e.target.value })} />)}
+                              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                                <button className="sv-btn sv-btn--sm sv-btn--ghost" onClick={() => { setEditPayId(null); setEditPayForm({}); }}>Cancel</button>
+                                <button className="sv-btn sv-btn--sm sv-btn--primary" style={{ flex: 1, background: "#16A34A", borderColor: "#16A34A", justifyContent: "center" }} disabled={busyEditPay}
+                                  onClick={async () => {
+                                    if (!updatePipelinePayment) return;
+                                    setBusyEditPay(true);
+                                    const patch = { amount: editPayForm.amount ?? pay.amount, currency: editPayForm.currency ?? pay.currency, paymentDate: editPayForm.paymentDate ?? pay.paymentDate, paymentMethod: editPayForm.paymentMethod ?? pay.paymentMethod, notes: editPayForm.notes ?? pay.notes };
+                                    const ok = await updatePipelinePayment(pay.id, patch);
+                                    setBusyEditPay(false);
+                                    if (ok) { toast("Payment updated.", "success"); setEditPayId(null); setEditPayForm({}); }
+                                  }}>{busyEditPay ? "Saving…" : "Save"}</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", border: "1px solid #E2E8F0", borderRadius: 7, padding: "7px 11px", fontSize: 12.5 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ fontWeight: 700, color: "#16A34A" }}>{money(pay.amount, pay.currency)}</span>
+                                {pay.paymentMethod && <span style={{ color: "#94A3B8", fontSize: 11 }}>· {pay.paymentMethod}</span>}
+                                {pay.notes && <span style={{ color: "#94A3B8", fontSize: 11 }}>· {pay.notes}</span>}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ color: "#64748B", fontSize: 11 }}>{fmt(pay.paymentDate || pay.createdAt)}</span>
+                                {isAdmin && deletePipelinePayment && (
+                                  <>
+                                    <button className="sv-btn sv-btn--sm sv-btn--ghost" style={{ padding: "2px 7px", fontSize: 11 }} onClick={() => { setEditPayId(pay.id); setEditPayForm({ amount: String(pay.amount), currency: pay.currency, paymentDate: pay.paymentDate, paymentMethod: pay.paymentMethod, notes: pay.notes || "" }); }}><Pencil size={11} /></button>
+                                    <button className="sv-btn sv-btn--sm sv-btn--danger" style={{ padding: "2px 7px", fontSize: 11 }} disabled={busyDelPay === pay.id}
+                                      onClick={async () => {
+                                        if (!window.confirm("Delete this payment record?")) return;
+                                        setBusyDelPay(pay.id);
+                                        const ok = await deletePipelinePayment(pay.id, client.id, isAdmin ? (client.employeeId || null) : actor);
+                                        setBusyDelPay(null);
+                                        if (ok) toast("Payment deleted.", "success");
+                                      }}><X size={11} /></button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -768,6 +885,8 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
           )}
         </div>
       </div>
+      {unlockPwdModal}
+      {editClientModal}
     </div>
   );
 }

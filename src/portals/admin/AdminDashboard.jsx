@@ -5,7 +5,7 @@
  */
 import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, FileText, Trophy, BarChart3, Building2, ScrollText, CreditCard, Palmtree, Wallet, Users, Settings, Search, Bell, ChevronDown, Palette, PanelLeft } from "lucide-react";
+import { LayoutDashboard, FileText, Trophy, BarChart3, Building2, ScrollText, CreditCard, Palmtree, Wallet, Users, Settings, Search, Bell, ChevronDown, Palette, PanelLeft, BookOpen } from "lucide-react";
 import { useAppData } from "../../data/AppDataContext";
 import { useAdminAuth } from "./AdminAuthContext";
 import Sidebar from "../../components/layout/Sidebar";
@@ -16,6 +16,7 @@ import {
   OverviewTab, ReportsTab, LeaderboardTab, AnalyticsTab,
   DepartmentsTab, LeaveBoardTab, SettingsTab, ExpenseTab, DesignsTab,
 } from "./AdminTabs";
+import AccountsAdminTab from "./AccountsAdminTab";
 import { DSR_STATUSES, CHART_COLORS } from "../../utils/constants";
 import { genCode, getTodayStr, fmtCurr, fmtDate, sum, downloadCSV } from "../../utils/helpers";
 import { convertToINRSync } from "../../utils/currency";
@@ -47,7 +48,7 @@ export default function AdminDashboard() {
     adminPwd, setAdminPwd,
     settingsPwd, setSettingsPwd,
     theme, toggleTheme,
-    pipelineClients, pipelineStatuses, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes, pipelineHistory, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, updatePipelineClient, uploadPipelineFile, addPipelineClient, addPipelinePayment,
+    pipelineClients, pipelineStatuses, pipelineFollowups, pipelineSales, pipelinePayments, pipelineContracts, pipelineNotes, pipelineHistory, softDeletePipelineClient, restorePipelineClient, hardDeletePipelineClient, updatePipelineClient, uploadPipelineFile, addPipelineClient, addPipelinePayment, updatePipelinePayment, deletePipelinePayment,
     showToast, pushNotification, notifications, markNotificationRead, markAllNotificationsRead, clearNotifications, logAudit,
   } = useAppData();
   const { setAdminLoggedIn } = useAdminAuth();
@@ -407,6 +408,7 @@ export default function AdminDashboard() {
           { key: "expense", label: "Expense", icon: <CreditCard size={18} /> },
           { key: "designs", label: "Designs", icon: <Palette size={18} /> },
           { key: "managerassign", label: "Manager/IDs Assign", icon: <Users size={18} /> },
+          { key: "accounts", label: "Accounts Dept", icon: <BookOpen size={18} /> },
           { key: "settings", label: "Settings", icon: <Settings size={18} /> },
         ]}
         active={tab} onSelect={setTab}
@@ -478,7 +480,7 @@ export default function AdminDashboard() {
             ovPieData={ovPieData} ovBarData={ovBarData} openDM={openDM}
             pipelineClients={pipelineClients} pipelineStatuses={pipelineStatuses}
             pipelineFollowups={pipelineFollowups} pipelineSales={pipelineSales} pipelinePayments={pipelinePayments}
-            pipelineContracts={pipelineContracts} pipelineNotes={pipelineNotes} pipelineHistory={pipelineHistory} softDeletePipelineClient={softDeletePipelineClient} restorePipelineClient={restorePipelineClient} hardDeletePipelineClient={hardDeletePipelineClient} updatePipelineClient={updatePipelineClient} uploadPipelineFile={uploadPipelineFile} addPipelineClient={addPipelineClient} addPipelinePayment={addPipelinePayment} domains={domains} showToast={showToast}
+            pipelineContracts={pipelineContracts} pipelineNotes={pipelineNotes} pipelineHistory={pipelineHistory} softDeletePipelineClient={softDeletePipelineClient} restorePipelineClient={restorePipelineClient} hardDeletePipelineClient={hardDeletePipelineClient} updatePipelineClient={updatePipelineClient} uploadPipelineFile={uploadPipelineFile} addPipelineClient={addPipelineClient} addPipelinePayment={addPipelinePayment} updatePipelinePayment={updatePipelinePayment} deletePipelinePayment={deletePipelinePayment} domains={domains} showToast={showToast} settingsPwd={settingsPwd}
           />
         )}
         {tab === "reports" && (
@@ -529,6 +531,9 @@ export default function AdminDashboard() {
             <AssignIdsModule employees={employees} assignEmployeeIds={assignEmployeeIds}
               teamMeta={teamMeta} showToast={showToast} />
           </div>
+        )}
+        {tab === "accounts" && (
+          <AccountsAdminTab showToast={showToast} />
         )}
         {tab === "settings" && (
           <SettingsTab

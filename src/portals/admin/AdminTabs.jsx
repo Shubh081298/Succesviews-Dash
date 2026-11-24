@@ -38,7 +38,7 @@ import { NURTURE_STATUSES, WORKFLOW_STEPS, stageColour, progressOf, isClosed } f
  * OverviewTab — 5 primary + 5 secondary KPI cards (period-filtered)
  * + analytics charts + today's submission grid + recent pending.
  * ──────────────────────────────────────────────────────────────*/
-export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "", ovTo = "", ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {}, hardDeletePipelineClient = () => {}, updatePipelineClient = () => {}, uploadPipelineFile = () => {}, addPipelineClient = () => {}, addPipelinePayment = () => {}, domains = [], showToast = () => {} }) {
+export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "", ovTo = "", ovPeriod, setOvPeriod, ovDateFrom, setOvDateFrom, ovDateTo, setOvDateTo, ovPieData, ovBarData, openDM, pipelineClients = [], pipelineStatuses = [], pipelineFollowups = [], pipelineSales = [], pipelinePayments = [], pipelineContracts = [], pipelineNotes = [], pipelineHistory = [], softDeletePipelineClient = () => {}, restorePipelineClient = () => {}, hardDeletePipelineClient = () => {}, updatePipelineClient = () => {}, uploadPipelineFile = () => {}, addPipelineClient = () => {}, addPipelinePayment = () => {}, updatePipelinePayment = () => {}, deletePipelinePayment = () => {}, domains = [], showToast = () => {}, settingsPwd = "" }) {
   const [clpOpen, setClpOpen] = useState(false);
   const [clpAddOpen, setClpAddOpen] = useState(false);   // Admin "Add Client" modal
   const [clpAdd, setClpAdd] = useState({ clientName: "", projectName: "", assignedEmailId: "", domainName: "", region: "", employeeId: "", manualEmployeeName: "", notes: "" });
@@ -493,6 +493,9 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
               updatePipelineClient={updatePipelineClient}
               uploadPipelineFile={uploadPipelineFile}
               addPipelinePayment={addPipelinePayment}
+              updatePipelinePayment={updatePipelinePayment}
+              deletePipelinePayment={deletePipelinePayment}
+              settingsPwd={settingsPwd}
               pipelinePayments={pipelinePayments}
               extraFooter={(
                 clpDelete === dc.id ? (
@@ -539,7 +542,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
                     if (!clpAdd.domainName.trim()) return showToast("Domain is required.", "error");
                     setClpAddSaving(true);
                     const domainId = ((domains || []).find((d) => d.name === clpAdd.domainName) || {}).id || null;
-                    const rec = await addPipelineClient({ clientName: clpAdd.clientName.trim(), projectName: clpAdd.projectName.trim(), assignedEmailId: clpAdd.assignedEmailId.trim(), domainName: clpAdd.domainName.trim(), domainId, region: clpAdd.region.trim(), employeeId: clpAdd.employeeId || null, manualEmployeeName: clpAdd.employeeId ? "" : clpAdd.manualEmployeeName.trim(), notes: clpAdd.notes.trim(), status: "Active" });
+                    const rec = await addPipelineClient({ clientName: clpAdd.clientName.trim(), projectName: clpAdd.projectName.trim(), assignedEmailId: clpAdd.assignedEmailId.trim(), domainName: clpAdd.domainName.trim(), domainId, region: clpAdd.region.trim(), employeeId: clpAdd.employeeId || null, manualEmployeeName: clpAdd.employeeId ? "" : clpAdd.manualEmployeeName.trim(), notes: clpAdd.notes.trim(), status: "New Lead" });
                     setClpAddSaving(false);
                     if (rec) { setClpAddOpen(false); showToast("Client added to the pipeline.", "success"); }
                   }}>{clpAddSaving ? "Saving…" : "Save Client"}</button>

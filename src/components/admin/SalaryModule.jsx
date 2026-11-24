@@ -37,14 +37,17 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
   useEffect(() => { setSearch(""); }, [view]);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [unlockPwd, setUnlockPwd] = useState("");
+  const [monthModal, setMonthModal] = useState(false); // force month selection after unlock
 
   // Unlock salary editing in-place (same check as the Settings lock bar:
   // matches the Settings Password, then enables edit mode). Security unchanged.
   const doUnlock = () => {
     if (unlockPwd === settingsPwd) {
       setEditMode && setEditMode(true);
+      setPayMonth(""); setSlipMK(""); // reset month — user must pick explicitly
       setUnlockOpen(false); setUnlockPwd("");
-      showToast("Salary editing unlocked.", "success");
+      setMonthModal(true); // open month picker immediately
+      showToast("Salary editing unlocked. Select a payroll month to begin.", "success");
     } else {
       showToast("Incorrect Settings Password.", "error");
     }
@@ -590,9 +593,17 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
               ) : (
                 <div className="sv-sal-grid" style={{ marginTop: 12 }}>
                   {recs.map(({ e, rec }, i) => {
-                    const st = PC_STATUS[rec.status] || PC_STATUS.Draft; const net = pcNet(rec); const locked = pcResolved(rec.status); const canEdit = editMode && !locked;
+                    const st = PC_STATUS[rec.status] || PC_STATUS.Draft; const net = pcNet(rec); const locked = pcResolved(rec.status); const canEdit = editMode && !locked && !!payMonth;
                     return (
                       <div key={e.id} className="sv-sal-card sv-pc-card" style={{ background: st.soft, borderColor: st.bd, borderTop: `3px solid ${st.c}` }}>
+                        {/* ── Month KPI badge at top of every employee card ── */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px 6px", borderBottom: "1px solid rgba(0,0,0,.06)", marginBottom: 2 }}>
+                          <CalendarDays size={11} style={{ color: payMonth ? "#2563EB" : "#DC2626", flexShrink: 0 }} />
+                          <span style={{ fontSize: 11.5, fontWeight: 700, color: payMonth ? "#2563EB" : "#DC2626", flex: 1 }}>
+                            {payMonth ? monthLabel(payMonth) : "No month selected"}
+                          </span>
+                          {editMode && <button type="button" style={{ background: "none", border: "none", cursor: "pointer", color: "#64748B", fontSize: 10, padding: "0 2px", lineHeight: 1 }} onClick={() => setMonthModal(true)}>Change</button>}
+                        </div>
                         <div className="sv-sal-card-top">
                           <Avatar emp={e} idx={i} size={40} />
                           <div style={{ flex: 1, minWidth: 0 }}><div className="sv-text-navy sv-font-700" style={{ fontSize: 14 }}>{e.name}</div><div className="sv-text-muted" style={{ fontSize: 11 }}>{e.id} · {e.department || "—"}</div></div>
@@ -967,6 +978,53 @@ export default function SalaryModule({ employees, salaries, setSalaries, showToa
           </div>
         );
       })()}
+
+      {/* ── Month picker modal (opens on unlock; non-dismissible until a month is chosen) ── */}
+      {monthModal && (
+        <div className="sv-modal-overlay" onClick={() => { if (payMonth) setMonthModal(false); }}>
+          <div className="sv-modal" style={{ maxWidth: 440 }} onClick={(ev) => ev.stopPropagation()}>
+            <div className="sv-modal-header">
+              <span className="sv-text-navy sv-font-800" style={{ fontSize: 15 }}>
+                <CalendarDays size={15} style={{ marginRight: 6, verticalAlign: "middle" }} />
+                Select Payroll Month
+              </span>
+              {payMonth && <button className="sv-modal-close" onClick={() => setMonthModal(false)}>×</button>}
+            </div>
+            <div style={{ padding: "14px 20px 20px" }}>
+              <p style={{ fontSize: 13, color: "#64748B", margin: "0 0 14px" }}>
+                Which month's salary are you processing? This applies to all employees.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                {PC_MONTHS.slice(0, 12).map((mk) => (
+                  <button
+                    key={mk}
+                    type="button"
+                    style={{
+                      fontSize: 12,
+                      padding: "9px 6px",
+                      textAlign: "center",
+                      background: payMonth === mk ? "#2563EB" : "#F8FAFC",
+                      color: payMonth === mk ? "#fff" : "#1E293B",
+                      border: `1px solid ${payMonth === mk ? "#2563EB" : "#E2E8F0"}`,
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      fontWeight: payMonth === mk ? 700 : 500,
+                    }}
+                    onClick={() => { setPayMonth(mk); setSlipMK(""); setMonthModal(false); }}
+                  >
+                    {monthLabel(mk)}
+                  </button>
+                ))}
+              </div>
+              {!payMonth && (
+                <p style={{ fontSize: 11.5, color: "#94A3B8", margin: "12px 0 0", textAlign: "center" }}>
+                  Please select a month to continue editing.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Employee salary view/history modal (unchanged) */}
       {modal?.type === "history" && (() => {

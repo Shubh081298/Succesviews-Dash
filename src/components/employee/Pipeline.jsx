@@ -100,9 +100,9 @@ export default function Pipeline({ emp, onToast }) {
 
   const field = (label, node, req) => (<label className="sv-pl-field"><span>{label}{req && <b> *</b>}</span>{node}</label>);
 
-  const ClientCard = (c) => (
+  const ClientCard = (c) => {
     const isPaid = c.paymentStatus === "Paid";
-    <div key={c.id} className="sv-pl-card" style={isPaid ? { background: "linear-gradient(135deg,#F0FDF4 0%,#DCFCE7 100%)", border: "1.5px solid #4ADE80" } : {}} onClick={() => setHubId(c.id)}>
+    return <div key={c.id} className="sv-pl-card" style={isPaid ? { background: "linear-gradient(135deg,#F0FDF4 0%,#DCFCE7 100%)", border: "1.5px solid #4ADE80" } : {}} onClick={() => setHubId(c.id)}>
       <div className="sv-pl-card-top">
         <div style={{ minWidth: 0 }}>
           <div className="sv-pl-card-name">{c.clientName}</div>
@@ -128,8 +128,8 @@ export default function Pipeline({ emp, onToast }) {
           <button className="sv-btn sv-btn--sm sv-btn--primary" onClick={() => setHubId(c.id)}><Pencil size={12} /> Open</button>
         </div>
       </div>
-    </div>
-  );
+    </div>;
+  };
 
   const chips = [
     ["all", "All Clients", dash.all, "#475569", "#64748B", Users],

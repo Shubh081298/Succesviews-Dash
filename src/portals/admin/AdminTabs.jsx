@@ -225,7 +225,11 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
         const byStatus = {}; live.forEach((c) => { byStatus[c.status] = (byStatus[c.status] || 0) + 1; });
         const segments = statusList.filter((s) => byStatus[s.name]);
         const rank = (c) => (isDue(c) ? 0 : isOver(c) ? 1 : 2);
-        const recent = [...live].sort((a, b) => (rank(a) - rank(b)) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""))).slice(0, 200);
+        const recent = [...live].sort((a, b) => {
+          const aPaid = a.paymentStatus === "Paid"; const bPaid = b.paymentStatus === "Paid";
+          if (aPaid && !bPaid) return -1; if (!aPaid && bPaid) return 1;
+          return (rank(a) - rank(b)) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+        }).slice(0, 200);
         const empMapAll = Object.fromEntries((employees || []).map((e) => [e.id, e]));
         const empName = (id) => (empMapAll[id] || {}).name || (id ? "—" : "Unassigned");
         const empLabel = (c) => (c.employeeId ? empName(c.employeeId) : (c.manualEmployeeName || "Unassigned"));
@@ -249,7 +253,11 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
           (!clpFilter.employee || c.employeeId === clpFilter.employee) &&
           (!clpFilter.status || c.status === clpFilter.status) &&
           (!clpFilter.domain || c.domainName === clpFilter.domain) && matchesQuick(c)
-        ).sort((a, b) => (rank(a) - rank(b)) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")));
+        ).sort((a, b) => {
+          const aPaid = a.paymentStatus === "Paid"; const bPaid = b.paymentStatus === "Paid";
+          if (aPaid && !bPaid) return -1; if (!aPaid && bPaid) return 1;
+          return (rank(a) - rank(b)) || String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+        });
         const openClp = (quick) => { setClpSearch(""); setClpFilter({ employee: "", status: "", domain: "", quick: quick || "" }); setClpOpen(true); };
         const togglePanel = (k) => { setClpSearch(""); setClpFilter({ employee: "", status: "", domain: "", quick: k }); setClpPanel((p) => (p === k ? null : k)); };
         const dc = clpDetail ? live.find((c) => c.id === clpDetail) : null;
@@ -278,7 +286,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
                     const pcol = c.paymentStatus === "Paid" ? "#16A34A" : c.paymentStatus === "Pending" ? "#D97706" : "#94A3B8";
                     const amt = (a, cur) => (a === "" || a == null ? "—" : `${Number(a).toLocaleString()} ${cur || ""}`.trim());
                     return (
-                      <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer" }}>
+                      <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer", background: c.paymentStatus === "Paid" ? "linear-gradient(90deg,#F0FDF4,#DCFCE7)" : "" }}>
                         <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{c.clientName}</td>
                         <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{c.projectName || "—"}</td>
                         <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{empLabel(c)}</td>
@@ -362,7 +370,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
                           const ccol = c.contractStatus === "Signed" ? "#16A34A" : c.contractStatus === "Not Signed" ? "#DC2626" : c.contractStatus === "Contract Sent" ? "#2563EB" : "#94A3B8";
                           const pcol = c.paymentStatus === "Paid" ? "#16A34A" : c.paymentStatus === "Pending" ? "#D97706" : "#94A3B8";
                           return (
-                            <tr key={c.id} onClick={() => setClpDetail(c.id)}>
+                            <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer", background: c.paymentStatus === "Paid" ? "linear-gradient(90deg,#F0FDF4,#DCFCE7)" : "" }}>
                               <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }} title={c.clientName}>{c.clientName}</td>
                               <td className="sv-text-muted" title={c.projectName || ""}>{c.projectName || "—"}</td>
                               <td className="sv-text-muted" title={c.domainName || ""}>{c.domainName || "—"}</td>
@@ -461,7 +469,7 @@ export function OverviewTab({ empStats, ovFiltered, employees = [], ovFrom = "",
                             const pcol = c.paymentStatus === "Paid" ? "#16A34A" : c.paymentStatus === "Pending" ? "#D97706" : "#94A3B8";
                             const amt = (a, cur) => (a === "" || a == null ? "—" : `${Number(a).toLocaleString()} ${cur || ""}`.trim());
                             return (
-                              <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer" }}>
+                              <tr key={c.id} onClick={() => setClpDetail(c.id)} style={{ cursor: "pointer", background: c.paymentStatus === "Paid" ? "linear-gradient(90deg,#F0FDF4,#DCFCE7)" : "" }}>
                                 <td><span className="sv-clp-code">{codeOf(c.id)}</span></td>
                                 <td className="sv-text-navy sv-font-700" style={{ fontSize: 13 }}>{c.clientName}</td>
                                 <td className="sv-text-muted" style={{ fontSize: 12.5 }}>{c.projectName || "—"}</td>

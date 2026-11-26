@@ -565,7 +565,7 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
                           <div style={{ fontSize: 12.5, fontWeight: 700, color: "#9A3412" }}>Locked — Contract Signed</div>
                           <div style={{ fontSize: 11.5, color: "#C2410C", marginTop: 2 }}>{isAdmin ? "Phase 2 is complete. Unlock to edit." : "Phase 2 is complete. Contact your admin to edit."}</div>
                         </div>
-                        {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#EA580C", color: "#EA580C" }} onClick={() => { setUnlockPwdVal(""); setUnlockPwdErr(""); setUnlockPwdOpen("p1"); }}><Pencil size={11} /> Unlock</button>}
+                        {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#EA580C", color: "#EA580C" }} onClick={() => { if (!settingsPwd) { setUnlockP1(true); } else { setUnlockPwdVal(""); setUnlockPwdErr(""); setUnlockPwdOpen("p1"); } }}><Pencil size={11} /> Unlock</button>}
                       </div>
                       <div className="sv-ch2-figure">
                         <span className="amt">{money(client.contractAmount, client.contractCurrency)}</span>
@@ -586,7 +586,7 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: "#9A3412" }}>Skipped / Not Recorded</div>
                         <div style={{ fontSize: 11.5, color: "#C2410C", marginTop: 2 }}>{isAdmin ? "Phase 2 was recorded first. Unlock to fill." : "Phase 2 was recorded first. Contact your admin."}</div>
                       </div>
-                      {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#EA580C", color: "#EA580C" }} onClick={() => { setUnlockPwdVal(""); setUnlockPwdErr(""); setUnlockPwdOpen("p1"); }}><Pencil size={11} /> Unlock</button>}
+                      {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#EA580C", color: "#EA580C" }} onClick={() => { if (!settingsPwd) { setUnlockP1(true); } else { setUnlockPwdVal(""); setUnlockPwdErr(""); setUnlockPwdOpen("p1"); } }}><Pencil size={11} /> Unlock</button>}
                     </div>
                   )
                 ) : (
@@ -645,7 +645,7 @@ export function ClientHub({ client, emp, actorId, onClose, toast, updatePipeline
                         <div style={{ fontSize: 12.5, fontWeight: 700, color: "#854D0E" }}>Locked — Contract Signed</div>
                         <div style={{ fontSize: 11.5, color: "#A16207", marginTop: 2 }}>{isAdmin ? "This phase is complete. Unlock to edit." : "This phase is complete. Contact your admin."}</div>
                       </div>
-                      {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#CA8A04", color: "#CA8A04" }} onClick={() => { setUnlockPwdVal(""); setUnlockPwdErr(""); setUnlockPwdOpen("p2"); }}><Pencil size={11} /> Unlock</button>}
+                      {isAdmin && <button className="sv-btn sv-btn--sm sv-btn--outline" style={{ flexShrink: 0, fontSize: 11, borderColor: "#CA8A04", color: "#CA8A04" }} onClick={() => { if (!settingsPwd) { setUnlockP2(true); } else { setUnlockPwdVal(""); setUnlockPwdErr(""); setUnlockPwdOpen("p2"); } }}><Pencil size={11} /> Unlock</button>}
                     </div>
                     <div className="sv-ch2-figure">
                       <span className="amt">{money(client.signedAmount, client.contractCurrency)}</span>
